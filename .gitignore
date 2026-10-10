@@ -1,0 +1,24 @@
+build/
+# The drop-in files tools/amalgamate.py generates from src/ and include/: a
+# release artefact, never edited and never committed.
+/dist/
+CMakeUserPresets.json
+compile_commands.json
+
+# ImGui writes this into the working directory unless io.IniFilename is null.
+# A backstop; the fix is to null it wherever a context is created.
+*.ini
+
+# Editor and agent-harness state, not project files.
+/.claude/
+/.idea/
+/.vscode/
+
+# An untracked copy of the pinned Dear ImGui, preferred over fetching so that a
+# new build directory needs no network. cmake/imgui.cmake says how it is used.
+/.deps/
+
+# The Python oracle scripts under tools/ are run with -B, and this is the
+# backstop for when one is not.
+__pycache__/
+*.pyc

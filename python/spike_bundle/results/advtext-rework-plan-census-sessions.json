@@ -1,0 +1,163 @@
+{
+ "source": "sessions",
+ "files": 46,
+ "transcripts_with_text": 46,
+ "sizes": {
+  "bytes": {
+   "n": 46,
+   "median": 78968.0,
+   "p90": 190139,
+   "max": 526229,
+   "total": 4556254
+  },
+  "lines": {
+   "n": 46,
+   "median": 849.5,
+   "p90": 2010,
+   "max": 5639,
+   "total": 47701
+  },
+  "blocks": {
+   "n": 46,
+   "median": 210.5,
+   "p90": 431,
+   "max": 1441,
+   "total": 11361
+  },
+  "blocks_in_the_400_line_window": {
+   "n": 46,
+   "median": 123.5,
+   "p90": 147,
+   "max": 294,
+   "total": 5472
+  },
+  "bytes_in_the_400_line_window": {
+   "n": 46,
+   "median": 35284.0,
+   "p90": 43595,
+   "max": 55826,
+   "total": 1564338
+  },
+  "turn_prose_bytes": {
+   "n": 46,
+   "median": 6124.5,
+   "p90": 8458,
+   "max": 40532,
+   "total": 318044
+  }
+ },
+ "lines_by_segment_kind": {
+  "tool_result": 16904,
+  "reasoning": 14526,
+  "tool_call": 7322,
+  "output": 5066,
+  "system": 3577,
+  "error": 306
+ },
+ "blocks": {
+  "literal": {
+   "blocks": 7939,
+   "lines": 42635
+  },
+  "bullet_item": {
+   "blocks": 2187,
+   "lines": 2191
+  },
+  "paragraph": {
+   "blocks": 789,
+   "lines": 795
+  },
+  "heading": {
+   "blocks": 238,
+   "lines": 238
+  },
+  "ordered_item": {
+   "blocks": 150,
+   "lines": 163
+  },
+  "table": {
+   "blocks": 41,
+   "lines": 426
+  },
+  "thematic_break": {
+   "blocks": 13,
+   "lines": 13
+  },
+  "fence": {
+   "blocks": 4,
+   "lines": 33
+  }
+ },
+ "inline_tokens": {
+  "text": 8999,
+  "code_inline": 4252,
+  "strong_open": 1165,
+  "strong_close": 1165,
+  "softbreak": 23,
+  "em_open": 1,
+  "em_close": 1
+ },
+ "misfits": {
+  "FENCE language labels (chrome: an extra dim block)": 3,
+  "LITERAL reasoning blocks (drawn unwrapped today; fit as Code)": 2016,
+  "LITERAL with a tab in it (the tab-range defect applies)": 320,
+  "TABLE blocks (no table in the core: a Host block, drawn by pptmstr)": 41,
+  "TABLE rows": 344,
+  "blocks with non-ASCII text (a per-block offset conversion)": 1772,
+  "code span inside strong or a link": 194
+ },
+ "longest_unbroken_word_chars": 298,
+ "characters_not_in_Inconsolata_Medium": {
+  "distinct": 16,
+  "blocks_touched_by_the_commonest": [
+   [
+    "U+03A3",
+    3
+   ],
+   [
+    "U+03A0",
+    2
+   ],
+   [
+    "U+0393",
+    2
+   ],
+   [
+    "U+0396",
+    2
+   ],
+   [
+    "U+03C0",
+    2
+   ],
+   [
+    "U+09BF",
+    1
+   ],
+   [
+    "U+09A8",
+    1
+   ],
+   [
+    "U+0985",
+    1
+   ],
+   [
+    "U+2261",
+    1
+   ],
+   [
+    "U+03BE",
+    1
+   ],
+   [
+    "U+0663",
+    1
+   ],
+   [
+    "U+0664",
+    1
+   ]
+  ]
+ }
+}

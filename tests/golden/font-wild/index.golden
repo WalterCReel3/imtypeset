@@ -1,0 +1,395 @@
+# font-wild index: the corpus, what was refused unread, and the census
+# Written by tools/oracle/dump_font_wild.py; do not edit. Records: tools/oracle/FORMAT-font-wild.md
+# fontTools 4.66.0
+CORPUS 3053 2925 2991 128
+SHARD opentype.fonts-hosny-amiri.00.golden 6
+SHARD opentype.fonts-hosny-thabit.00.golden 4
+SHARD opentype.ipafont-gothic.00.golden 2
+SHARD opentype.ipafont-mincho.00.golden 2
+SHARD opentype.malayalam.00.golden 7
+SHARD opentype.noto.00.golden 80
+SHARD opentype.unifont.00.golden 4
+SHARD opentype.urw-base35.00.golden 35
+SHARD truetype.00.golden 2
+SHARD truetype.Gargi.00.golden 1
+SHARD truetype.Nakula.00.golden 1
+SHARD truetype.Sahadeva.00.golden 1
+SHARD truetype.Sarai.00.golden 1
+SHARD truetype.abyssinica.00.golden 1
+SHARD truetype.ancient-scripts.00.golden 1
+SHARD truetype.andika.00.golden 4
+SHARD truetype.annapurna.00.golden 2
+SHARD truetype.arundina.00.golden 10
+SHARD truetype.culmus.00.golden 36
+SHARD truetype.dejavu.00.golden 22
+SHARD truetype.droid.00.golden 1
+SHARD truetype.dzongkha.00.golden 1
+SHARD truetype.farsiweb.00.golden 4
+SHARD truetype.fonts-arabeyes.00.golden 36
+SHARD truetype.fonts-beng-extra.00.golden 6
+SHARD truetype.fonts-bpg-georgian.00.golden 27
+SHARD truetype.fonts-deva-extra.00.golden 3
+SHARD truetype.fonts-gujr-extra.00.golden 5
+SHARD truetype.fonts-guru-extra.00.golden 1
+SHARD truetype.fonts-kalapi.00.golden 1
+SHARD truetype.fonts-telu-extra.00.golden 2
+SHARD truetype.fonts-ukij-uyghur.00.golden 90
+SHARD truetype.fonts-yrsa-rasa.00.golden 15
+SHARD truetype.freefont.00.golden 12
+SHARD truetype.hack.00.golden 4
+SHARD truetype.kacst-one.00.golden 2
+SHARD truetype.kacst.00.golden 15
+SHARD truetype.khmeros.00.golden 12
+SHARD truetype.liberation.00.golden 16
+SHARD truetype.liberation2.00.golden 12
+SHARD truetype.libreoffice.00.golden 1
+SHARD truetype.lohit-assamese.00.golden 1
+SHARD truetype.lohit-bengali.00.golden 1
+SHARD truetype.lohit-devanagari.00.golden 1
+SHARD truetype.lohit-gujarati.00.golden 1
+SHARD truetype.lohit-kannada.00.golden 1
+SHARD truetype.lohit-malayalam.00.golden 1
+SHARD truetype.lohit-punjabi.00.golden 1
+SHARD truetype.lohit-tamil-classical.00.golden 1
+SHARD truetype.lohit-tamil.00.golden 1
+SHARD truetype.lohit-telugu.00.golden 1
+SHARD truetype.malayalam.00.golden 10
+SHARD truetype.nanum.00.golden 12
+SHARD truetype.noto.00.golden 96
+SHARD truetype.noto.01.golden 96
+SHARD truetype.noto.02.golden 96
+SHARD truetype.noto.03.golden 96
+SHARD truetype.noto.04.golden 96
+SHARD truetype.noto.05.golden 96
+SHARD truetype.noto.06.golden 96
+SHARD truetype.noto.07.golden 96
+SHARD truetype.noto.08.golden 96
+SHARD truetype.noto.09.golden 96
+SHARD truetype.noto.10.golden 96
+SHARD truetype.noto.11.golden 96
+SHARD truetype.noto.12.golden 96
+SHARD truetype.noto.13.golden 96
+SHARD truetype.noto.14.golden 96
+SHARD truetype.noto.15.golden 96
+SHARD truetype.noto.16.golden 96
+SHARD truetype.noto.17.golden 96
+SHARD truetype.noto.18.golden 96
+SHARD truetype.noto.19.golden 96
+SHARD truetype.noto.20.golden 96
+SHARD truetype.noto.21.golden 96
+SHARD truetype.noto.22.golden 96
+SHARD truetype.noto.23.golden 96
+SHARD truetype.noto.24.golden 76
+SHARD truetype.quicksand.00.golden 4
+SHARD truetype.samyak-fonts.00.golden 3
+SHARD truetype.samyak.00.golden 1
+SHARD truetype.scheherazade.00.golden 2
+SHARD truetype.teluguvijayam.00.golden 20
+SHARD truetype.tlwg.00.golden 58
+SHARD truetype.unikurdweb.00.golden 1
+SHARD truetype.vlgothic.00.golden 2
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FAharoniCLM-Bold.pfa Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FAharoniCLM-BoldOblique.pfa Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FAharoniCLM-Book.pfa Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FAharoniCLM-BookOblique.pfa Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FC059-BdIta.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FC059-Bold.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FC059-Italic.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FC059-Roman.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FCaladingsCLM.pfa Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FD050000L.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FDrugulinCLM-Bold.pfa Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FDrugulinCLM-BoldItalic.pfa Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FElliniaCLM-Bold.pfa Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FElliniaCLM-BoldItalic.pfa Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FElliniaCLM-Light.pfa Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FElliniaCLM-LightItalic.pfa Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FNimbusMonoPS-Bold.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FNimbusMonoPS-BoldItalic.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FNimbusMonoPS-Italic.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FNimbusMonoPS-Regular.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FNimbusRoman-Bold.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FNimbusRoman-BoldItalic.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FNimbusRoman-Italic.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FNimbusRoman-Regular.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FNimbusSans-Bold.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FNimbusSans-BoldItalic.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FNimbusSans-Italic.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FNimbusSans-Regular.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FNimbusSansNarrow-Bold.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FNimbusSansNarrow-BoldOblique.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FNimbusSansNarrow-Oblique.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FNimbusSansNarrow-Regular.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FP052-Bold.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FP052-BoldItalic.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FP052-Italic.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FP052-Roman.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FStandardSymbolsPS.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FURWBookman-Demi.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FURWBookman-DemiItalic.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FURWBookman-Light.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FURWBookman-LightItalic.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FURWGothic-Book.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FURWGothic-BookOblique.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FURWGothic-Demi.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FURWGothic-DemiOblique.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FYehudaCLM-Bold.pfa Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FYehudaCLM-Light.pfa Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2FZ003-MediumItalic.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fa010013d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fa010015d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fa010033d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fa010035d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fb018012d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fb018015d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fb018032d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fb018035d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fc0419bt_.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fc0582bt_.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fc0583bt_.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fc059013d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fc059016d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fc059033d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fc059036d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fc0611bt_.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fc0632bt_.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fc0633bt_.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fc0648bt_.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fc0649bt_.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fn019003d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fn019004d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fn019023d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fn019024d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fn019043d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fn019044d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fn019063d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fn019064d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fn021003d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fn021004d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fn021023d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fn021024d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fn022003d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fn022004d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fn022023d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fn022024d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fp052003d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fp052004d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fp052023d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fp052024d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fteams.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fteamsb.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fteamsbi.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fteamsi.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2FX11%2FType1%2Fz003034d.pfb Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FC059-BdIta.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FC059-Bold.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FC059-Italic.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FC059-Roman.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FD050000L.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FNimbusMonoPS-Bold.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FNimbusMonoPS-BoldItalic.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FNimbusMonoPS-Italic.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FNimbusMonoPS-Regular.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FNimbusRoman-Bold.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FNimbusRoman-BoldItalic.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FNimbusRoman-Italic.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FNimbusRoman-Regular.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FNimbusSans-Bold.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FNimbusSans-BoldItalic.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FNimbusSans-Italic.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FNimbusSans-Regular.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FNimbusSansNarrow-Bold.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FNimbusSansNarrow-BoldOblique.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FNimbusSansNarrow-Oblique.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FNimbusSansNarrow-Regular.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FP052-Bold.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FP052-BoldItalic.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FP052-Italic.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FP052-Roman.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FStandardSymbolsPS.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FURWBookman-Demi.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FURWBookman-DemiItalic.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FURWBookman-Light.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FURWBookman-LightItalic.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FURWGothic-Book.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FURWGothic-BookOblique.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FURWGothic-Demi.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FURWGothic-DemiOblique.t1 Type1
+REFUSED %2Fusr%2Fshare%2Ffonts%2Ftype1%2Furw-base35%2FZ003-MediumItalic.t1 Type1
+CENSUS 134 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_charstring_type 2
+CENSUS 15 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 1 cff_font_matrix_not_default
+CENSUS 120 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 1 cff_has_global_subrs
+CENSUS 88 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fnoto%2FNotoSansCJK-Black.ttc%230 1 cff_has_non_integer_operands
+CENSUS 84 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fnoto%2FNotoSansCJK-Black.ttc%230 2 cff_keying cid
+CENSUS 50 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_keying name
+CENSUS 120 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator callgsubr
+CENSUS 128 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator callsubr
+CENSUS 75 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fnoto%2FNotoSerifCJK-Black.ttc%230 2 cff_operator cntrmask
+CENSUS 134 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator endchar
+CENSUS 122 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator hhcurveto
+CENSUS 121 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fnoto%2FNotoSansCJK-Black.ttc%230 2 cff_operator hintmask
+CENSUS 134 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator hlineto
+CENSUS 134 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator hmoveto
+CENSUS 121 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fnoto%2FNotoSansCJK-Black.ttc%230 2 cff_operator hstem
+CENSUS 121 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fnoto%2FNotoSansCJK-Black.ttc%230 2 cff_operator hstemhm
+CENSUS 130 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator hvcurveto
+CENSUS 122 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator rcurveline
+CENSUS 120 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator return
+CENSUS 122 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator rlinecurve
+CENSUS 130 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator rlineto
+CENSUS 134 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator rmoveto
+CENSUS 130 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator rrcurveto
+CENSUS 130 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator vhcurveto
+CENSUS 132 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator vlineto
+CENSUS 132 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator vmoveto
+CENSUS 121 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fnoto%2FNotoSansCJK-Black.ttc%230 2 cff_operator vstem
+CENSUS 80 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fnoto%2FNotoSansCJK-Black.ttc%230 2 cff_operator vstemhm
+CENSUS 122 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 cff_operator vvcurveto
+CENSUS 2 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Ffonts-ukij-uyghur%2FUKIJ_MacEkran.ttf%230 3 cmap_picked %280%2C3%29 format4
+CENSUS 2443 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 3 cmap_picked %283%2C1%29 format4
+CENSUS 546 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Regular.ttf%230 3 cmap_picked %283%2C10%29 format12
+CENSUS 19 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2FGargi%2FGargi.ttf%230 2 cmap_picked_subtable_maps_a_codepoint_other_than_FFFF_to_glyph_0 format4
+CENSUS 543 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Regular.ttf%230 1 cmap_reaches_beyond_bmp
+CENSUS 545 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Regular.ttf%230 2 cmap_read_by_the_specification_minus_glyph_0_equals_the_reference format12
+CENSUS 2445 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 cmap_read_by_the_specification_minus_glyph_0_equals_the_reference format4
+CENSUS 192 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2FGargi%2FGargi.ttf%230 2 cmap_subtable format0
+CENSUS 1078 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Regular.ttf%230 2 cmap_subtable format12
+CENSUS 83 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fnoto%2FNotoSansCJK-Black.ttc%230 2 cmap_subtable format14
+CENSUS 4 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnanum%2FNanumBarunGothic.ttf%230 2 cmap_subtable format2
+CENSUS 5962 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 cmap_subtable format4
+CENSUS 361 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-thabit%2FThabit-Bold-Oblique.ttf%230 2 cmap_subtable format6
+CENSUS 80 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fnoto%2FNotoSansCJK-Black.ttc%230 2 container collection
+CENSUS 2911 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 container single
+CENSUS 2991 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 1 faces
+CENSUS 60 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 1 faces_whose_kern_lookups_differ_by_script_or_language
+CENSUS 443 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 faces_with_kern_lookup_flag 0x0000
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoSansInscriptionalParthian-Regular.ttf%230 2 faces_with_kern_lookup_flag 0x0001
+CENSUS 1239 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-BoldSlanted.ttf%230 2 faces_with_kern_lookup_flag 0x0008
+CENSUS 15 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fculmus%2FFrankRuehlCLM-Bold.ttf%230 2 faces_with_kern_lookup_flag 0x0009
+CENSUS 74 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoSansJavanese-Bold.ttf%230 2 faces_with_kern_lookup_flag 0x0100
+CENSUS 81 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoSansTelugu-Black.ttf%230 2 faces_with_kern_lookup_flag 0x0200
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoSansLepcha-Regular.ttf%230 2 faces_with_kern_lookup_flag 0x0300
+CENSUS 2 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoSansGrantha-Regular.ttf%230 2 faces_with_kern_lookup_flag 0x0500
+CENSUS 2 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoSansGrantha-Regular.ttf%230 2 faces_with_kern_lookup_flag 0x0508
+CENSUS 1385 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 3 faces_with_kern_subtable PairPos1 direct
+CENSUS 51 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Ffonts-yrsa-rasa%2FRasa-Bold.ttf%230 3 faces_with_kern_subtable PairPos1 extension
+CENSUS 1359 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 3 faces_with_kern_subtable PairPos2 direct
+CENSUS 53 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Ffonts-yrsa-rasa%2FRasa-Bold.ttf%230 3 faces_with_kern_subtable PairPos2 extension
+CENSUS 590 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 1 faces_with_more_than_one_kern_lookup
+CENSUS 134 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 flavour CFF
+CENSUS 2856 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 flavour TrueType
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoColorEmoji.ttf%230 2 flavour none
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoColorEmoji.ttf%230 3 fontlib TTLibError Font%20contains%20no%20outlines
+CENSUS 2990 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 fontlib ok
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoColorEmoji.ttf%230 3 fontlib_stock TTLibError Font%20contains%20no%20outlines
+CENSUS 80 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fnoto%2FNotoSansCJK-Black.ttc%230 3 fontlib_stock TTLibFileIsCollectionError specify%20a%20font%20number%20between%20N%20and%20N%20%28inclusive%29
+CENSUS 2910 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 fontlib_stock ok
+CENSUS 2991 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 fonttools_open ok
+CENSUS 2570 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 glyf_faces_with composite
+CENSUS 2570 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 glyf_faces_with glyphs_with_ARGS_ARE_XY_VALUES
+CENSUS 2464 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 glyf_faces_with glyphs_with_ARG_1_AND_2_ARE_WORDS
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fteluguvijayam%2FSyamalaRamana.ttf%230 2 glyf_faces_with glyphs_with_OVERLAP_COMPOUND
+CENSUS 2550 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 glyf_faces_with glyphs_with_ROUND_XY_TO_GRID
+CENSUS 277 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 glyf_faces_with glyphs_with_UNSCALED_COMPONENT_OFFSET
+CENSUS 2290 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 glyf_faces_with glyphs_with_USE_MY_METRICS
+CENSUS 788 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 glyf_faces_with glyphs_with_WE_HAVE_AN_X_AND_Y_SCALE
+CENSUS 709 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 glyf_faces_with glyphs_with_WE_HAVE_A_SCALE
+CENSUS 323 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-BoldSlanted.ttf%230 2 glyf_faces_with glyphs_with_WE_HAVE_A_TWO_BY_TWO
+CENSUS 1909 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-thabit%2FThabit-Bold.ttf%230 2 glyf_faces_with glyphs_with_WE_HAVE_INSTRUCTIONS
+CENSUS 100 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-thabit%2FThabit-Bold-Oblique.ttf%230 2 glyf_faces_with simple_with_lsb_not_xmin
+CENSUS 286 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fipafont-gothic%2Fipag.ttf%230 2 glyf_max_component_depth 0
+CENSUS 1489 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-thabit%2FThabit-Bold-Oblique.ttf%230 2 glyf_max_component_depth 1
+CENSUS 693 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fancient-scripts%2FSymbola_hint.ttf%230 2 glyf_max_component_depth 2
+CENSUS 279 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiriQuran.ttf%230 2 glyf_max_component_depth 3
+CENSUS 106 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 glyf_max_component_depth 4
+CENSUS 3 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Ffreefont%2FFreeMono.ttf%230 2 glyf_max_component_depth 5
+CENSUS 127 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 has_non_integral_ink_box CFF
+CENSUS 1299 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 has_non_integral_ink_box TrueType
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoColorEmoji.ttf%230 2 has_table CBDT
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiriQuranColored.ttf%230 2 has_table COLR
+CENSUS 5 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Ffarsiweb%2Ftitr.ttf%230 2 has_table EBDT
+CENSUS 2870 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 has_table GPOS
+CENSUS 2875 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 has_table GSUB
+CENSUS 6 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fculmus%2FMiriamMonoCLM-BookOblique.ttf%230 2 has_table MATH
+CENSUS 2991 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 has_table OS%2F2
+CENSUS 80 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fnoto%2FNotoSansCJK-Black.ttc%230 2 has_table VORG
+CENSUS 81 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fdejavu%2FDejaVuSans-Bold.ttf%230 2 has_table kern
+CENSUS 4 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Ffonts-ukij-uyghur%2FUKIJ_MacBasma.ttf%230 2 has_table morx
+CENSUS 2991 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 has_table post
+CENSUS 90 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fipafont-gothic%2Fipag.ttf%230 2 has_table vhea
+CENSUS 1080 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 1 hmtx_fewer_metrics_than_glyphs
+CENSUS 176 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiriQuran.ttf%230 3 kern_classdef_formats classdef1%3D1 classdef2%3D1
+CENSUS 152 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 3 kern_classdef_formats classdef1%3D1 classdef2%3D2
+CENSUS 199 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FGayathri-Bold.otf%230 3 kern_classdef_formats classdef1%3D2 classdef2%3D1
+CENSUS 1194 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 3 kern_classdef_formats classdef1%3D2 classdef2%3D2
+CENSUS 1302 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 3 kern_coverage_format PairPos1 coverage1
+CENSUS 359 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 3 kern_coverage_format PairPos1 coverage2
+CENSUS 988 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-BoldSlanted.ttf%230 3 kern_coverage_format PairPos2 coverage1
+CENSUS 733 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 3 kern_coverage_format PairPos2 coverage2
+CENSUS 2 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoSansKhojki-Regular.ttf%230 4 kern_feature_subtable_not_read type1 format1 direct
+CENSUS 2 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fscheherazade%2FScheherazade-Regular.ttf%230 4 kern_feature_subtable_not_read type4 format1 direct
+CENSUS 5 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoMusic-Regular.ttf%230 4 kern_feature_subtable_not_read type7 format2 direct
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoSansGrantha-Regular.ttf%230 4 kern_feature_subtable_not_read type7 format2 extension
+CENSUS 123 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoMusic-Regular.ttf%230 4 kern_feature_subtable_not_read type8 format2 direct
+CENSUS 15 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoSansGrantha-Regular.ttf%230 4 kern_feature_subtable_not_read type8 format2 extension
+CENSUS 4706 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 4 kern_feature_subtable_not_read type8 format3 direct
+CENSUS 1528 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 3 kern_subtable PairPos1 direct
+CENSUS 133 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Ffonts-yrsa-rasa%2FRasa-Bold.ttf%230 3 kern_subtable PairPos1 extension
+CENSUS 1667 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 3 kern_subtable PairPos2 direct
+CENSUS 54 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Ffonts-yrsa-rasa%2FRasa-Bold.ttf%230 3 kern_subtable PairPos2 extension
+CENSUS 12 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fdzongkha%2FJomolhari-alpha3c-0605331.ttf%230 1 kern_subtables_present_but_no_sampled_pair_is_non_zero
+CENSUS 2 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoSansBrahmi-Regular.ttf%230 4 kern_value_formats PairPos1 vf1%3D0x0000 vf2%3D0x0003
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoSansPsalterPahlavi-Regular.ttf%230 4 kern_value_formats PairPos1 vf1%3D0x0000 vf2%3D0x0004
+CENSUS 10 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fdzongkha%2FJomolhari-alpha3c-0605331.ttf%230 4 kern_value_formats PairPos1 vf1%3D0x0000 vf2%3D0x0005
+CENSUS 4 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fkacst%2Fmry_KacstQurn.ttf%230 4 kern_value_formats PairPos1 vf1%3D0x0000 vf2%3D0x0006
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fteluguvijayam%2FPottiSreeramulu.ttf%230 4 kern_value_formats PairPos1 vf1%3D0x0000 vf2%3D0x0007
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoSansKharoshthi-Regular.ttf%230 4 kern_value_formats PairPos1 vf1%3D0x0002 vf2%3D0x0002
+CENSUS 1525 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 4 kern_value_formats PairPos1 vf1%3D0x0004 vf2%3D0x0000
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fnoto%2FNotoSansKhojki-Regular.ttf%230 4 kern_value_formats PairPos1 vf1%3D0x0004 vf2%3D0x0005
+CENSUS 116 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fculmus%2FFrankRuehlCLM-Bold.ttf%230 4 kern_value_formats PairPos1 vf1%3D0x0005 vf2%3D0x0000
+CENSUS 1664 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 4 kern_value_formats PairPos2 vf1%3D0x0004 vf2%3D0x0000
+CENSUS 57 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-BoldSlanted.ttf%230 4 kern_value_formats PairPos2 vf1%3D0x0005 vf2%3D0x0000
+CENSUS 1623 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 kerning gpos
+CENSUS 60 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fdejavu%2FDejaVuSans-Bold.ttf%230 2 kerning gpos%2Blegacy_kern_table
+CENSUS 1286 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-thabit%2FThabit-Bold-Oblique.ttf%230 2 kerning none
+CENSUS 21 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Ffarsiweb%2Fhoma.ttf%230 2 kerning none%2Blegacy_kern_table
+CENSUS 81 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fdejavu%2FDejaVuSans-Bold.ttf%230 3 legacy_kern_subtable_format version0 format0
+CENSUS 1164 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 loca_format long
+CENSUS 1692 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiriQuran.ttf%230 2 loca_format short
+CENSUS 6 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fculmus%2FMiriamMonoCLM-BookOblique.ttf%230 2 math_metrics ok
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fculmus%2FMiriamMonoCLM-BookOblique.ttf%230 2 math_minted_codepoints none
+CENSUS 5 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fdejavu%2FDejaVuMathTeXGyre.ttf%230 2 math_minted_codepoints some
+CENSUS 5 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fdejavu%2FDejaVuMathTeXGyre.ttf%230 1 math_minting_order_is_not_glyph_id_order
+CENSUS 199 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-thabit%2FThabit-Bold-Oblique.ttf%230 2 os2_version 1
+CENSUS 36 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Ffarsiweb%2Fhoma.ttf%230 2 os2_version 2
+CENSUS 215 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fipafont-gothic%2Fipag.ttf%230 2 os2_version 3
+CENSUS 2537 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 os2_version 4
+CENSUS 4 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Funifont%2Funifont.otf%230 2 os2_version 5
+CENSUS 2857 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 sfnt_version 0x00010000
+CENSUS 134 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fmalayalam%2FChilanka-Regular.otf%230 2 sfnt_version OTTO
+CENSUS 2600 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 units_per_em 1000
+CENSUS 29 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-thabit%2FThabit-Bold-Oblique.ttf%230 2 units_per_em 1024
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fteluguvijayam%2FGurajada.ttf%230 2 units_per_em 1070
+CENSUS 6 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fculmus%2FMiriamCLM-Bold.ttf%230 2 units_per_em 1090
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fteluguvijayam%2FGidugu.ttf%230 2 units_per_em 1124
+CENSUS 8 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fculmus%2FDavidCLM-Bold.otf%230 2 units_per_em 1200
+CENSUS 2 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Ffonts-telu-extra%2FPothana2000.ttf%230 2 units_per_em 1250
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Ffonts-kalapi%2FKalapi.ttf%230 2 units_per_em 1448
+CENSUS 36 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Ffonts-arabeyes%2Fae_AlArabiya.ttf%230 2 units_per_em 1800
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Ffonts-bpg-georgian%2FBPG_DedEena_Block_GPL%26GNU.ttf%230 2 units_per_em 2024
+CENSUS 280 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Fipafont-gothic%2Fipag.ttf%230 2 units_per_em 2048
+CENSUS 4 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Ffonts-ukij-uyghur%2FUKIJ_MacBasma.ttf%230 2 units_per_em 2212
+CENSUS 2 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fdroid%2FDroidSansFallbackFull.ttf%230 2 units_per_em 256
+CENSUS 4 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Funifont%2Funifont.otf%230 2 units_per_em 64
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fteluguvijayam%2FSreeKrushnadevaraya.ttf%230 2 units_per_em 720
+CENSUS 4 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fteluguvijayam%2FPeddana-Regular.ttf%230 2 units_per_em 750
+CENSUS 3 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Flohit-assamese%2FLohit-Assamese.ttf%230 2 units_per_em 769
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fteluguvijayam%2Fsuranna.ttf%230 2 units_per_em 780
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fteluguvijayam%2FMandali-Regular.ttf%230 2 units_per_em 790
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fteluguvijayam%2Framabhadra.ttf%230 2 units_per_em 830
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Flohit-gujarati%2FLohit-Gujarati.ttf%230 2 units_per_em 833
+CENSUS 2 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fteluguvijayam%2Fdhurjati.ttf%230 2 units_per_em 870
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fteluguvijayam%2FNATS.ttf%230 2 units_per_em 970
+CENSUS 1 %2Fusr%2Fshare%2Ffonts%2Ftruetype%2Fteluguvijayam%2FSuravaram.ttf%230 2 units_per_em 980
+CENSUS 237 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-thabit%2FThabit-Bold-Oblique.ttf%230 2 x_height_source fallback
+CENSUS 2753 %2Fusr%2Fshare%2Ffonts%2Fopentype%2Ffonts-hosny-amiri%2FAmiri-Bold.ttf%230 2 x_height_source os2

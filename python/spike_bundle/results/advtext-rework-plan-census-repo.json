@@ -1,0 +1,162 @@
+{
+ "source": "repo",
+ "files": 52,
+ "transcripts_with_text": 1,
+ "sizes": {
+  "bytes": {
+   "n": 1,
+   "median": 410789,
+   "p90": 410789,
+   "max": 410789,
+   "total": 410789
+  },
+  "lines": {
+   "n": 1,
+   "median": 5701,
+   "p90": 5701,
+   "max": 5701,
+   "total": 5701
+  },
+  "blocks": {
+   "n": 1,
+   "median": 1714,
+   "p90": 1714,
+   "max": 1714,
+   "total": 1714
+  },
+  "blocks_in_the_400_line_window": {
+   "n": 1,
+   "median": 130,
+   "p90": 130,
+   "max": 130,
+   "total": 130
+  },
+  "bytes_in_the_400_line_window": {
+   "n": 1,
+   "median": 27878,
+   "p90": 27878,
+   "max": 27878,
+   "total": 27878
+  },
+  "turn_prose_bytes": {
+   "n": 1,
+   "median": 10269,
+   "p90": 10269,
+   "max": 10269,
+   "total": 10269
+  }
+ },
+ "lines_by_segment_kind": {
+  "output": 5153,
+  "tool_result": 288,
+  "system": 104,
+  "tool_call": 104,
+  "reasoning": 52
+ },
+ "blocks": {
+  "bullet_item": {
+   "blocks": 618,
+   "lines": 1478
+  },
+  "paragraph": {
+   "blocks": 362,
+   "lines": 1352
+  },
+  "heading": {
+   "blocks": 243,
+   "lines": 243
+  },
+  "ordered_item": {
+   "blocks": 217,
+   "lines": 651
+  },
+  "literal": {
+   "blocks": 208,
+   "lines": 548
+  },
+  "table": {
+   "blocks": 54,
+   "lines": 563
+  },
+  "fence": {
+   "blocks": 12,
+   "lines": 107
+  }
+ },
+ "inline_tokens": {
+  "text": 6547,
+  "code_inline": 3241,
+  "softbreak": 2258,
+  "strong_open": 246,
+  "strong_close": 246,
+  "em_open": 11,
+  "em_close": 11,
+  "html_inline": 7,
+  "hardbreak": 3
+ },
+ "misfits": {
+  "FENCE language labels (chrome: an extra dim block)": 8,
+  "LITERAL reasoning blocks (drawn unwrapped today; fit as Code)": 52,
+  "TABLE blocks (no table in the core: a Host block, drawn by pptmstr)": 54,
+  "TABLE rows": 455,
+  "blocks with non-ASCII text (a per-block offset conversion)": 347,
+  "code span inside strong or a link": 59,
+  "inline token 'html_inline' (drawn as its literal content)": 7,
+  "prose blocks with exactly one '$'": 9,
+  "prose blocks with two or more '$' (formulas IF BlockFlags.Math is set)": 3
+ },
+ "longest_unbroken_word_chars": 109,
+ "characters_not_in_Inconsolata_Medium": {
+  "distinct": 15,
+  "blocks_touched_by_the_commonest": [
+   [
+    "U+03B4",
+    3
+   ],
+   [
+    "U+21D2",
+    1
+   ],
+   [
+    "U+03B8",
+    1
+   ],
+   [
+    "U+03A7",
+    1
+   ],
+   [
+    "U+03C2",
+    1
+   ],
+   [
+    "U+0399",
+    1
+   ],
+   [
+    "U+03A9",
+    1
+   ],
+   [
+    "U+0396",
+    1
+   ],
+   [
+    "U+03B2",
+    1
+   ],
+   [
+    "U+039D",
+    1
+   ],
+   [
+    "U+03A3",
+    1
+   ],
+   [
+    "U+03A0",
+    1
+   ]
+  ]
+ }
+}

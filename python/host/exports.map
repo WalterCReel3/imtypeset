@@ -1,0 +1,12 @@
+# What libimtypeset_pyhost.so exports: the C ABI of include/imtypeset_c.h and
+# the host surface of imtypeset_host.h, and nothing of the Dear ImGui, SDL2 and
+# C++ runtime linked into it. A Python process may hold another SDL2 or another
+# ImGui (pygame, imgui_bundle); none of this library's copies may be found by
+# their names.
+{
+    global:
+        ImTypeset_*;
+        ImTypesetHost_*;
+    local:
+        *;
+};

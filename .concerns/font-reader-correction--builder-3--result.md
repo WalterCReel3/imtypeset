@@ -1,0 +1,2 @@
+[from builder-3] font-reader correction: the math face needs 1172 atlas stand-ins, not 1223
+In my completion note I wrote that Latin Modern Math needs 1223 BMP stand-ins under a 16-bit ImWchar. That figure was an estimate I had not counted. Counted from tests/golden/font/latinmodern-math.otf.raw.golden: 945 cmap codepoints above U+FFFF + 227 minted = 1172, against 6400 available. The conclusion (it fits with room to spare) is unchanged; the test asserts stand-in count == supplementary count without stating the number.

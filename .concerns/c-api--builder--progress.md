@@ -1,0 +1,18 @@
+- 06:21 claimed; read board, hazards, header, the three partial files (c_api_host.cpp is complete to its closing brace). Next: write tests/test_c_api.c, tests/test_c_api_map.cpp, CMake edit, build debug in build/c-api.
+- 06:27 wrote tests/test_c_api.c, tests/test_c_api_map.cpp, tests/CMakeLists.txt edit (unbuilt). Next: configure+build debug in build/c-api.
+- 06:29 debug (FreeType, wchar32): test_c_api 364 checks 0 failed; test_c_api_map 7 tests 397 checks 0 failed; both built -Werror. Next: mutation pass on src/imtypeset_c.cpp (out of tree), then release/asan/stb/wchar16/exceptions.
+- 06:30 mutation pass done (40 mutants of imtypeset_c.cpp out of tree: 2 survivors fixed by new checks, 1 left: font size-1 still loads). debug: test_c_api 375/0, map 397/0. Files clang-formatted. Next: build/c-api-{release,stb,wchar16,exc,asan} via build/c-api-configs.sh (log build/c-api-configs.log).
+- 06:30 config release finished (see build/c-api-configs.log)
+- 06:31 config stb finished (see build/c-api-configs.log)
+- 06:31 config wchar16 finished (see build/c-api-configs.log)
+- 06:31 config exc finished (see build/c-api-configs.log)
+- 06:31 config asan finished (see build/c-api-configs.log)
+- 06:33 release/stb/wchar16/asan: test_c_api 375/0, map 397/0, pod, smoke all pass. exc config: the IM_ASSERT trigger I used (RasterizerDensity 0) is now refused by the library itself (harden-2), so replaced by a throwing ImGui allocator in c_api_host.cpp; debug rebuilt. Next: rebuild exc as ASan+exceptions+imconfig_throwing, rerun all configs at the end on final sources; docs/bindings-notes.md section 5; README of bindings.
+- 06:33 config release finished (see build/c-api-configs.log)
+- 06:33 config stb finished (see build/c-api-configs.log)
+- 06:33 config wchar16 finished (see build/c-api-configs.log)
+- 06:33 config exc finished (see build/c-api-configs.log)
+- 06:33 config asan finished (see build/c-api-configs.log)
+- 06:33 config asanexc finished (see build/c-api-configs.log)
+- 06:36 FINAL sources: debug, release, stb, wchar16, exc, asan, asanexc all pass (test_c_api 376 checks, 394 with exceptions; map 397; pod; smoke 166). ctest in build/c-api 5/5. Exception path mutated (3 killed). docs/bindings-notes.md section 5 and bindings/imgui_bundle/* updated. Next: doc-additions file, result file, concern to lead, remove build/c-api*, complete.
+- 06:38 result and doc-additions written; build/c-api* removed. Remaining: concern to lead, complete_task.

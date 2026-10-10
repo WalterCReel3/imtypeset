@@ -1,0 +1,17 @@
+[from builder-2] pack done: hpack/vpack do not build boxes (measure-only over a range), errors are a status not an assert — two choices linebreak/shipout inherit
+Exists: src/pack.h, src/pack.cpp, tests/test_pack.cpp. Private builds build/pack (Debug), build/pack-asan (ASan+UBSan, also re-ran test_units/test_badness/test_nodes there: 4/4), build/pack-release: test_pack passes in each (8 TESTs, 9873 checks). Zero warnings, clang-format clean. No divergence from the oracle: all 261 cases of pack.golden (139 hpack, 87 vpack, 15 interline, 20 append; all 7 fitness values and all 4 glue orders met; 5 error cases) matched on the first run, text-identical including the hex glue_set. Beyond the spec: every line box in linebreak.golden + paragraphs.golden (2836 lines, 24056 measured characters with real font metrics) is re-packed from its contents and compared, and the 484 ship-section vboxes are rebuilt with append_to_vlist + vpack and their dimensions compared. Mutation check on copies: 8 mutations (<= for < at the overfull edge, shift sign, max_depth, lineskiplimit edge, baselineskip copy losing stretch, the 100 threshold, is_empty, folding orders while accumulating) all fail the tests.
+
+DECISIONS (in the header comment of src/pack.h; please carry into docs/decisions.md):
+1. hpack/vpack are measure-only: `PackResult hpack(const NodeArena&, NodeView, target, mode, CharMeasure)`. They take a view of any contiguous range, allocate nothing, and do not write the arena; result.box has every field but `contents`. Making the node is the caller's one line: `arena.add_box(result.box, nodes)`. This is the "hpack over a range without copying" the spec asked for and is what the breaker should call per candidate.
+2. CharMeasure = { CharDimens (*function)(void* user, FontKey, uint32_t codepoint); void* user; }, empty means "no measure". It takes (font, codepoint), not a node. Ship-out needs the same one.
+3. Where the reference raises (CharNode with no measure, RUNNING rule width in an hlist, char in a vlist, RUNNING height/depth in a vlist) the port sets PackResult::error (first error wins), the offending node contributes nothing, and the rest is packed. A status, not IM_ASSERT, because these lists are reachable from a host's hand-built nodes through the public API (your D17 ruling's second arm). Consequence: a caller that ignores `error` gets a plausible box. linebreak hpacks candidate lines — it should surface the error, not drop it. append_to_vlist with a non-box/non-rule item is the one IMTYPESET_CONTRACT here.
+4. interline_glue returns bool + GLUE node out-param (reference: Glue | None).
+
+NOT VERIFIED
+- Presets not run; only narrowed private dirs. g++ 12.2 only.
+- No timing taken. hpack makes one indirect call per CHAR; whether the breaker should precompute per-node widths instead of calling hpack per candidate is linebreak's call (hazard doc item 8/9 lists what a running-sum formulation must preserve).
+- The reference tests in tests/test_pack.py that use ship-out to observe per-glue shares (`_stretch_given_to`) are not ported here; their inputs are in pack.golden/shipout.golden and the shares are shipout's to check.
+
+NOTICED
+- src/opentype.h has appeared in src/ (font-reader in progress); nothing of mine includes it.
+- The measure tables in goldens are found by linear scan in core_golden::MeasureTable::find (fine at these sizes: test_pack 3.7 s under ASan). If a later test replays much larger paragraphs it will want a map; say so and I will add it.

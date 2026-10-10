@@ -1,0 +1,24 @@
+@PACKAGE_INIT@
+
+# imtypeset is built against one Dear ImGui and links it: the consumer has to
+# compile against that same ImGui, with the same configuration (ImWchar width,
+# ImDrawIdx, IMGUI_USER_CONFIG). The library was built against the imgui
+# package's @_imtypeset_imgui@, so that is what is asked for here; Dear ImGui is
+# not installed with imtypeset. IMTYPESET_CHECKVERSION() in the host is the
+# check at run time that the two really agree.
+include(CMakeFindDependencyMacro)
+find_dependency(imgui CONFIG)
+if(NOT TARGET @_imtypeset_imgui@)
+    set(imtypeset_FOUND FALSE)
+    set(imtypeset_NOT_FOUND_MESSAGE
+        "imtypeset was built against the Dear ImGui target @_imtypeset_imgui@, which the imgui package found here does not define")
+    return()
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/imtypesetTargets.cmake")
+
+# IMGUI_VERSION_NUM of the ImGui the installed library was compiled against,
+# or empty when it could not be read at configure time.
+set(imtypeset_IMGUI_VERSION_NUM "@_imtypeset_imgui_version@")
+
+check_required_components(imtypeset)

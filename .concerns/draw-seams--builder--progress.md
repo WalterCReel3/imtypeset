@@ -1,0 +1,1 @@
+- start (resumed session, no prior progress file): claimed draw-seams, reading. Nothing changed yet.

@@ -1,0 +1,25 @@
+{
+  "$comment": "UNTESTED: written on a machine with no vcpkg and no network. What this tree's own build needs from vcpkg when configured with a vcpkg toolchain and -DIMTYPESET_USE_IMGUI_PACKAGE=ON: Dear ImGui as a package (imgui::imgui). It is a manifest, not a port; the port sketch is ports/imtypeset. See docs/distribution.md.",
+  "name": "imtypeset",
+  "version": "0.2.0",
+  "description": "Typeset text for Dear ImGui: TeX's box-and-glue model over ImGui's font atlas",
+  "dependencies": [
+    {
+      "name": "imgui",
+      "version>=": "1.92.0"
+    }
+  ],
+  "features": {
+    "freetype": {
+      "description": "Build against a Dear ImGui that rasterises with FreeType",
+      "dependencies": [
+        {
+          "name": "imgui",
+          "features": [
+            "freetype"
+          ]
+        }
+      ]
+    }
+  }
+}

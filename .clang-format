@@ -1,0 +1,60 @@
+# The style of the skeleton this tree started from, which is ImGui-adjacent:
+# 4-space indent, brace on its own line for functions, types and namespaces,
+# attached for control flow, `Type* name`.
+#
+# Applies to include/ src/ tests/ bench/ examples/. Dear ImGui's own sources
+# (.deps/, build/*/_deps) are not ours and are never reformatted.
+#
+# Requires clang-format >= 14 (Debian 12 ships 14).
+---
+Language: Cpp
+BasedOnStyle: LLVM
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+
+# `void f()\n{`, `struct S\n{` and `namespace N\n{`; `if (x) {` for control flow.
+BreakBeforeBraces: Linux
+
+# `public:` / `private:` sit flush with the `class` keyword.
+AccessModifierOffset: -4
+
+PointerAlignment: Left
+ReferenceAlignment: Left
+DerivePointerAlignment: false
+
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+
+# Constructor init lists one per line, leading comma:
+#     : _record(&record)
+#     , _next(start)
+BreakConstructorInitializers: BeforeComma
+ConstructorInitializerIndentWidth: 4
+PackConstructorInitializers: Never
+
+AlwaysBreakTemplateDeclarations: Yes
+SpaceAfterTemplateKeyword: false
+
+# Include order carries meaning (own header, then ours, then ImGui, then the
+# standard library) and is kept as written.
+IncludeBlocks: Preserve
+SortIncludes: Never
+
+IndentCaseLabels: false
+NamespaceIndentation: None
+FixNamespaceComments: true
+
+AlignAfterOpenBracket: Align
+AlignEscapedNewlines: Left
+AlignTrailingComments: true
+# `#define IMTYPESET_VERSION     "..."` / `#define IMTYPESET_VERSION_NUM ...`
+AlignConsecutiveMacros: Consecutive
+
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+...

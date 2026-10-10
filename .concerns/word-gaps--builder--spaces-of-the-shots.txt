@@ -1,0 +1,715 @@
+    pane, font size 16, reference:
+      The            | breaker        natural 3.38 set 2.45 drawn  1.77 (-0.69) ink 2
+      breaker        | keeps          natural 3.38 set 2.45 drawn  3.38 (+0.93) ink 3
+      keeps          | a              natural 3.38 set 2.45 drawn  2.96 (+0.51) ink 3
+      a              | list           natural 3.38 set 2.45 drawn  2.57 (+0.12) ink 4
+      list           | of             natural 3.38 set 2.45 drawn  2.54 (+0.09) ink 2
+      of             | active         natural 3.38 set 2.45 drawn  2.26 (-0.19) ink 2
+      active         | nodes          natural 3.38 set 2.45 drawn  3.77 (+1.31) ink 4
+      nodes          | and,           natural 3.38 set 2.45 drawn  0.96 (-1.49) ink 1
+      and,           | for            natural 3.38 set 2.45 drawn  2.32 (-0.13) ink 2
+      for            | every          natural 3.38 set 2.45 drawn  2.38 (-0.07) ink 2
+      every          | legal          natural 3.38 set 2.45 drawn  1.54 (-0.91) ink 2
+      legal          | breakpoint,    natural 3.38 set 2.45 drawn  3.69 (+1.23) ink 4
+      breakpoint,    | asks           natural 3.38 set 2.45 drawn  2.32 (-0.13) ink 2
+      asks           | each           natural 3.38 set 2.45 drawn  2.96 (+0.51) ink 3
+      each           | of             natural 3.38 set 2.45 drawn  3.48 (+1.03) ink 4
+      of             | them           natural 3.38 set 2.45 drawn  2.26 (-0.19) ink 2
+      them           | how            natural 3.38 set 2.45 drawn  3.03 (+0.58) ink 3
+      how            | bad            natural 3.38 set 2.45 drawn  1.74 (-0.71) ink 1
+      bad            | the            natural 3.38 set 2.45 drawn  2.30 (-0.15) ink 3
+      the            | line           natural 3.38 set 2.45 drawn  2.77 (+0.31) ink 4
+      from           | there          natural 3.38 set 2.81 drawn  3.03 (+0.23) ink 3
+      there          | to             natural 3.38 set 2.81 drawn  3.77 (+0.96) ink 4
+      to             | here           natural 3.38 set 2.81 drawn  2.21 (-0.59) ink 2
+      here           | would          natural 3.38 set 2.81 drawn  3.77 (+0.96) ink 4
+      would          | be.            natural 3.38 set 2.81 drawn  2.30 (-0.51) ink 3
+      be.            | With           natural 4.51 set 3.93 drawn  4.41 (+0.47) ink 5
+      With           | badness        natural 3.38 set 2.81 drawn  3.48 (+0.67) ink 4
+      badness        | ?,             natural 3.38 set 2.81 drawn  1.96 (-0.85) ink 2  (beside a formula)
+      ?,             | penalty        natural 3.38 set 2.81 drawn  3.32 (+0.51) ink 3
+      penalty        | ?              natural 3.38 set 2.81 drawn  3.54 (+0.73) ink 2  (beside a formula)
+      ?              | and            natural 3.38 set 2.81 drawn  2.93 (+0.12) ink 3  (beside a formula)
+      and            | line           natural 3.38 set 2.81 drawn  2.30 (-0.51) ink 4
+      line           | penalty        natural 3.38 set 2.81 drawn  2.77 (-0.04) ink 3
+      penalty        | ?              natural 3.38 set 2.81 drawn  3.54 (+0.73) ink 3  (beside a formula)
+      ?              | the            natural 3.38 set 2.81 drawn  2.93 (+0.13) ink 3  (beside a formula)
+      the            | demerits       natural 3.38 set 2.81 drawn  2.77 (-0.04) ink 3
+      demerits       | are            natural 3.38 set 2.81 drawn  2.96 (+0.15) ink 3
+      are            | ?=(?+?)2+?2    natural 3.38 set 2.81 drawn  3.77 (+0.96) ink 4  (beside a formula)
+      when           | ??0,           natural 3.38 set 3.38 drawn  3.47 (+0.09) ink 3  (beside a formula)
+      ??0,           | and            natural 3.38 set 3.38 drawn  3.32 (-0.06) ink 3
+      and            | the            natural 3.38 set 3.38 drawn  3.30 (-0.08) ink 4
+      the            | total-fit      natural 3.38 set 3.38 drawn  3.77 (+0.39) ink 4
+      total-fit      | path           natural 3.38 set 3.38 drawn  4.54 (+1.16) ink 4
+      path           | is             natural 3.38 set 3.38 drawn  3.48 (+0.10) ink 4
+      is             | the            natural 3.38 set 3.38 drawn  3.96 (+0.58) ink 4
+      the            | one            natural 3.38 set 3.38 drawn  2.77 (-0.61) ink 3
+      one            | that           natural 3.38 set 3.38 drawn  2.77 (-0.61) ink 3
+      that           | minimises      natural 3.38 set 3.38 drawn  4.54 (+1.16) ink 4
+      minimises      | ????           natural 3.38 set 3.38 drawn  3.96 (+0.58) ink 4  (beside a formula)
+      ????           | over           natural 3.38 set 3.38 drawn  4.04 (+0.66) ink 5  (beside a formula)
+      over           | the            natural 3.38 set 3.38 drawn  2.38 (-1.00) ink 2
+      the            | whole          natural 3.38 set 3.38 drawn  3.77 (+0.39) ink 4
+      whole          | paragraph.     natural 3.38 set 3.38 drawn  2.77 (-0.61) ink 3
+      the narrowest, "nodes" | "and,": glyph, its place, its pen
+        n    203.674     204
+        o    211.207     212
+        d    218.994     220
+        e    226.694     228
+        s    233.927     235
+        a    243.421     243
+    pane, font size 16, product:
+      The            | breaker        natural 3.38 set 2.45 drawn  2.77 (+0.31) ink 3
+      breaker        | keeps          natural 3.38 set 2.45 drawn  2.38 (-0.07) ink 2
+      keeps          | a              natural 3.38 set 2.45 drawn  1.96 (-0.49) ink 2
+      a              | list           natural 3.38 set 2.45 drawn  2.57 (+0.12) ink 4
+      list           | of             natural 3.38 set 2.45 drawn  2.54 (+0.09) ink 2
+      of             | active         natural 3.38 set 2.45 drawn  2.26 (-0.19) ink 2
+      active         | nodes          natural 3.38 set 2.45 drawn  1.77 (-0.69) ink 2
+      nodes          | and,           natural 3.38 set 2.45 drawn  1.96 (-0.49) ink 2
+      and,           | for            natural 3.38 set 2.45 drawn  2.32 (-0.13) ink 2
+      for            | every          natural 3.38 set 2.45 drawn  2.38 (-0.07) ink 2
+      every          | legal          natural 3.38 set 2.45 drawn  2.54 (+0.09) ink 3
+      legal          | breakpoint,    natural 3.38 set 2.45 drawn  1.69 (-0.77) ink 2
+      breakpoint,    | asks           natural 3.38 set 2.45 drawn  2.32 (-0.13) ink 2
+      asks           | each           natural 3.38 set 2.45 drawn  2.96 (+0.51) ink 3
+      each           | of             natural 3.38 set 2.45 drawn  2.48 (+0.03) ink 3
+      of             | them           natural 3.38 set 2.45 drawn  2.26 (-0.19) ink 2
+      them           | how            natural 3.38 set 2.45 drawn  2.03 (-0.42) ink 2
+      how            | bad            natural 3.38 set 2.45 drawn  2.74 (+0.29) ink 2
+      bad            | the            natural 3.38 set 2.45 drawn  2.30 (-0.15) ink 3
+      the            | line           natural 3.38 set 2.45 drawn  2.77 (+0.31) ink 4
+      from           | there          natural 3.38 set 2.81 drawn  3.03 (+0.23) ink 3
+      there          | to             natural 3.38 set 2.81 drawn  2.77 (-0.04) ink 3
+      to             | here           natural 3.38 set 2.81 drawn  3.21 (+0.41) ink 3
+      here           | would          natural 3.38 set 2.81 drawn  2.77 (-0.04) ink 3
+      would          | be.            natural 3.38 set 2.81 drawn  3.30 (+0.49) ink 4
+      be.            | With           natural 4.51 set 3.93 drawn  3.41 (-0.53) ink 4
+      With           | badness        natural 3.38 set 2.81 drawn  2.48 (-0.33) ink 3
+      badness        | ?,             natural 3.38 set 2.81 drawn  1.96 (-0.85) ink 2  (beside a formula)
+      ?,             | penalty        natural 3.38 set 2.81 drawn  2.32 (-0.49) ink 2
+      penalty        | ?              natural 3.38 set 2.81 drawn  3.54 (+0.73) ink 2  (beside a formula)
+      ?              | and            natural 3.38 set 2.81 drawn  2.93 (+0.12) ink 3  (beside a formula)
+      and            | line           natural 3.38 set 2.81 drawn  2.30 (-0.51) ink 4
+      line           | penalty        natural 3.38 set 2.81 drawn  2.77 (-0.04) ink 3
+      penalty        | ?              natural 3.38 set 2.81 drawn  2.54 (-0.27) ink 2  (beside a formula)
+      ?              | the            natural 3.38 set 2.81 drawn  2.93 (+0.13) ink 3  (beside a formula)
+      the            | demerits       natural 3.38 set 2.81 drawn  2.77 (-0.04) ink 3
+      demerits       | are            natural 3.38 set 2.81 drawn  2.96 (+0.15) ink 3
+      are            | ?=(?+?)2+?2    natural 3.38 set 2.81 drawn  1.77 (-1.04) ink 2  (beside a formula)
+      when           | ??0,           natural 3.38 set 3.38 drawn  3.47 (+0.09) ink 3  (beside a formula)
+      ??0,           | and            natural 3.38 set 3.38 drawn  3.32 (-0.06) ink 3
+      and            | the            natural 3.38 set 3.38 drawn  3.30 (-0.08) ink 4
+      the            | total-fit      natural 3.38 set 3.38 drawn  3.77 (+0.39) ink 4
+      total-fit      | path           natural 3.38 set 3.38 drawn  3.54 (+0.16) ink 3
+      path           | is             natural 3.38 set 3.38 drawn  3.48 (+0.10) ink 4
+      is             | the            natural 3.38 set 3.38 drawn  2.96 (-0.42) ink 3
+      the            | one            natural 3.38 set 3.38 drawn  3.77 (+0.39) ink 4
+      one            | that           natural 3.38 set 3.38 drawn  3.77 (+0.39) ink 4
+      that           | minimises      natural 3.38 set 3.38 drawn  3.54 (+0.16) ink 3
+      minimises      | ????           natural 3.38 set 3.38 drawn  2.96 (-0.42) ink 3  (beside a formula)
+      ????           | over           natural 3.38 set 3.38 drawn  3.04 (-0.34) ink 4  (beside a formula)
+      over           | the            natural 3.38 set 3.38 drawn  3.38 (-0.00) ink 3
+      the            | whole          natural 3.38 set 3.38 drawn  3.77 (+0.39) ink 4
+      whole          | paragraph.     natural 3.38 set 3.38 drawn  3.77 (+0.39) ink 4
+      the narrowest, "legal" | "breakpoint,": glyph, its place, its pen
+        l    325.378     326
+        e    328.691     329
+        g    335.924     336
+        a    343.584     344
+        l    351.011     352
+        b    356.779     357
+    wrote build/word-gaps/shots/word-gaps-pane-fs16-w626-x3.png (the reference's rules above, the product's below) and build/word-gaps/shots/word-gaps-pane-fs16-w626.png (left, right)
+    pane-2, font size 16, reference:
+      The            | measured       natural 3.38 set 2.73 drawn  2.77 (+0.04) ink 3
+      measured       | cost           natural 3.38 set 2.73 drawn  3.30 (+0.57) ink 4
+      cost           | is             natural 3.38 set 2.73 drawn  2.54 (-0.19) ink 2
+      is             | what           natural 3.38 set 2.73 drawn  2.96 (+0.23) ink 3
+      what           | matters        natural 3.38 set 2.73 drawn  3.54 (+0.81) ink 3
+      matters        | to             natural 3.38 set 2.73 drawn  3.96 (+1.23) ink 4
+      to             | a              natural 3.38 set 2.73 drawn  2.21 (-0.52) ink 2
+      a              | pane           natural 3.38 set 2.73 drawn  3.57 (+0.84) ink 4
+      pane           | that           natural 3.38 set 2.73 drawn  1.77 (-0.96) ink 2
+      that           | redraws        natural 3.38 set 2.73 drawn  3.54 (+0.81) ink 3
+      redraws        | every          natural 3.38 set 2.73 drawn  3.96 (+1.23) ink 4
+      every          | frame:         natural 3.38 set 2.73 drawn  2.54 (-0.19) ink 2
+      frame:         | a              natural 3.38 set 2.73 drawn  3.69 (+0.96) ink 4
+      a              | paragraph      natural 3.38 set 2.73 drawn  2.57 (-0.16) ink 3
+      paragraph      | that           natural 3.38 set 2.73 drawn  3.48 (+0.75) ink 4
+      that           | has            natural 3.38 set 2.73 drawn  3.54 (+0.81) ink 3
+      has            | not            natural 3.38 set 2.73 drawn  1.96 (-0.77) ink 2
+      not            | changed        natural 3.38 set 2.73 drawn  2.54 (-0.19) ink 2
+      should         | cost           natural 3.38 set 2.67 drawn  2.30 (-0.37) ink 3
+      cost           | one            natural 3.38 set 2.67 drawn  2.54 (-0.13) ink 2
+      one            | call,          natural 3.38 set 2.67 drawn  1.77 (-0.90) ink 2
+      call,          | not            natural 3.38 set 2.67 drawn  3.32 (+0.65) ink 3
+      not            | one            natural 3.38 set 2.67 drawn  2.54 (-0.13) ink 2
+      one            | call           natural 3.38 set 2.67 drawn  1.77 (-0.90) ink 2
+      call           | per            natural 3.38 set 2.67 drawn  3.69 (+1.02) ink 4
+      per            | styled         natural 3.38 set 2.67 drawn  2.38 (-0.29) ink 2
+      styled         | run,           natural 3.38 set 2.67 drawn  4.30 (+1.63) ink 5
+      run,           | and            natural 3.38 set 2.67 drawn  1.32 (-1.35) ink 1
+      and            | a              natural 3.38 set 2.67 drawn  2.30 (-0.37) ink 3
+      a              | paragraph      natural 3.38 set 2.67 drawn  3.57 (+0.90) ink 4
+      paragraph      | that           natural 3.38 set 2.67 drawn  3.48 (+0.81) ink 4
+      that           | has            natural 3.38 set 2.67 drawn  2.54 (-0.13) ink 2
+      has            | changed        natural 3.38 set 2.67 drawn  2.96 (+0.29) ink 3
+      changed        | should         natural 3.38 set 2.67 drawn  2.30 (-0.37) ink 3
+      should         | cost           natural 3.38 set 2.67 drawn  1.30 (-1.37) ink 2
+      cost           | one            natural 3.38 set 2.67 drawn  2.54 (-0.13) ink 2
+      one            | layout.        natural 3.38 set 2.67 drawn  2.77 (+0.10) ink 4
+      See            | the            natural 3.38 set 3.38 drawn  3.77 (+0.39) ink 4
+      the            | notes          natural 3.38 set 3.38 drawn  3.77 (+0.39) ink 4
+      notes          | for            natural 3.38 set 3.38 drawn  2.96 (-0.42) ink 3
+      for            | the            natural 3.38 set 3.38 drawn  3.38 (-0.00) ink 3
+      the            | numbers,       natural 3.38 set 3.38 drawn  2.77 (-0.61) ink 3
+      numbers,       | and            natural 3.38 set 3.38 drawn  2.32 (-1.06) ink 2
+      and            | ???+1=0        natural 3.38 set 3.38 drawn  3.30 (-0.08) ink 4  (beside a formula)
+      ???+1=0        | for            natural 3.38 set 3.38 drawn  4.17 (+0.79) ink 4  (beside a formula)
+      for            | no             natural 3.38 set 3.38 drawn  2.38 (-1.00) ink 2
+      no             | reason         natural 3.38 set 3.38 drawn  3.21 (-0.17) ink 3
+      reason         | at             natural 3.38 set 3.38 drawn  4.47 (+1.09) ink 5
+      at             | all.           natural 3.38 set 3.38 drawn  3.54 (+0.16) ink 3
+      the narrowest, "should" | "cost": glyph, its place, its pen
+        s    495.747     496
+        h    502.787     503
+        o    510.307     511
+        u    518.094     519
+        l    525.621     527
+        d    528.934     530
+        c    539.305     539
+    pane-2, font size 16, product:
+      The            | measured       natural 3.38 set 2.73 drawn  2.77 (+0.04) ink 3
+      measured       | cost           natural 3.38 set 2.73 drawn  2.30 (-0.43) ink 3
+      cost           | is             natural 3.38 set 2.73 drawn  2.54 (-0.19) ink 2
+      is             | what           natural 3.38 set 2.73 drawn  2.96 (+0.23) ink 3
+      what           | matters        natural 3.38 set 2.73 drawn  2.54 (-0.19) ink 2
+      matters        | to             natural 3.38 set 2.73 drawn  2.96 (+0.23) ink 3
+      to             | a              natural 3.38 set 2.73 drawn  3.21 (+0.48) ink 3
+      a              | pane           natural 3.38 set 2.73 drawn  2.57 (-0.16) ink 3
+      pane           | that           natural 3.38 set 2.73 drawn  2.77 (+0.04) ink 3
+      that           | redraws        natural 3.38 set 2.73 drawn  2.54 (-0.19) ink 2
+      redraws        | every          natural 3.38 set 2.73 drawn  2.96 (+0.23) ink 3
+      every          | frame:         natural 3.38 set 2.73 drawn  2.54 (-0.19) ink 2
+      frame:         | a              natural 3.38 set 2.73 drawn  2.69 (-0.04) ink 3
+      a              | paragraph      natural 3.38 set 2.73 drawn  2.57 (-0.16) ink 3
+      paragraph      | that           natural 3.38 set 2.73 drawn  2.48 (-0.25) ink 3
+      that           | has            natural 3.38 set 2.73 drawn  3.54 (+0.81) ink 3
+      has            | not            natural 3.38 set 2.73 drawn  2.96 (+0.23) ink 3
+      not            | changed        natural 3.38 set 2.73 drawn  2.54 (-0.19) ink 2
+      should         | cost           natural 3.38 set 2.67 drawn  2.30 (-0.37) ink 3
+      cost           | one            natural 3.38 set 2.67 drawn  2.54 (-0.13) ink 2
+      one            | call,          natural 3.38 set 2.67 drawn  2.77 (+0.10) ink 3
+      call,          | not            natural 3.38 set 2.67 drawn  3.32 (+0.65) ink 3
+      not            | one            natural 3.38 set 2.67 drawn  2.54 (-0.13) ink 2
+      one            | call           natural 3.38 set 2.67 drawn  3.77 (+1.10) ink 4
+      call           | per            natural 3.38 set 2.67 drawn  2.69 (+0.02) ink 3
+      per            | styled         natural 3.38 set 2.67 drawn  2.38 (-0.29) ink 2
+      styled         | run,           natural 3.38 set 2.67 drawn  2.30 (-0.37) ink 3
+      run,           | and            natural 3.38 set 2.67 drawn  2.32 (-0.35) ink 2
+      and            | a              natural 3.38 set 2.67 drawn  2.30 (-0.37) ink 3
+      a              | paragraph      natural 3.38 set 2.67 drawn  2.57 (-0.10) ink 3
+      paragraph      | that           natural 3.38 set 2.67 drawn  2.48 (-0.19) ink 3
+      that           | has            natural 3.38 set 2.67 drawn  3.54 (+0.87) ink 3
+      has            | changed        natural 3.38 set 2.67 drawn  2.96 (+0.29) ink 3
+      changed        | should         natural 3.38 set 2.67 drawn  2.30 (-0.37) ink 3
+      should         | cost           natural 3.38 set 2.67 drawn  2.30 (-0.37) ink 3
+      cost           | one            natural 3.38 set 2.67 drawn  2.54 (-0.13) ink 2
+      one            | layout.        natural 3.38 set 2.67 drawn  2.77 (+0.10) ink 4
+      See            | the            natural 3.38 set 3.38 drawn  3.77 (+0.39) ink 4
+      the            | notes          natural 3.38 set 3.38 drawn  3.77 (+0.39) ink 4
+      notes          | for            natural 3.38 set 3.38 drawn  2.96 (-0.42) ink 3
+      for            | the            natural 3.38 set 3.38 drawn  3.38 (-0.00) ink 3
+      the            | numbers,       natural 3.38 set 3.38 drawn  3.77 (+0.39) ink 4
+      numbers,       | and            natural 3.38 set 3.38 drawn  2.32 (-1.06) ink 2
+      and            | ???+1=0        natural 3.38 set 3.38 drawn  3.30 (-0.08) ink 4  (beside a formula)
+      ???+1=0        | for            natural 3.38 set 3.38 drawn  3.17 (-0.21) ink 3  (beside a formula)
+      for            | no             natural 3.38 set 3.38 drawn  3.38 (-0.00) ink 3
+      no             | reason         natural 3.38 set 3.38 drawn  2.21 (-1.17) ink 2
+      reason         | at             natural 3.38 set 3.38 drawn  3.47 (+0.09) ink 4
+      at             | all.           natural 3.38 set 3.38 drawn  3.54 (+0.16) ink 3
+      the narrowest, "no" | "reason": glyph, its place, its pen
+        n    311.242     312
+        o    318.775     320
+        r    329.942     330
+    wrote build/word-gaps/shots/word-gaps-pane-2-fs16-w626-x3.png (the reference's rules above, the product's below) and build/word-gaps/shots/word-gaps-pane-2-fs16-w626.png (left, right)
+    demo-math, font size 19, reference:
+      Set            | in             natural 4.01 set 4.51 drawn  3.70 (-0.80) ink 5
+      in             | text           natural 4.01 set 4.51 drawn  4.05 (-0.45) ink 5
+      text           | style,         natural 4.01 set 4.51 drawn  4.70 (+0.20) ink 5
+      style,         | 12+?           natural 4.01 set 4.51 drawn  4.82 (+0.31) ink 5  (beside a formula)
+      12+?           | is             natural 4.01 set 4.51 drawn  4.73 (+0.22) ink 6  (beside a formula)
+      is             | a              natural 4.01 set 4.51 drawn  4.64 (+0.13) ink 5
+      a              | box            natural 4.01 set 4.51 drawn  4.18 (-0.33) ink 6
+      box            | on             natural 4.01 set 4.51 drawn  4.96 (+0.46) ink 5
+      on             | the            natural 4.01 set 4.51 drawn  4.05 (-0.45) ink 5
+      the            | baseline       natural 4.01 set 4.51 drawn  5.41 (+0.90) ink 7
+      baseline       | among          natural 4.01 set 4.51 drawn  4.41 (-0.10) ink 5
+      among          | the            natural 4.01 set 4.51 drawn  3.90 (-0.60) ink 5
+      the            | words          natural 4.01 set 4.51 drawn  5.41 (+0.90) ink 6
+      of             | its            natural 4.01 set 4.01 drawn  4.37 (+0.36) ink 5
+      its            | sentence,      natural 4.01 set 4.01 drawn  3.64 (-0.37) ink 4
+      sentence,      | and            natural 4.01 set 4.01 drawn  3.82 (-0.20) ink 4
+      and            | the            natural 4.01 set 4.01 drawn  3.86 (-0.16) ink 5
+      the            | line           natural 4.01 set 4.01 drawn  4.41 (+0.40) ink 6
+      line           | breaker        natural 4.01 set 4.01 drawn  4.41 (+0.40) ink 6
+      breaker        | moves          natural 4.01 set 4.01 drawn  3.51 (-0.50) ink 4
+      moves          | it             natural 4.01 set 4.01 drawn  3.64 (-0.37) ink 5
+      it             | whole.         natural 4.01 set 4.01 drawn  3.70 (-0.31) ink 4
+      the narrowest, "breaker" | "moves": glyph, its place, its pen
+        b    208.664     209
+        r    217.760     218
+        e    223.096     223
+        a    231.685     232
+        k    240.504     241
+        e    248.564     249
+        r    257.153     258
+        m    266.653     267
+    demo-math, font size 19, product:
+      Set            | in             natural 4.01 set 4.51 drawn  4.70 (+0.20) ink 6
+      in             | text           natural 4.01 set 4.51 drawn  4.05 (-0.45) ink 5
+      text           | style,         natural 4.01 set 4.51 drawn  4.70 (+0.20) ink 5
+      style,         | 12+?           natural 4.01 set 4.51 drawn  4.82 (+0.31) ink 5  (beside a formula)
+      12+?           | is             natural 4.01 set 4.51 drawn  4.73 (+0.22) ink 6  (beside a formula)
+      is             | a              natural 4.01 set 4.51 drawn  4.64 (+0.13) ink 5
+      a              | box            natural 4.01 set 4.51 drawn  4.18 (-0.33) ink 6
+      box            | on             natural 4.01 set 4.51 drawn  4.96 (+0.46) ink 5
+      on             | the            natural 4.01 set 4.51 drawn  4.05 (-0.45) ink 5
+      the            | baseline       natural 4.01 set 4.51 drawn  4.41 (-0.10) ink 6
+      baseline       | among          natural 4.01 set 4.51 drawn  4.41 (-0.10) ink 5
+      among          | the            natural 4.01 set 4.51 drawn  4.90 (+0.40) ink 6
+      the            | words          natural 4.01 set 4.51 drawn  4.41 (-0.10) ink 5
+      of             | its            natural 4.01 set 4.01 drawn  4.37 (+0.36) ink 5
+      its            | sentence,      natural 4.01 set 4.01 drawn  3.64 (-0.37) ink 4
+      sentence,      | and            natural 4.01 set 4.01 drawn  3.82 (-0.20) ink 4
+      and            | the            natural 4.01 set 4.01 drawn  3.86 (-0.16) ink 5
+      the            | line           natural 4.01 set 4.01 drawn  4.41 (+0.40) ink 6
+      line           | breaker        natural 4.01 set 4.01 drawn  4.41 (+0.40) ink 6
+      breaker        | moves          natural 4.01 set 4.01 drawn  3.51 (-0.50) ink 4
+      moves          | it             natural 4.01 set 4.01 drawn  3.64 (-0.37) ink 5
+      it             | whole.         natural 4.01 set 4.01 drawn  3.70 (-0.31) ink 4
+      the narrowest, "breaker" | "moves": glyph, its place, its pen
+        b    208.664     209
+        r    217.760     218
+        e    223.096     223
+        a    231.685     231
+        k    240.504     240
+        e    248.564     248
+        r    257.153     257
+        m    266.653     266
+    wrote build/word-gaps/shots/word-gaps-demo-math-fs19-w460-x3.png (the reference's rules above, the product's below) and build/word-gaps/shots/word-gaps-demo-math-fs19-w460.png (left, right)
+    demo-paragraph, font size 19, reference:
+      A              | formula        natural 4.01 set 7.89 drawn  7.42 (-0.47) ink 7
+      formula        | written        natural 4.01 set 7.89 drawn  9.18 (+1.29) ink 10
+      written        | between        natural 4.01 set 7.89 drawn  8.05 (+0.16) ink 10
+      between        | dollar         natural 4.01 set 7.89 drawn  7.05 (-0.84) ink 8
+      signs          | is             natural 4.01 set 8.65 drawn  8.64 (-0.01) ink 10
+      is             | set            natural 4.01 set 8.65 drawn  8.64 (-0.01) ink 9
+      set            | by             natural 4.01 set 8.65 drawn  8.70 (+0.05) ink 10
+      by             | the            natural 4.01 set 8.65 drawn  9.33 (+0.68) ink 9
+      the            | math           natural 4.01 set 8.65 drawn  8.41 (-0.24) ink 10
+      math           | engine         natural 4.01 set 8.65 drawn  9.07 (+0.42) ink 10
+      and            | sits           natural 4.01 set 4.79 drawn  4.86 (+0.07) ink 6
+      sits           | in             natural 4.01 set 4.79 drawn  4.64 (-0.15) ink 6
+      in             | its            natural 4.01 set 4.79 drawn  5.05 (+0.27) ink 7
+      its            | line           natural 4.01 set 4.79 drawn  4.64 (-0.15) ink 6
+      line           | as             natural 4.01 set 4.79 drawn  5.41 (+0.62) ink 6
+      as             | one            natural 4.01 set 4.79 drawn  4.64 (-0.15) ink 5
+      one            | box.           natural 4.01 set 4.79 drawn  4.41 (-0.38) ink 6
+      box.           | The            natural 5.35 set 6.12 drawn  6.73 (+0.61) ink 8
+      subset         | is             natural 4.01 set 3.03 drawn  3.70 (+0.68) ink 5
+      is             | small          natural 4.01 set 3.03 drawn  2.64 (-0.39) ink 3
+      small          | on             natural 4.01 set 3.03 drawn  3.07 (+0.04) ink 4
+      on             | purpose:       natural 4.01 set 3.03 drawn  3.05 (+0.03) ink 5
+      purpose:       | enough         natural 4.01 set 3.03 drawn  4.07 (+1.05) ink 5
+      for            | everyday       natural 4.01 set 4.30 drawn  4.51 (+0.22) ink 4
+      everyday       | output,        natural 4.01 set 4.30 drawn  2.33 (-1.97) ink 2
+      output,        | with           natural 4.01 set 4.30 drawn  5.82 (+1.52) ink 6
+      with           | no             natural 4.01 set 4.30 drawn  4.07 (-0.23) ink 6
+      no             | macro          natural 4.01 set 4.30 drawn  4.75 (+0.46) ink 6
+      processor      | behind         natural 4.01 set 5.32 drawn  7.51 (+2.19) ink 8
+      behind         | it.            natural 4.01 set 5.32 drawn  3.86 (-1.46) ink 6
+      it.            | Everything     natural 5.35 set 6.66 drawn  7.73 (+1.08) ink 10
+      Everything     | on             natural 4.01 set 5.32 drawn  3.90 (-1.42) ink 5
+      this           | page           natural 4.01 set 2.91 drawn  2.64 (-0.27) ink 4
+      page           | is             natural 4.01 set 2.91 drawn  3.41 (+0.51) ink 5
+      is             | ordinary       natural 4.01 set 2.91 drawn  2.64 (-0.27) ink 3
+      ordinary       | text,          natural 4.01 set 2.91 drawn  3.33 (+0.42) ink 3
+      text,          | converted      natural 4.01 set 2.91 drawn  2.82 (-0.09) ink 3
+      with           | math           natural 4.01 set 3.47 drawn  4.07 (+0.60) ink 6
+      math           | switched       natural 4.01 set 3.47 drawn  4.07 (+0.60) ink 5
+      switched       | on,            natural 4.01 set 3.47 drawn  3.86 (+0.38) ink 5
+      on,            | which          natural 4.01 set 3.47 drawn  3.82 (+0.34) ink 4
+      which          | is             natural 4.01 set 3.47 drawn  4.07 (+0.60) ink 6
+      is             | off            natural 4.01 set 3.47 drawn  2.64 (-0.83) ink 3
+      unless         | a              natural 4.01 set 4.01 drawn  3.64 (-0.37) ink 4
+      a              | host           natural 4.01 set 4.01 drawn  4.18 (+0.17) ink 6
+      host           | asks           natural 4.01 set 4.01 drawn  4.70 (+0.69) ink 5
+      asks           | for            natural 4.01 set 4.01 drawn  4.64 (+0.63) ink 5
+      for            | it.            natural 4.01 set 4.01 drawn  3.51 (-0.50) ink 4
+      the narrowest, "everyday" | "output,": glyph, its place, its pen
+        e     32.657      33
+        v     41.144      41
+        e     48.894      49
+        r     57.484      58
+        y     63.113      64
+        d     70.681      72
+        a     79.825      81
+        y     88.525      90
+        o    100.492     100
+    demo-paragraph, font size 19, product:
+      A              | formula        natural 4.01 set 7.89 drawn  7.42 (-0.47) ink 7
+      formula        | written        natural 4.01 set 7.89 drawn  8.18 (+0.29) ink 9
+      written        | between        natural 4.01 set 7.89 drawn  8.05 (+0.16) ink 10
+      between        | dollar         natural 4.01 set 7.89 drawn  8.05 (+0.16) ink 9
+      signs          | is             natural 4.01 set 8.65 drawn  8.64 (-0.01) ink 10
+      is             | set            natural 4.01 set 8.65 drawn  8.64 (-0.01) ink 9
+      set            | by             natural 4.01 set 8.65 drawn  8.70 (+0.05) ink 10
+      by             | the            natural 4.01 set 8.65 drawn  8.33 (-0.32) ink 8
+      the            | math           natural 4.01 set 8.65 drawn  8.41 (-0.24) ink 10
+      math           | engine         natural 4.01 set 8.65 drawn  9.07 (+0.42) ink 10
+      and            | sits           natural 4.01 set 4.79 drawn  4.86 (+0.07) ink 6
+      sits           | in             natural 4.01 set 4.79 drawn  4.64 (-0.15) ink 6
+      in             | its            natural 4.01 set 4.79 drawn  5.05 (+0.27) ink 7
+      its            | line           natural 4.01 set 4.79 drawn  4.64 (-0.15) ink 6
+      line           | as             natural 4.01 set 4.79 drawn  4.41 (-0.38) ink 5
+      as             | one            natural 4.01 set 4.79 drawn  4.64 (-0.15) ink 5
+      one            | box.           natural 4.01 set 4.79 drawn  4.41 (-0.38) ink 6
+      box.           | The            natural 5.35 set 6.12 drawn  5.73 (-0.39) ink 7
+      subset         | is             natural 4.01 set 3.03 drawn  2.70 (-0.32) ink 4
+      is             | small          natural 4.01 set 3.03 drawn  2.64 (-0.39) ink 3
+      small          | on             natural 4.01 set 3.03 drawn  4.07 (+1.04) ink 5
+      on             | purpose:       natural 4.01 set 3.03 drawn  3.05 (+0.03) ink 5
+      purpose:       | enough         natural 4.01 set 3.03 drawn  3.07 (+0.05) ink 4
+      for            | everyday       natural 4.01 set 4.30 drawn  4.51 (+0.22) ink 4
+      everyday       | output,        natural 4.01 set 4.30 drawn  4.33 (+0.03) ink 4
+      output,        | with           natural 4.01 set 4.30 drawn  3.82 (-0.48) ink 4
+      with           | no             natural 4.01 set 4.30 drawn  4.07 (-0.23) ink 6
+      no             | macro          natural 4.01 set 4.30 drawn  4.75 (+0.46) ink 6
+      processor      | behind         natural 4.01 set 5.32 drawn  5.51 (+0.19) ink 6
+      behind         | it.            natural 4.01 set 5.32 drawn  4.86 (-0.46) ink 7
+      it.            | Everything     natural 5.35 set 6.66 drawn  6.73 (+0.08) ink 9
+      Everything     | on             natural 4.01 set 5.32 drawn  4.90 (-0.42) ink 6
+      this           | page           natural 4.01 set 2.91 drawn  2.64 (-0.27) ink 4
+      page           | is             natural 4.01 set 2.91 drawn  2.41 (-0.49) ink 4
+      is             | ordinary       natural 4.01 set 2.91 drawn  3.64 (+0.73) ink 4
+      ordinary       | text,          natural 4.01 set 2.91 drawn  3.33 (+0.42) ink 3
+      text,          | converted      natural 4.01 set 2.91 drawn  2.82 (-0.09) ink 3
+      with           | math           natural 4.01 set 3.47 drawn  3.07 (-0.40) ink 5
+      math           | switched       natural 4.01 set 3.47 drawn  4.07 (+0.60) ink 5
+      switched       | on,            natural 4.01 set 3.47 drawn  3.86 (+0.38) ink 5
+      on,            | which          natural 4.01 set 3.47 drawn  3.82 (+0.34) ink 4
+      which          | is             natural 4.01 set 3.47 drawn  3.07 (-0.40) ink 5
+      is             | off            natural 4.01 set 3.47 drawn  3.64 (+0.17) ink 4
+      unless         | a              natural 4.01 set 4.01 drawn  3.64 (-0.37) ink 4
+      a              | host           natural 4.01 set 4.01 drawn  4.18 (+0.17) ink 6
+      host           | asks           natural 4.01 set 4.01 drawn  3.70 (-0.31) ink 4
+      asks           | for            natural 4.01 set 4.01 drawn  3.64 (-0.37) ink 4
+      for            | it.            natural 4.01 set 4.01 drawn  3.51 (-0.50) ink 4
+      the narrowest, "page" | "is": glyph, its place, its pen
+        p     37.426      37
+        a     46.522      46
+        g     55.342      55
+        e     64.438      64
+        i     75.933      75
+    wrote build/word-gaps/shots/word-gaps-demo-paragraph-fs19-w250-x3.png (the reference's rules above, the product's below) and build/word-gaps/shots/word-gaps-demo-paragraph-fs19-w250.png (left, right)
+    demo-math-refused, font size 19, reference:
+      Set            | in             natural 4.01 set 2.89 drawn  1.70 (-1.18) ink 3
+      in             | text           natural 4.01 set 2.89 drawn  3.05 (+0.17) ink 4
+      text           | style,         natural 4.01 set 2.89 drawn  2.70 (-0.18) ink 3
+      style,         | $\frac{1}{2}   natural 4.01 set 2.89 drawn  2.82 (-0.07) ink 3
+      $\frac{1}{2}   | +              natural 8.11 set 5.83 drawn  6.89 (+1.06) ink 8
+      +              | \hat{x}$       natural 8.11 set 5.83 drawn  5.89 (+0.06) ink 6
+      \hat{x}$       | is             natural 4.01 set 2.89 drawn  3.89 (+1.01) ink 5
+      is             | a              natural 4.01 set 2.89 drawn  2.64 (-0.25) ink 3
+      a              | box            natural 4.01 set 2.89 drawn  3.18 (+0.29) ink 5
+      box            | on             natural 4.01 set 2.89 drawn  2.96 (+0.08) ink 3
+      on             | the            natural 4.01 set 2.89 drawn  3.05 (+0.17) ink 4
+      the            | baseline       natural 4.01 set 2.89 drawn  3.41 (+0.52) ink 5
+      among          | the            natural 4.01 set 4.98 drawn  4.90 (-0.08) ink 6
+      the            | words          natural 4.01 set 4.98 drawn  5.41 (+0.43) ink 6
+      words          | of             natural 4.01 set 4.98 drawn  5.64 (+0.66) ink 6
+      of             | its            natural 4.01 set 4.98 drawn  5.37 (+0.39) ink 6
+      its            | sentence,      natural 4.01 set 4.98 drawn  5.64 (+0.66) ink 6
+      sentence,      | and            natural 4.01 set 4.98 drawn  4.82 (-0.16) ink 5
+      and            | the            natural 4.01 set 4.98 drawn  4.86 (-0.12) ink 6
+      the            | line           natural 4.01 set 4.98 drawn  4.41 (-0.57) ink 6
+      line           | breaker        natural 4.01 set 4.98 drawn  5.41 (+0.43) ink 7
+      breaker        | moves          natural 4.01 set 4.98 drawn  4.51 (-0.47) ink 5
+      moves          | it             natural 4.01 set 4.98 drawn  4.64 (-0.34) ink 6
+      the narrowest, "Set" | "in": glyph, its place, its pen
+        S      8.000       8
+        e     17.619      18
+        t     26.208      27
+        i     34.391      34
+    demo-math-refused, font size 19, product:
+      Set            | in             natural 4.01 set 2.89 drawn  2.70 (-0.18) ink 4
+      in             | text           natural 4.01 set 2.89 drawn  3.05 (+0.17) ink 4
+      text           | style,         natural 4.01 set 2.89 drawn  2.70 (-0.18) ink 3
+      style,         | $\frac{1}{2}   natural 4.01 set 2.89 drawn  2.82 (-0.07) ink 3
+      $\frac{1}{2}   | +              natural 8.11 set 5.83 drawn  5.89 (+0.06) ink 7
+      +              | \hat{x}$       natural 8.11 set 5.83 drawn  5.89 (+0.06) ink 6
+      \hat{x}$       | is             natural 4.01 set 2.89 drawn  2.89 (+0.01) ink 4
+      is             | a              natural 4.01 set 2.89 drawn  2.64 (-0.25) ink 3
+      a              | box            natural 4.01 set 2.89 drawn  3.18 (+0.29) ink 5
+      box            | on             natural 4.01 set 2.89 drawn  2.96 (+0.08) ink 3
+      on             | the            natural 4.01 set 2.89 drawn  3.05 (+0.17) ink 4
+      the            | baseline       natural 4.01 set 2.89 drawn  2.41 (-0.48) ink 4
+      among          | the            natural 4.01 set 4.98 drawn  4.90 (-0.08) ink 6
+      the            | words          natural 4.01 set 4.98 drawn  5.41 (+0.43) ink 6
+      words          | of             natural 4.01 set 4.98 drawn  4.64 (-0.34) ink 5
+      of             | its            natural 4.01 set 4.98 drawn  5.37 (+0.39) ink 6
+      its            | sentence,      natural 4.01 set 4.98 drawn  4.64 (-0.34) ink 5
+      sentence,      | and            natural 4.01 set 4.98 drawn  4.82 (-0.16) ink 5
+      and            | the            natural 4.01 set 4.98 drawn  4.86 (-0.12) ink 6
+      the            | line           natural 4.01 set 4.98 drawn  5.41 (+0.43) ink 7
+      line           | breaker        natural 4.01 set 4.98 drawn  5.41 (+0.43) ink 7
+      breaker        | moves          natural 4.01 set 4.98 drawn  4.51 (-0.47) ink 5
+      moves          | it             natural 4.01 set 4.98 drawn  4.64 (-0.34) ink 6
+      the narrowest, "the" | "baseline": glyph, its place, its pen
+        t    382.029     382
+        h    387.325     387
+        e    396.255     396
+        b    407.730     407
+    wrote build/word-gaps/shots/word-gaps-demo-math-refused-fs19-w460-x3.png (the reference's rules above, the product's below) and build/word-gaps/shots/word-gaps-demo-math-refused-fs19-w460.png (left, right)
+    pane, font size 13, reference:
+      The            | breaker        natural 2.75 set 2.56 drawn  2.12 (-0.44) ink 2
+      breaker        | keeps          natural 2.75 set 2.56 drawn  2.25 (-0.32) ink 2
+      keeps          | a              natural 2.75 set 2.56 drawn  1.28 (-1.28) ink 1
+      a              | list           natural 2.75 set 2.56 drawn  2.97 (+0.40) ink 3
+      list           | of             natural 2.75 set 2.56 drawn  1.38 (-1.19) ink 1
+      of             | active         natural 2.75 set 2.56 drawn  3.15 (+0.59) ink 3
+      active         | nodes          natural 2.75 set 2.56 drawn  2.12 (-0.44) ink 2
+      nodes          | and,           natural 2.75 set 2.56 drawn  3.28 (+0.72) ink 3
+      and,           | for            natural 2.75 set 2.56 drawn  2.82 (+0.26) ink 3
+      for            | every          natural 2.75 set 2.56 drawn  2.25 (-0.32) ink 2
+      every          | legal          natural 2.75 set 2.56 drawn  2.75 (+0.19) ink 2
+      legal          | breakpoint,    natural 2.75 set 2.56 drawn  2.31 (-0.25) ink 3
+      breakpoint,    | asks           natural 2.75 set 2.56 drawn  1.82 (-0.74) ink 2
+      asks           | each           natural 2.75 set 2.56 drawn  2.28 (-0.28) ink 2
+      each           | of             natural 2.75 set 2.56 drawn  1.89 (-0.67) ink 2
+      of             | them           natural 2.75 set 2.56 drawn  3.15 (+0.59) ink 3
+      them           | how            natural 2.75 set 2.56 drawn  2.28 (-0.29) ink 3
+      how            | bad            natural 2.75 set 2.56 drawn  2.66 (+0.10) ink 2
+      bad            | the            natural 2.75 set 2.56 drawn  2.74 (+0.18) ink 3
+      the            | line           natural 2.75 set 2.56 drawn  3.12 (+0.56) ink 3
+      from           | there          natural 2.75 set 2.90 drawn  2.28 (-0.62) ink 3
+      there          | to             natural 2.75 set 2.90 drawn  2.12 (-0.77) ink 2
+      to             | here           natural 2.75 set 2.90 drawn  2.67 (-0.22) ink 3
+      here           | would          natural 2.75 set 2.90 drawn  3.12 (+0.23) ink 3
+      would          | be.            natural 2.75 set 2.90 drawn  2.74 (-0.15) ink 3
+      be.            | With           natural 3.66 set 3.81 drawn  4.08 (+0.27) ink 4
+      With           | badness        natural 2.75 set 2.90 drawn  1.89 (-1.01) ink 2
+      badness        | ?,             natural 2.75 set 2.90 drawn  3.28 (+0.38) ink 3  (beside a formula)
+      ?,             | penalty        natural 2.75 set 2.90 drawn  2.82 (-0.08) ink 3
+      penalty        | ?              natural 2.75 set 2.90 drawn  2.75 (-0.15) ink 1  (beside a formula)
+      ?              | and            natural 2.75 set 2.90 drawn  2.25 (-0.64) ink 2  (beside a formula)
+      and            | line           natural 2.75 set 2.90 drawn  3.74 (+0.85) ink 4
+      line           | penalty        natural 2.75 set 2.90 drawn  2.12 (-0.77) ink 2
+      penalty        | ?              natural 2.75 set 2.90 drawn  2.75 (-0.15) ink 2  (beside a formula)
+      ?              | the            natural 2.75 set 2.90 drawn  2.69 (-0.20) ink 3  (beside a formula)
+      the            | demerits       natural 2.75 set 2.90 drawn  2.12 (-0.77) ink 2
+      demerits       | are            natural 2.75 set 2.90 drawn  2.28 (-0.62) ink 2
+      are            | ?=(?+?)2+?2    natural 2.75 set 2.90 drawn  2.12 (-0.77) ink 2  (beside a formula)
+      when           | ??0,           natural 2.75 set 2.75 drawn  2.88 (+0.13) ink 2  (beside a formula)
+      ??0,           | and            natural 2.75 set 2.75 drawn  1.82 (-0.92) ink 2
+      and            | the            natural 2.75 set 2.75 drawn  2.74 (-0.00) ink 3
+      the            | total-fit      natural 2.75 set 2.75 drawn  3.12 (+0.38) ink 3
+      total-fit      | path           natural 2.75 set 2.75 drawn  1.38 (-1.37) ink 1
+      path           | is             natural 2.75 set 2.75 drawn  2.89 (+0.14) ink 3
+      is             | the            natural 2.75 set 2.75 drawn  2.28 (-0.47) ink 2
+      the            | one            natural 2.75 set 2.75 drawn  2.12 (-0.62) ink 2
+      one            | that           natural 2.75 set 2.75 drawn  3.12 (+0.38) ink 3
+      that           | minimises      natural 2.75 set 2.75 drawn  2.38 (-0.37) ink 2
+      minimises      | ????           natural 2.75 set 2.75 drawn  1.28 (-1.47) ink 1  (beside a formula)
+      ????           | over           natural 2.75 set 2.75 drawn  2.66 (-0.09) ink 3  (beside a formula)
+      over           | the            natural 2.75 set 2.75 drawn  3.25 (+0.50) ink 3
+      the            | whole          natural 2.75 set 2.75 drawn  2.12 (-0.62) ink 2
+      whole          | paragraph.     natural 2.75 set 2.75 drawn  3.12 (+0.38) ink 3
+      the narrowest, "keeps" | "a": glyph, its place, its pen
+        k     68.663      69
+        e     74.177      75
+        e     80.054      81
+        p     85.931      87
+        s     92.155      93
+        a    100.438     100
+    pane, font size 13, product:
+      The            | breaker        natural 2.75 set 2.56 drawn  2.12 (-0.44) ink 2
+      breaker        | keeps          natural 2.75 set 2.56 drawn  2.25 (-0.32) ink 2
+      keeps          | a              natural 2.75 set 2.56 drawn  3.28 (+0.72) ink 3
+      a              | list           natural 2.75 set 2.56 drawn  2.97 (+0.40) ink 3
+      list           | of             natural 2.75 set 2.56 drawn  2.38 (-0.19) ink 2
+      of             | active         natural 2.75 set 2.56 drawn  3.15 (+0.59) ink 3
+      active         | nodes          natural 2.75 set 2.56 drawn  2.12 (-0.44) ink 2
+      nodes          | and,           natural 2.75 set 2.56 drawn  2.28 (-0.28) ink 2
+      and,           | for            natural 2.75 set 2.56 drawn  2.82 (+0.26) ink 3
+      for            | every          natural 2.75 set 2.56 drawn  3.25 (+0.68) ink 3
+      every          | legal          natural 2.75 set 2.56 drawn  2.75 (+0.19) ink 2
+      legal          | breakpoint,    natural 2.75 set 2.56 drawn  2.31 (-0.25) ink 3
+      breakpoint,    | asks           natural 2.75 set 2.56 drawn  2.82 (+0.26) ink 3
+      asks           | each           natural 2.75 set 2.56 drawn  3.28 (+0.72) ink 3
+      each           | of             natural 2.75 set 2.56 drawn  2.89 (+0.33) ink 3
+      of             | them           natural 2.75 set 2.56 drawn  2.15 (-0.41) ink 2
+      them           | how            natural 2.75 set 2.56 drawn  2.28 (-0.29) ink 3
+      how            | bad            natural 2.75 set 2.56 drawn  2.66 (+0.10) ink 2
+      bad            | the            natural 2.75 set 2.56 drawn  2.74 (+0.18) ink 3
+      the            | line           natural 2.75 set 2.56 drawn  2.12 (-0.44) ink 2
+      from           | there          natural 2.75 set 2.90 drawn  3.28 (+0.38) ink 4
+      there          | to             natural 2.75 set 2.90 drawn  3.12 (+0.23) ink 3
+      to             | here           natural 2.75 set 2.90 drawn  2.67 (-0.22) ink 3
+      here           | would          natural 2.75 set 2.90 drawn  2.12 (-0.77) ink 2
+      would          | be.            natural 2.75 set 2.90 drawn  2.74 (-0.15) ink 3
+      be.            | With           natural 3.66 set 3.81 drawn  4.08 (+0.27) ink 4
+      With           | badness        natural 2.75 set 2.90 drawn  2.89 (-0.01) ink 3
+      badness        | ?,             natural 2.75 set 2.90 drawn  3.28 (+0.38) ink 3  (beside a formula)
+      ?,             | penalty        natural 2.75 set 2.90 drawn  2.82 (-0.08) ink 3
+      penalty        | ?              natural 2.75 set 2.90 drawn  2.75 (-0.15) ink 1  (beside a formula)
+      ?              | and            natural 2.75 set 2.90 drawn  2.25 (-0.64) ink 2  (beside a formula)
+      and            | line           natural 2.75 set 2.90 drawn  2.74 (-0.15) ink 3
+      line           | penalty        natural 2.75 set 2.90 drawn  3.12 (+0.23) ink 3
+      penalty        | ?              natural 2.75 set 2.90 drawn  2.75 (-0.15) ink 2  (beside a formula)
+      ?              | the            natural 2.75 set 2.90 drawn  2.69 (-0.20) ink 3  (beside a formula)
+      the            | demerits       natural 2.75 set 2.90 drawn  3.12 (+0.23) ink 3
+      demerits       | are            natural 2.75 set 2.90 drawn  2.28 (-0.62) ink 2
+      are            | ?=(?+?)2+?2    natural 2.75 set 2.90 drawn  2.12 (-0.77) ink 2  (beside a formula)
+      when           | ??0,           natural 2.75 set 2.75 drawn  2.88 (+0.13) ink 2  (beside a formula)
+      ??0,           | and            natural 2.75 set 2.75 drawn  2.82 (+0.08) ink 3
+      and            | the            natural 2.75 set 2.75 drawn  2.74 (-0.00) ink 3
+      the            | total-fit      natural 2.75 set 2.75 drawn  2.12 (-0.62) ink 2
+      total-fit      | path           natural 2.75 set 2.75 drawn  2.38 (-0.37) ink 2
+      path           | is             natural 2.75 set 2.75 drawn  2.89 (+0.14) ink 3
+      is             | the            natural 2.75 set 2.75 drawn  2.28 (-0.47) ink 2
+      the            | one            natural 2.75 set 2.75 drawn  3.12 (+0.38) ink 3
+      one            | that           natural 2.75 set 2.75 drawn  3.12 (+0.38) ink 3
+      that           | minimises      natural 2.75 set 2.75 drawn  2.38 (-0.37) ink 2
+      minimises      | ????           natural 2.75 set 2.75 drawn  2.28 (-0.47) ink 2  (beside a formula)
+      ????           | over           natural 2.75 set 2.75 drawn  2.66 (-0.09) ink 3  (beside a formula)
+      over           | the            natural 2.75 set 2.75 drawn  2.25 (-0.50) ink 2
+      the            | whole          natural 2.75 set 2.75 drawn  3.12 (+0.38) ink 3
+      whole          | paragraph.     natural 2.75 set 2.75 drawn  3.12 (+0.38) ink 3
+      the narrowest, "the" | "total-fit": glyph, its place, its pen
+        t     89.358      90
+        h     92.982      94
+        e     99.092     100
+        t    107.715     108
+    wrote build/word-gaps/shots/word-gaps-pane-fs13-w520-x3.png (the reference's rules above, the product's below) and build/word-gaps/shots/word-gaps-pane-fs13-w520.png (left, right)
+    demo-paragraph, font size 17, reference:
+      A              | formula        natural 3.59 set 3.99 drawn  3.54 (-0.45) ink 3
+      formula        | written        natural 3.59 set 3.99 drawn  4.11 (+0.12) ink 4
+      written        | between        natural 3.59 set 3.99 drawn  2.00 (-1.99) ink 3
+      between        | dollar         natural 3.59 set 3.99 drawn  3.00 (-0.99) ink 3
+      dollar         | signs          natural 3.59 set 3.99 drawn  3.09 (-0.90) ink 3
+      is             | set            natural 3.59 set 3.65 drawn  3.52 (-0.13) ink 4
+      set            | by             natural 3.59 set 3.65 drawn  3.26 (-0.39) ink 4
+      by             | the            natural 3.59 set 3.65 drawn  4.14 (+0.49) ink 4
+      the            | math           natural 3.59 set 3.65 drawn  3.31 (-0.33) ink 4
+      math           | engine         natural 3.59 set 3.65 drawn  3.01 (-0.64) ink 3
+      engine         | and            natural 3.59 set 3.65 drawn  2.31 (-1.33) ink 2
+      and            | sits           natural 3.59 set 3.65 drawn  3.82 (+0.17) ink 4
+      sits           | in             natural 3.59 set 3.65 drawn  3.52 (-0.13) ink 5
+      in             | its            natural 3.59 set 3.65 drawn  3.00 (-0.65) ink 4
+      line           | as             natural 3.59 set 3.65 drawn  2.31 (-1.34) ink 2
+      as             | one            natural 3.59 set 3.65 drawn  3.52 (-0.13) ink 4
+      one            | box.           natural 3.59 set 3.65 drawn  4.31 (+0.66) ink 5
+      box.           | The            natural 4.79 set 4.85 drawn  5.18 (+0.33) ink 6
+      The            | subset         natural 3.59 set 3.65 drawn  3.31 (-0.34) ink 3
+      subset         | is             natural 3.59 set 3.65 drawn  4.26 (+0.61) ink 5
+      is             | small          natural 3.59 set 3.65 drawn  3.52 (-0.13) ink 4
+      small          | on             natural 3.59 set 3.65 drawn  3.48 (-0.17) ink 4
+      purpose:       | enough         natural 3.59 set 6.49 drawn  7.49 (+0.99) ink 8
+      enough         | for            natural 3.59 set 6.49 drawn  6.01 (-0.48) ink 6
+      for            | everyday       natural 3.59 set 6.49 drawn  7.09 (+0.60) ink 7
+      everyday       | output,        natural 3.59 set 6.49 drawn  5.14 (-1.36) ink 5
+      with           | no             natural 3.59 set 9.03 drawn  8.01 (-1.02) ink 9
+      no             | macro          natural 3.59 set 9.03 drawn  8.73 (-0.30) ink 10
+      macro          | processor      natural 3.59 set 9.03 drawn  8.73 (-0.30) ink 10
+      processor      | behind         natural 3.59 set 9.03 drawn  9.09 (+0.06) ink 10
+      behind         | it.            natural 3.59 set 9.03 drawn  8.82 (-0.21) ink 10
+      Everything     | on             natural 3.59 set 9.52 drawn  7.86 (-1.66) ink 8
+      on             | this           natural 3.59 set 9.52 drawn 10.00 (+0.47) ink 10
+      this           | page           natural 3.59 set 9.52 drawn  9.52 (-0.00) ink 11
+      page           | is             natural 3.59 set 9.52 drawn  9.31 (-0.21) ink 10
+      is             | ordinary       natural 3.59 set 9.52 drawn  8.52 (-1.00) ink 9
+      text,          | converted      natural 3.59 set 4.15 drawn  3.15 (-1.00) ink 3
+      converted      | with           natural 3.59 set 4.15 drawn  3.82 (-0.33) ink 4
+      with           | math           natural 3.59 set 4.15 drawn  3.01 (-1.14) ink 4
+      math           | switched       natural 3.59 set 4.15 drawn  4.01 (-0.14) ink 4
+      switched       | on,            natural 3.59 set 4.15 drawn  2.82 (-1.33) ink 3
+      which          | is             natural 3.59 set 3.59 drawn  3.01 (-0.58) ink 4
+      is             | off            natural 3.59 set 3.59 drawn  2.52 (-1.07) ink 3
+      off            | unless         natural 3.59 set 3.59 drawn  3.96 (+0.37) ink 4
+      unless         | a              natural 3.59 set 3.59 drawn  3.52 (-0.07) ink 4
+      a              | host           natural 3.59 set 3.59 drawn  3.11 (-0.48) ink 4
+      host           | asks           natural 3.59 set 3.59 drawn  4.26 (+0.67) ink 4
+      asks           | for            natural 3.59 set 3.59 drawn  4.52 (+0.93) ink 5
+      for            | it.            natural 3.59 set 3.59 drawn  4.09 (+0.50) ink 5
+      the narrowest, "written" | "between": glyph, its place, its pen
+        w     75.781      76
+        r     86.682      87
+        i     91.591      92
+        t     95.111      96
+        t     99.850     101
+        e    104.589     106
+        n    112.274     114
+        b    124.266     124
+    demo-paragraph, font size 17, product:
+      A              | formula        natural 3.59 set 3.99 drawn  3.54 (-0.45) ink 3
+      formula        | written        natural 3.59 set 3.99 drawn  4.11 (+0.12) ink 4
+      written        | between        natural 3.59 set 3.99 drawn  5.00 (+1.01) ink 6
+      between        | dollar         natural 3.59 set 3.99 drawn  4.00 (+0.01) ink 4
+      dollar         | signs          natural 3.59 set 3.99 drawn  4.09 (+0.10) ink 4
+      is             | set            natural 3.59 set 3.65 drawn  3.52 (-0.13) ink 4
+      set            | by             natural 3.59 set 3.65 drawn  3.26 (-0.39) ink 4
+      by             | the            natural 3.59 set 3.65 drawn  4.14 (+0.49) ink 4
+      the            | math           natural 3.59 set 3.65 drawn  3.31 (-0.33) ink 4
+      math           | engine         natural 3.59 set 3.65 drawn  4.01 (+0.36) ink 4
+      engine         | and            natural 3.59 set 3.65 drawn  3.31 (-0.33) ink 3
+      and            | sits           natural 3.59 set 3.65 drawn  3.82 (+0.17) ink 4
+      sits           | in             natural 3.59 set 3.65 drawn  3.52 (-0.13) ink 5
+      in             | its            natural 3.59 set 3.65 drawn  4.00 (+0.35) ink 5
+      line           | as             natural 3.59 set 3.65 drawn  3.31 (-0.34) ink 3
+      as             | one            natural 3.59 set 3.65 drawn  3.52 (-0.13) ink 4
+      one            | box.           natural 3.59 set 3.65 drawn  4.31 (+0.66) ink 5
+      box.           | The            natural 4.79 set 4.85 drawn  5.18 (+0.33) ink 6
+      The            | subset         natural 3.59 set 3.65 drawn  3.31 (-0.34) ink 3
+      subset         | is             natural 3.59 set 3.65 drawn  3.26 (-0.39) ink 4
+      is             | small          natural 3.59 set 3.65 drawn  3.52 (-0.13) ink 4
+      small          | on             natural 3.59 set 3.65 drawn  3.48 (-0.17) ink 4
+      purpose:       | enough         natural 3.59 set 6.49 drawn  6.49 (-0.01) ink 7
+      enough         | for            natural 3.59 set 6.49 drawn  6.01 (-0.48) ink 6
+      for            | everyday       natural 3.59 set 6.49 drawn  6.09 (-0.40) ink 6
+      everyday       | output,        natural 3.59 set 6.49 drawn  7.14 (+0.64) ink 7
+      with           | no             natural 3.59 set 9.03 drawn  9.01 (-0.02) ink 10
+      no             | macro          natural 3.59 set 9.03 drawn  8.73 (-0.30) ink 10
+      macro          | processor      natural 3.59 set 9.03 drawn  8.73 (-0.30) ink 10
+      processor      | behind         natural 3.59 set 9.03 drawn  9.09 (+0.06) ink 10
+      behind         | it.            natural 3.59 set 9.03 drawn  8.82 (-0.21) ink 10
+      Everything     | on             natural 3.59 set 9.52 drawn  9.86 (+0.34) ink 10
+      on             | this           natural 3.59 set 9.52 drawn 10.00 (+0.47) ink 10
+      this           | page           natural 3.59 set 9.52 drawn  9.52 (-0.00) ink 11
+      page           | is             natural 3.59 set 9.52 drawn  9.31 (-0.21) ink 10
+      is             | ordinary       natural 3.59 set 9.52 drawn  9.52 (-0.00) ink 10
+      text,          | converted      natural 3.59 set 4.15 drawn  4.15 (+0.00) ink 4
+      converted      | with           natural 3.59 set 4.15 drawn  3.82 (-0.33) ink 4
+      with           | math           natural 3.59 set 4.15 drawn  5.01 (+0.86) ink 6
+      math           | switched       natural 3.59 set 4.15 drawn  4.01 (-0.14) ink 4
+      switched       | on,            natural 3.59 set 4.15 drawn  3.82 (-0.33) ink 4
+      which          | is             natural 3.59 set 3.59 drawn  4.01 (+0.42) ink 5
+      is             | off            natural 3.59 set 3.59 drawn  3.52 (-0.07) ink 4
+      off            | unless         natural 3.59 set 3.59 drawn  3.96 (+0.37) ink 4
+      unless         | a              natural 3.59 set 3.59 drawn  2.52 (-1.07) ink 3
+      a              | host           natural 3.59 set 3.59 drawn  3.11 (-0.48) ink 4
+      host           | asks           natural 3.59 set 3.59 drawn  3.26 (-0.33) ink 3
+      asks           | for            natural 3.59 set 3.59 drawn  3.52 (-0.07) ink 4
+      for            | it.            natural 3.59 set 3.59 drawn  4.09 (+0.50) ink 5
+      the narrowest, "unless" | "a": glyph, its place, its pen
+        u     86.115      87
+        n     94.112      95
+        l    102.116     103
+        e    105.637     107
+        s    113.322     115
+        s    120.802     122
+        a    131.873     132
+    wrote build/word-gaps/shots/word-gaps-demo-paragraph-fs17-w250-x3.png (the reference's rules above, the product's below) and build/word-gaps/shots/word-gaps-demo-paragraph-fs17-w250.png (left, right)
+ok: 1 test(s), 44 check(s), 0 failed check(s) in 0 test(s)

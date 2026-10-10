@@ -1,0 +1,6 @@
+f9612b0bdfb19389f7096cc6c2d401e13dc8a2bd4d0517ca4ffa59061db8f68a  src/draw.cpp
+1805c304b610e4a7dfa57bbfdd04be975c470baec83d23984edc56485d24f917  src/draw.h
+1a139f47d3c9326fba202ed87c5efb2025b0732b4ef7a3a4f2862664188d712f  src/imtypeset_document.cpp
+a186d5b8a884a057dfea3370aaa0019b3a28b4ef73e2a87e280a2d85d9a0e23d  src/blocks.cpp
+e7692fe5af59fb387e81be9a478d767402d4ecf15e58eeff9f9016a6a389d8b5  python/imtypeset/__init__.py
+Sat Oct 10 10:23:14 AM EDT 2026

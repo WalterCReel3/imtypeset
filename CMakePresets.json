@@ -1,0 +1,313 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 21,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "debug",
+            "displayName": "Debug",
+            "description": "Unoptimised, with symbols and ImGui's assertions live. The one to develop against. Also the one that runs the consumer-project test (add_subdirectory and the installed package).",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "IMTYPESET_BUILD_CONSUMER_TESTS": "ON"
+            }
+        },
+        {
+            "name": "release",
+            "inherits": "debug",
+            "displayName": "Release",
+            "description": "Optimised. The one to take a timing from.",
+            "binaryDir": "${sourceDir}/build/release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "IMTYPESET_BUILD_CONSUMER_TESTS": "OFF"
+            }
+        },
+        {
+            "name": "asan",
+            "inherits": "debug",
+            "displayName": "Debug, ASan + UBSan",
+            "description": "Address and undefined-behaviour sanitisers over the library, ImGui and the tests, the one C test included.",
+            "binaryDir": "${sourceDir}/build/asan",
+            "cacheVariables": {
+                "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+                "CMAKE_C_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
+                "IMTYPESET_BUILD_CONSUMER_TESTS": "OFF"
+            }
+        },
+        {
+            "name": "stb",
+            "inherits": "debug",
+            "displayName": "Debug, stb_truetype",
+            "description": "As debug, with ImGui's default rasteriser in place of FreeType. The others use FreeType wherever it is installed.",
+            "binaryDir": "${sourceDir}/build/stb",
+            "cacheVariables": {
+                "IMTYPESET_USE_FREETYPE": "OFF",
+                "IMTYPESET_BUILD_CONSUMER_TESTS": "OFF"
+            }
+        },
+        {
+            "name": "wchar16",
+            "inherits": "debug",
+            "displayName": "Debug, 16-bit ImWchar",
+            "description": "As debug, with ImGui's default 16-bit ImWchar in place of IMGUI_USE_WCHAR32: what a host that brings a stock ImGui has.",
+            "binaryDir": "${sourceDir}/build/wchar16",
+            "cacheVariables": {
+                "IMTYPESET_IMGUI_WCHAR32": "OFF",
+                "IMTYPESET_BUILD_CONSUMER_TESTS": "OFF"
+            }
+        },
+        {
+            "name": "amalgamation",
+            "inherits": "debug",
+            "displayName": "Debug, the drop-in files",
+            "description": "As debug, with the library built from the files tools/amalgamate.py generates (one translation unit for the whole library) and not from src/*.cpp: the suite run against what a drop-in host compiles.",
+            "binaryDir": "${sourceDir}/build/amalgamation",
+            "cacheVariables": {
+                "IMTYPESET_AMALGAMATED": "ON",
+                "IMTYPESET_BUILD_CONSUMER_TESTS": "OFF"
+            }
+        },
+        {
+            "name": "fp-host",
+            "inherits": "release",
+            "displayName": "Release, the drop-in files under a host's floating-point flags",
+            "description": "The one configuration in which the library is NOT compiled with -ffp-contract=off: the drop-in files at -O3 -march=native with the compiler's default contraction and, of this tree's flags, only -fno-exceptions -fno-rtti (which the tests of the C ABI expect to match their own), so that what holds the results is the file's own pragma. The tests and ImGui are compiled as in release. See docs/distribution.md, 'Floating point'.",
+            "binaryDir": "${sourceDir}/build/fp-host",
+            "cacheVariables": {
+                "IMTYPESET_AMALGAMATED": "ON",
+                "IMTYPESET_HOST_FLAGS": "-O3;-march=native;-fno-exceptions;-fno-rtti"
+            }
+        },
+        {
+            "name": "exceptions",
+            "inherits": "asan",
+            "displayName": "ASan + UBSan, exceptions on, a throwing IM_ASSERT",
+            "description": "The library compiled with exceptions and RTTI enabled against an ImGui whose IM_ASSERT throws (tests/imconfig_throwing.h), as Dear ImGui Bundle's Python build is: the configuration in which test_exception_safety does its work.",
+            "binaryDir": "${sourceDir}/build/exceptions",
+            "cacheVariables": {
+                "IMTYPESET_ENABLE_EXCEPTIONS": "ON",
+                "IMTYPESET_IMGUI_USER_CONFIG": "${sourceDir}/tests/imconfig_throwing.h"
+            }
+        },
+        {
+            "name": "bundle-config",
+            "inherits": "debug",
+            "displayName": "Debug, Dear ImGui Bundle's ImGui configuration",
+            "description": "Exceptions on, and ImGui configured by the header Dear ImGui Bundle's Python build uses (throwing IM_ASSERT, 32-bit ImDrawIdx), read in place from ../imgui_bundle. Configuring fails where that checkout is absent.",
+            "binaryDir": "${sourceDir}/build/bundle-config",
+            "cacheVariables": {
+                "IMTYPESET_ENABLE_EXCEPTIONS": "ON",
+                "IMTYPESET_IMGUI_USER_CONFIG": "${sourceDir}/../imgui_bundle/imgui_bundle_cmake/imgui_bundle_config.h",
+                "IMTYPESET_IMGUI_DEFINITIONS": "IMGUI_BUNDLE_BUILD_PYTHON;IMGUI_DISABLE_OBSOLETE_FUNCTIONS;IMTYPESET_TEST_IMGUI_CONFIG_INCLUDES_STL",
+                "IMTYPESET_BUILD_CONSUMER_TESTS": "OFF"
+            }
+        },
+        {
+            "name": "imgui-next",
+            "inherits": "debug",
+            "displayName": "Debug, the Dear ImGui checkout in ../imgui",
+            "description": "As debug, against whatever Dear ImGui is checked out next to this repository (1.93 WIP when this was written) in place of the tested tag. Configuring fails where there is no such checkout, and warns when it is newer than the tested version.",
+            "binaryDir": "${sourceDir}/build/imgui-next",
+            "cacheVariables": {
+                "IMTYPESET_IMGUI_DIR": "${sourceDir}/../imgui",
+                "IMTYPESET_BUILD_CONSUMER_TESTS": "OFF"
+            }
+        },
+        {
+            "name": "python-host",
+            "inherits": "debug",
+            "displayName": "Debug, with python/",
+            "description": "As debug, plus python/: the self-hosted shared library (ImGui, SDL2 and imtypeset in one) and the python_binding test. SDL2 is taken from ../example-project's build tree; configuring fails where that is absent. Position-independent throughout: take no timing here.",
+            "binaryDir": "${sourceDir}/build/python-host",
+            "cacheVariables": {
+                "IMTYPESET_BUILD_PYTHON_HOST": "ON",
+                "IMTYPESET_SDL2_DIR": "${sourceDir}/../example-project/build/desktop-debug",
+                "IMTYPESET_BUILD_CONSUMER_TESTS": "OFF"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug",
+            "jobs": 4
+        },
+        {
+            "name": "release",
+            "configurePreset": "release",
+            "jobs": 4
+        },
+        {
+            "name": "asan",
+            "configurePreset": "asan",
+            "jobs": 4
+        },
+        {
+            "name": "stb",
+            "configurePreset": "stb",
+            "jobs": 4
+        },
+        {
+            "name": "wchar16",
+            "configurePreset": "wchar16",
+            "jobs": 4
+        },
+        {
+            "name": "amalgamation",
+            "configurePreset": "amalgamation",
+            "jobs": 4
+        },
+        {
+            "name": "fp-host",
+            "configurePreset": "fp-host",
+            "jobs": 4
+        },
+        {
+            "name": "exceptions",
+            "configurePreset": "exceptions",
+            "jobs": 4
+        },
+        {
+            "name": "bundle-config",
+            "configurePreset": "bundle-config",
+            "jobs": 4
+        },
+        {
+            "name": "imgui-next",
+            "configurePreset": "imgui-next",
+            "jobs": 4
+        },
+        {
+            "name": "python-host",
+            "configurePreset": "python-host",
+            "jobs": 4
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 4
+            }
+        },
+        {
+            "name": "release",
+            "configurePreset": "release",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 4
+            }
+        },
+        {
+            "name": "asan",
+            "configurePreset": "asan",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 4
+            },
+            "environment": {
+                "ASAN_OPTIONS": "hard_rss_limit_mb=3000",
+                "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"
+            }
+        },
+        {
+            "name": "stb",
+            "configurePreset": "stb",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 4
+            }
+        },
+        {
+            "name": "wchar16",
+            "configurePreset": "wchar16",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 4
+            }
+        },
+        {
+            "name": "amalgamation",
+            "configurePreset": "amalgamation",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 4
+            }
+        },
+        {
+            "name": "fp-host",
+            "configurePreset": "fp-host",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 4
+            }
+        },
+        {
+            "name": "exceptions",
+            "configurePreset": "exceptions",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 4
+            },
+            "environment": {
+                "ASAN_OPTIONS": "hard_rss_limit_mb=3000",
+                "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"
+            }
+        },
+        {
+            "name": "bundle-config",
+            "configurePreset": "bundle-config",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 4
+            }
+        },
+        {
+            "name": "imgui-next",
+            "configurePreset": "imgui-next",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 4
+            }
+        },
+        {
+            "name": "python-host",
+            "configurePreset": "python-host",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 4
+            }
+        }
+    ]
+}

@@ -1,0 +1,13 @@
+[from builder-2] oracle-core revision in place: port-hazards cases added, additive only (593 cases, verify 6612 ok)
+Regenerated tests/golden/core (593 cases, 4.37 MB), byte-identical across two runs, `dump_core.py --verify` 6612 replayed checks ok. Diff against the first version: zero removed lines in all seven files — only additions — so anything already reading them is unaffected except for the new tags.
+
+Added, per your note:
+- `rchar <font> <codepoint> <original>` node tag for markdown.ReplacedChar (FORMAT.md section 3). Occurs only in paragraphs.golden cases `stand-in-characters` and `stand-in-characters-in-code` (12 records; U+FFFD in prose standing for U+6F22, U+5B57, U+1F600; borrowed arrows/pi are plain `char` in another face's key). It must survive hpack/break into line boxes; verify compares with ReplacedChar reconstructed, so that is pinned.
+- units case `non-finite-and-huge`: records `raises <fn> <valueerror|overflowerror|zerodivisionerror> args...` and `beyond_int64 <fn> <decimal-string> args...`, plus ordinary px_from_sp records whose floats are nan/inf. What Python does: round(nan) ValueError, round(+-inf) OverflowError, px_per_inch 0.0 ZeroDivisionError in sp_from_px but px_from_sp(x, 0.0) is 0.0 and px_from_sp(0, inf) is nan (no raise). These are the only core records a port is not expected to reproduce literally; FORMAT.md says so.
+- linebreak: `ties-survivor-against-created-and-across-line-counts` and `ties-showcase-every-line-free`. The script PROVES the two situations occur rather than hoping: a probe subclass of the reference's _Breaker asserts (a) a survivor and a just-created active with equal line number and equal demerits both feasible at a breakpoint, and (b) with line_penalty=0 and a fil right skip, the minimum total held by chains of different line counts at the end. Observed outcome for (b): fewest lines wins (matches your hazard #4).
+- `glue-penalty-glue` (8 runs); showcase runs right-skip/left-skip/par-fill-skip with FIL-order shrink (skips are not made finite: narrow lines come back non-overfull), left_skip=GlueSpec(stretch=1) total-fit and first-fit, and left_skip with FIL order but zero amount (also != GlueSpec(), so also inserted).
+Already present before: atom in atom, glue inside atom, RUNNING rules both directions, empty lists, Disc replace_count 0/1/2.
+
+Not done: I did not rename anything or split files for oracle-para; it can reuse sections 1-4 as they stand.
+
+Index again: tools/oracle/dump_core.py and FORMAT.md now show as STAGED (AM) although I removed my index entry earlier and have not run git add since — another agent or a hook is staging files it does not own. D4 is not holding.

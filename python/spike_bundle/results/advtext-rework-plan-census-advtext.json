@@ -1,0 +1,187 @@
+{
+ "files": {
+  "columns.md": {
+   "bytes": 9033,
+   "blocks": 29,
+   "imtypeset_blocks": 29,
+   "styles": 6,
+   "walked": {
+    "RuleBlock": 1,
+    "TextBlock HEADING_1": 1,
+    "TextBlock HEADING_2": 4,
+    "TextBlock ORDERED_ITEM": 3,
+    "TextBlock PARAGRAPH": 18,
+    "TextBlock QUOTE": 2,
+    "blocks quoted more than one deep": 1,
+    "kerns dropped (imtypeset kerns for itself)": 436,
+    "list markers": 3,
+    "node CharNode": 7210,
+    "node Glue": 1657,
+    "node Kern": 436
+   },
+   "misfits": {}
+  },
+  "math.md": {
+   "bytes": 5662,
+   "blocks": 33,
+   "imtypeset_blocks": 33,
+   "styles": 8,
+   "walked": {
+    "TextBlock BULLET_ITEM": 2,
+    "TextBlock HEADING_1": 1,
+    "TextBlock HEADING_2": 9,
+    "TextBlock HEADING_3": 1,
+    "TextBlock PARAGRAPH": 18,
+    "TextBlock QUOTE": 1,
+    "formulas set (an explicit Formula run)": 26,
+    "kerns dropped (imtypeset kerns for itself)": 212,
+    "links (Run.tag into a host table)": 1,
+    "list markers": 2,
+    "node Box": 26,
+    "node CharNode": 3853,
+    "node Glue": 898,
+    "node Kern": 212
+   },
+   "misfits": {
+    "TableBlock (no table in the core: a Host block the view must draw)": 1,
+    "links whose range also carries a styled run (two runs over one range)": 0,
+    "table cells (each its own run list, links and formulas)": 6
+   }
+  },
+  "sample.md": {
+   "bytes": 5513,
+   "blocks": 37,
+   "imtypeset_blocks": 37,
+   "styles": 9,
+   "walked": {
+    "CodeBlock": 1,
+    "RuleBlock": 1,
+    "TextBlock BULLET_ITEM": 3,
+    "TextBlock HEADING_1": 1,
+    "TextBlock HEADING_2": 3,
+    "TextBlock HEADING_3": 2,
+    "TextBlock ORDERED_ITEM": 15,
+    "TextBlock PARAGRAPH": 9,
+    "TextBlock QUOTE": 1,
+    "code blocks naming a language (kept by the host; advtext does not draw it)": 1,
+    "code lines": 4,
+    "kerns dropped (imtypeset kerns for itself)": 291,
+    "links (Run.tag into a host table)": 1,
+    "list markers": 18,
+    "node CharNode": 3918,
+    "node Glue": 799,
+    "node Kern": 291
+   },
+   "misfits": {
+    "TableBlock (no table in the core: a Host block the view must draw)": 1,
+    "links whose range also carries a styled run (two runs over one range)": 0,
+    "table cells (each its own run list, links and formulas)": 21
+   }
+  },
+  "stream.md": {
+   "bytes": 2528,
+   "blocks": 25,
+   "imtypeset_blocks": 25,
+   "styles": 8,
+   "walked": {
+    "CodeBlock": 3,
+    "RuleBlock": 1,
+    "TextBlock BULLET_ITEM": 3,
+    "TextBlock HEADING_1": 1,
+    "TextBlock HEADING_2": 3,
+    "TextBlock ORDERED_ITEM": 4,
+    "TextBlock PARAGRAPH": 7,
+    "TextBlock QUOTE": 2,
+    "code blocks naming a language (kept by the host; advtext does not draw it)": 2,
+    "code lines": 5,
+    "kerns dropped (imtypeset kerns for itself)": 98,
+    "list markers": 6,
+    "node CharNode": 1642,
+    "node Glue": 348,
+    "node Kern": 98,
+    "node Penalty": 3
+   },
+   "misfits": {
+    "TableBlock (no table in the core: a Host block the view must draw)": 1,
+    "table cells (each its own run list, links and formulas)": 9
+   }
+  },
+  "tables.md": {
+   "bytes": 4253,
+   "blocks": 18,
+   "imtypeset_blocks": 18,
+   "styles": 4,
+   "walked": {
+    "TextBlock HEADING_1": 1,
+    "TextBlock HEADING_2": 5,
+    "TextBlock PARAGRAPH": 7,
+    "kerns dropped (imtypeset kerns for itself)": 95,
+    "node CharNode": 1286,
+    "node Glue": 296,
+    "node Kern": 95
+   },
+   "misfits": {
+    "TableBlock (no table in the core: a Host block the view must draw)": 5,
+    "table cells (each its own run list, links and formulas)": 83
+   }
+  },
+  "themes.md": {
+   "bytes": 1904,
+   "blocks": 15,
+   "imtypeset_blocks": 15,
+   "styles": 8,
+   "walked": {
+    "CodeBlock": 2,
+    "RuleBlock": 1,
+    "TextBlock HEADING_1": 1,
+    "TextBlock HEADING_2": 2,
+    "TextBlock ORDERED_ITEM": 3,
+    "TextBlock PARAGRAPH": 4,
+    "TextBlock QUOTE": 1,
+    "code blocks naming a language (kept by the host; advtext does not draw it)": 2,
+    "code lines": 9,
+    "kerns dropped (imtypeset kerns for itself)": 53,
+    "links (Run.tag into a host table)": 2,
+    "list markers": 3,
+    "node CharNode": 912,
+    "node Glue": 195,
+    "node Kern": 53
+   },
+   "misfits": {
+    "TableBlock (no table in the core: a Host block the view must draw)": 1,
+    "links whose range also carries a styled run (two runs over one range)": 0,
+    "table cells (each its own run list, links and formulas)": 10
+   }
+  }
+ },
+ "total": {
+  "walked": {
+   "CodeBlock": 6,
+   "RuleBlock": 4,
+   "TextBlock BULLET_ITEM": 8,
+   "TextBlock HEADING_1": 6,
+   "TextBlock HEADING_2": 26,
+   "TextBlock HEADING_3": 3,
+   "TextBlock ORDERED_ITEM": 25,
+   "TextBlock PARAGRAPH": 63,
+   "TextBlock QUOTE": 7,
+   "blocks quoted more than one deep": 1,
+   "code blocks naming a language (kept by the host; advtext does not draw it)": 5,
+   "code lines": 18,
+   "formulas set (an explicit Formula run)": 26,
+   "kerns dropped (imtypeset kerns for itself)": 1185,
+   "links (Run.tag into a host table)": 4,
+   "list markers": 32,
+   "node Box": 26,
+   "node CharNode": 18821,
+   "node Glue": 4193,
+   "node Kern": 1185,
+   "node Penalty": 3
+  },
+  "misfits": {
+   "TableBlock (no table in the core: a Host block the view must draw)": 9,
+   "links whose range also carries a styled run (two runs over one range)": 0,
+   "table cells (each its own run list, links and formulas)": 129
+  }
+ }
+}

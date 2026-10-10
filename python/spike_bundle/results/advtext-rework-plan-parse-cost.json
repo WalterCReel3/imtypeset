@@ -1,0 +1,74 @@
+{
+ "file": "sample.md",
+ "unit": "ms, (median, min) of 7",
+ "rows": [
+  {
+   "repeat": 1,
+   "bytes": 5513,
+   "blocks": 37,
+   "markdown_it": [
+    3.688,
+    3.551
+   ],
+   "build": [
+    18.169,
+    17.121
+   ],
+   "describe": [
+    3.217,
+    3.128
+   ]
+  },
+  {
+   "repeat": 5,
+   "bytes": 27573,
+   "blocks": 185,
+   "markdown_it": [
+    17.253,
+    16.99
+   ],
+   "build": [
+    92.447,
+    81.992
+   ],
+   "describe": [
+    14.678,
+    14.547
+   ]
+  },
+  {
+   "repeat": 10,
+   "bytes": 55148,
+   "blocks": 370,
+   "markdown_it": [
+    34.287,
+    33.954
+   ],
+   "build": [
+    314.601,
+    241.458
+   ],
+   "describe": [
+    44.09,
+    43.395
+   ]
+  },
+  {
+   "repeat": 20,
+   "bytes": 110298,
+   "blocks": 740,
+   "markdown_it": [
+    99.813,
+    92.204
+   ],
+   "build": [
+    490.356,
+    401.429
+   ],
+   "describe": [
+    87.224,
+    84.29
+   ]
+  }
+ ]
+}

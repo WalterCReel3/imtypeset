@@ -1,0 +1,9 @@
+# What the bundle-hosted library exports: the C ABI and the one check of
+# imtypeset_bundle_shim.cpp. Its Dear ImGui is not in it.
+{
+    global:
+        ImTypeset_*;
+        ImTypesetBundle_*;
+    local:
+        *;
+};
