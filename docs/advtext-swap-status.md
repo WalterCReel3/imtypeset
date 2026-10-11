@@ -7,18 +7,15 @@ States: **done**, **in progress**, **queued**, **declined** (with the reason),
 **needs the user**. A decision an agent took is marked *agent decision*; the
 user is the only one who moves the border.
 
-Last updated: 2026-10-11, by task `tables-fixes`, on a working tree after `ce4d66d` that is NOT
-YET A COMMIT: the coordinating session commits it and names the commit under "Build from". Until
-a commit is named there, what this file says under "After `ce4d66d`" and in the two "Known
-defects" sections describes that tree and not anything you can build from. Next: all presets
-from clean.
+Last updated: 2026-10-11, after commit `7a7bc36`: every numbered item is committed, with the fixes
+from the reviews. Next: all presets from clean (task `swap-gate`).
 
 ## Build from
 
 | | |
 |---|---|
-| commit | **`92847e6`** on `main` ("Tell a role's font from a host's at the same address; hold the specimen exactly"). Before it: `0b21807` (columns), `be40444` (tables, DiffView requests), `12d77ac`, `5654eee` (the tree the release gate passed) |
-| what it is | `5654eee` (every preset from clean) plus items 2 to 7 and the fixes of D59. On `92847e6` an export of the commit was built in debug and passed 50 of 50; its builder ran debug, ASan+UBSan and release in private directories. The eleven presets have not been run from clean since `5654eee`. Library and package must come from one commit (the probe has two new rows) |
+| commit | **`7a7bc36`** on `main` ("Fix the position layer of tables and columns"). Before it: `92847e6`, `0b21807` (columns), `be40444` (tables, DiffView requests), `12d77ac`, `5654eee` (the tree the release gate passed) |
+| what it is | `5654eee` (every preset from clean) plus items 2 to 7 and the fixes of D59 to D64. On `7a7bc36` an export of the commit was built in debug and passed 50 of 50; its builder ran debug, ASan+UBSan, release, stb and 16-bit in private directories. The eleven presets have not been run from clean since `5654eee`: that run is next. Library and package must come from one commit |
 | how | `python/host/build_bundle_library.sh` as before; one library per interpreter |
 | pushed? | no — the session cannot reach the network; the local repository has it |
 
@@ -137,7 +134,7 @@ functions. What a caller can notice:
 | the demo window's state | `ShowDemoWindow`, `ShowDemoSection` | kept for the 32 contexts it was last shown in (was 8). Past 32 LIVE contexts shown in turn, a context's demo starts over each turn and leaves the handles it had made in that context; the window says so under Known limits |
 | `CalcTextSize` | header comment | says what it always did: whole pixels, rounded up |
 
-**After `ce4d66d`** (task `tables-fixes`; D60 to D64; **not yet committed**). No declaration was
+**In `7a7bc36`** (task `tables-fixes`; D60 to D64). No declaration was
 added, removed or changed in `imtypeset.h`, `imtypeset_c.h` or the Python package: the layout
 checks and the gate's probe are what they were. Behaviour changed, all of it in tables and in
 columns:
@@ -547,7 +544,7 @@ plain text); the count of atoms and glyphs per pane. What a gallery cannot be
 without advtext: nothing. The demo's stream is a paragraph re-given as bytes
 arrive, not `advtext.stream`'s commit policies, which stay advtext's.
 
-## Known defects in tables at `be40444`: all fixed by task `tables-fixes` (not yet committed)
+## Known defects in tables at `be40444`: all fixed in `7a7bc36` (task `tables-fixes`)
 
 Each was reproduced by running before it was changed and is held by a test now. `docs/decisions.md`
 D60 to D62 and D64 have the measurements. The workarounds this section gave are no longer needed
@@ -587,7 +584,7 @@ table sets every row; text written with NOTHING between two cells cannot have a 
 of the earlier cell (the header says what happens instead); a table narrower than its longest
 words is wider than the document.
 
-## Known defects in columns at `0b21807`: fixed by task `tables-fixes` (not yet committed)
+## Known defects in columns at `0b21807`: fixed in `7a7bc36` (task `tables-fixes`)
 
 Each was reproduced by running first (seven new tests of `tests/test_api_columns.cpp` fail on
 `ce4d66d` and pass now; one of `tests/test_columns.cpp`). `docs/decisions.md` D63.
