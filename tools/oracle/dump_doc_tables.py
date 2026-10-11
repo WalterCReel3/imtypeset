@@ -37,14 +37,24 @@ Golden files
                      out in, and which units were built
 
 What the script asserts while it dumps (a failure writes nothing): every index
-a table owns lies in exactly one cell; `map_table` puts each cell's material in
-that cell's range; a table that is not sized by the view is set to
-`table_columns`; a colour span set on a table changes nothing that is drawn.
+a table owns lies in exactly one cell and every cell box owns at least one;
+no index of a cell with no material has a byte; `map_table` puts each cell's
+material in that cell's range; a table that is not sized by the view is set to
+`table_columns`; every row of a table in a stream has as many cells as the
+table has columns; a colour span set on a table changes nothing that is drawn.
+
+Which fields are the reference's own return values and which this script
+works out from them is FORMAT-doc-tables.md §0. A caret's position is the
+second kind.
+
+Every group is dumped in memory and every `advtext` module then loaded is
+checked against the pinned tree before the first file is written.
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import sys
 import types
 from collections.abc import Sequence
@@ -272,6 +282,7 @@ def table_map(layout: U.UnitLayout, doc_blocks: Sequence[Any], contents: dict[in
                 held: list[tuple[int, int, int]] = []
                 for c, cell_box in enumerate(cell_boxes):
                     count = spans.index_count(cell_box)
+                    assert count >= 1, "a cell box owns an index even when the cell is empty"
                     for index in range(cursor, cursor + count):
                         assert base.owner[index] == number and index not in cell_of
                         cell_of[index] = (r, c)
@@ -300,6 +311,13 @@ def table_map(layout: U.UnitLayout, doc_blocks: Sequence[Any], contents: dict[in
                         index = mapped.base + local_index + k
                         assert cell_of[index] == (r, c), "map_table and the cell boxes agree"
                         base.where[index] = found
+            for found_row in geom.rows[rows_before:]:
+                for c, low, high in found_row.cells:
+                    cells_ = whole[found_row.row]
+                    if c >= len(cells_) or not cells_[c].material:
+                        assert not any(index in base.where for index in range(low, high)), (
+                            "no index of a cell with no material has a byte"
+                        )
     return TMap(base, cell_of, tables)
 
 
@@ -492,8 +510,26 @@ def emit_decorations(w: Writer, doc: X.Doc, cells: CellContents, view: bv.BareVi
             w.r("rect", rect.x, rect.y, rect.width, rect.height)
 
 
+def without_headers(doc: X.Doc) -> X.Doc:
+    """
+    `doc` with the header row of every table taken away: the rows that were
+    its body are the whole table. Markdown cannot write a table without a
+    header and a host that builds its blocks can, so the document is built
+    from markdown and the block changed in memory, before anything is laid
+    out. Block numbers, and so `doc.contents`, are as they were.
+    """
+    blocks = tuple(
+        dataclasses.replace(block, header=()) if isinstance(block, TableBlock) else block
+        for block in doc.document.blocks
+    )
+    assert any(isinstance(block, TableBlock) and block.rows for block in blocks)
+    return X.Doc(doc.theme, dataclasses.replace(doc.document, blocks=blocks), doc.capture, doc.contents)
+
+
 def run_tdoc(w: Writer, inputs: Sequence[Row]) -> None:
     doc = X.build_doc(inputs)
+    if rows_of(inputs, "dropheader"):
+        doc = without_headers(doc)
     cells = cell_contents(doc.document.blocks, RunIndex(doc.capture))
     emit_tblocks(w, doc, cells)
     seed = int(one(inputs, "seed")[1])
@@ -578,6 +614,9 @@ def run_tstream(w: Writer, inputs: Sequence[Row]) -> None:
                 state = "committed" if index < committed else "live"
                 if isinstance(block, TableBlock):
                     rows = ui._table_rows(block)
+                    # `stable` carries one cell count for the table and none
+                    # per row: the converter gives every row the header's.
+                    assert len({len(cells_) for cells_ in rows}) <= 1, "no row of a table in a stream is ragged"
                     changed: list[str] = []
                     for r, cells_ in enumerate(rows):
                         for c, cell in enumerate(cells_):
@@ -697,17 +736,54 @@ IN_A_LIST = """- An item before.
 """
 
 
+NO_HEADER = """A paragraph before a table that is given no header row.
+
+| Name | What it does | Link |
+|:-----|:------------:|-----:|
+| `hpack` | measures a list | [tex](https://example.org/t) |
+| vpack | stacks lines, in a cell long enough to wrap when the measure is narrow |  |
+|  | empty first | last |
+
+After it.
+"""
+
+WRAPPED_EMPTY = """Before.
+
+| Left | Middle | Right |
+|:-----|:------:|------:|
+| a first cell with enough words in it to wrap at this measure |  | and a last cell that also has more than one line of words |
+|  | only the middle cell of this row has any text, and it wraps |  |
+| the last cell of this row is the empty one, after two that wrap | a middle cell long enough to wrap as well |  |
+|  |  | the two before this one are empty and this one is long enough to wrap by itself |
+| short |  | row |
+
+After.
+"""
+
+AS_IT_STANDS = """Die Straße ist lang, die strasse nicht; STRASSE in capitals.
+
+| word | note |
+|------|------|
+| straße | lower case, with a sharp s |
+| Straße und STRASSE | both in one cell |
+| strasse | no sharp s, so this cell folds |
+| STRA | the needle itself |
+"""
+
+
 def demo(name: str) -> str:
     return (pinned_reference.ROOT_DIR / "demo" / name).read_text(encoding="utf-8")
 
 
 def tdoc_inputs(source: str, px: float, align: Align, widths: Sequence[float], *, seed: int,
-                needles: Sequence[tuple[str, bool]] = (), styled: bool = True) -> list[Row]:  # fmt: skip
+                needles: Sequence[tuple[str, bool]] = (), styled: bool = True,
+                drop_header: bool = False) -> list[Row]:  # fmt: skip
     return [
         row("markdown", True, False, q(source)),
         row("themein", px, align),
         row("seed", seed),
         row("links", styled),
+        *([row("dropheader")] if drop_header else []),
         *[row("needle", fold, q(needle)) for needle, fold in needles],
         *[row("width", q(f"ui-{width:g}px"), float(width)) for width in widths],
     ]
@@ -732,6 +808,17 @@ def selection_cases() -> list[tuple[str, str, list[Row]]]:
         ("demo-tables", "tdoc",
          tdoc_inputs(demo("tables.md"), 16.0, Align.JUSTIFY, (360.0, 660.0), seed=36,
                      needles=(("column", False), ("Column", True), ("ctan", False)))),
+        # Cases after this line were added later. A case is only ever appended:
+        # the records of those above are what a replay already reads.
+        ("no-header", "tdoc",
+         tdoc_inputs(NO_HEADER, 16.0, Align.JUSTIFY, (240.0, 700.0), seed=37, drop_header=True,
+                     needles=(("measures", False), ("LAST", True), ("Name", False)))),
+        ("wrapped-empty-cell", "tdoc",
+         tdoc_inputs(WRAPPED_EMPTY, 16.0, Align.JUSTIFY, (260.0, 420.0), seed=38, needles=(("wrap", False),))),
+        ("find-as-it-stands", "tdoc",
+         tdoc_inputs(AS_IT_STANDS, 16.0, Align.JUSTIFY, (520.0,), seed=39,
+                     needles=(("STRA", True), ("stra", True), ("STRA", False), ("STRASSE", True), ("straße", True),
+                              ("ß", True), ("SS", True)))),
     ]  # fmt: skip
 
 
@@ -823,11 +910,13 @@ def main() -> int:
     args = parser.parse_args()
     chosen = [name for name in GROUPS if not args.only or name in args.only.split(",")]
     assert chosen, "no such group"
+    dumped = [(name, dump(name)) for name in chosen]
+    # After the last import a dump makes and before the first byte is written.
+    pinned_reference.require_all_modules()
     if not args.check:
         OUT_DIR.mkdir(parents=True, exist_ok=True)
     status = 0
-    for name in chosen:
-        w = dump(name)
+    for name, w in dumped:
         text = w.text()
         path = OUT_DIR / f"{name}.golden"
         if args.check:
@@ -837,7 +926,6 @@ def main() -> int:
         else:
             path.write_text(text, encoding="utf-8", newline="\n")
             print(f"{name}.golden: {w.cases} cases, {len(w.lines)} lines, {len(text.encode('utf-8'))} bytes")
-    pinned_reference.require_all_modules()
     return status
 
 

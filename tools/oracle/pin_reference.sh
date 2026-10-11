@@ -22,9 +22,9 @@
 # script exits without extracting.
 #
 # REFERENCE.lock is tracked. It holds the commit, the tree, and one SHA-256
-# over the SHA-256 of every file of the archive, so a pinned tree can be
-# verified with no access to ../imgui-adv-text at all. Once it exists, an
-# extraction that does not reproduce it is refused.
+# over the SHA-256 of every file and symbolic link of the archive, so a pinned
+# tree can be verified with no access to ../imgui-adv-text at all. Once it
+# exists, an extraction that does not reproduce it is refused.
 #
 # What is NOT pinned: the interpreter and its libraries. They stay
 # ../imgui-adv-text/.venv (a virtual environment is not history: no commit
@@ -51,12 +51,22 @@ esac
 
 die() { echo "pin_reference: $*" >&2; exit 1; }
 
-# `<sha256>  <path>` for every file under $1 but the stamp, sorted by path in
-# the C locale; and the SHA-256 of that listing. pinned_reference.py computes
-# the same two things.
+# `<sha256>  <path>` for every file and symbolic link under $1 but the stamp,
+# sorted by path in the C locale; and the SHA-256 of that listing. A file is
+# hashed as its bytes; a link as `symlink`, a NUL and where it points, and is
+# not followed. pinned_reference.py (`tree_digest`) computes the same two
+# things the same way, links included.
 listing() {
-    (cd "$1" && find . -type f ! -path ./.pinned-commit -printf '%P\0' \
-        | LC_ALL=C sort -z | xargs -0 sha256sum)
+    (cd "$1" && find . \( -type f -o -type l \) ! -path ./.pinned-commit -printf '%P\0' \
+        | LC_ALL=C sort -z \
+        | while IFS= read -r -d '' path; do
+              if [ -L "$path" ]; then
+                  sum="$({ printf 'symlink\0'; readlink -n -- "$path"; } | sha256sum)"
+              else
+                  sum="$(sha256sum < "$path")"
+              fi
+              printf '%s  %s\n' "${sum%% *}" "$path"
+          done)
 }
 digest_of() { listing "$1" | sha256sum | cut -d' ' -f1; }
 count_of() { listing "$1" | wc -l; }

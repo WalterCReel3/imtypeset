@@ -77,6 +77,7 @@ WRITERS: dict[str, tuple[str, ...]] = {
     "para": ("dump_para.py",),
     "para-map": ("dump_para_map.py",),
     "selection": ("dump_selection.py",),
+    "specimen": ("dump_specimen.py",),
     "tables": ("dump_tables.py",),
 }
 

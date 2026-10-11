@@ -437,3 +437,16 @@ requirements, FS-S3 = inventory: check for them); a reviewer after tables-core; 
 (all presets from clean) and a commit named in the status file after each landed stage.
 Git: the LEAD commits at stage boundaries, no attribution; stage by explicit file list — the repo
 root holds sandbox device dot-files (.idea .vscode .zprofile .zshrc …) that `git add -A` trips on.
+
+## Swap state (lead, 2026-10-11 early)
+
+Commits: 5654eee (gate), 12d77ac (oracle pin, API answers, galleries), 25dedc5 (status file names
+12d77ac). Local; the user pushes. DONE: oracle-freeze, swap-api-answers, galleries, review-5-swap
+(`.concerns/review-5-swap--reviewer--findings.md`). RUNNING: tables-core (stage 0 first: DiffView's
+exact line height R1, FaceHasGlyph R1b, FS-S2 notes, the null-draw-list crash F2; scope
+`.concerns/tables-core--lead--scope.md`; commit and name each landed stage in
+docs/advtext-swap-status.md), oracle-fixes (additive only to tests/golden/doc-tables).
+QUEUED: columns-core -> swap-fixes. Then a gate: all eleven presets from clean, and a commit.
+NEEDS THE USER: item 8 (SVG litmus output), the mathtext page, plus the open decisions listed above.
+Backups: build/advtext-reference (the pin — never delete), .deps/advtext-docs (tex.web and four
+reference documents, untracked in the sibling).

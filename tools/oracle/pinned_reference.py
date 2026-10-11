@@ -13,11 +13,19 @@ layout core is not in it.
 
   - build/advtext-reference is missing, or its stamp names another commit
     than REFERENCE.lock;
-  - a file in it was added, removed or edited (one SHA-256 over the SHA-256 of
-    every file, compared with the lock);
+  - a file or a symbolic link in it was added, removed or edited (one SHA-256
+    over the SHA-256 of every one, compared with the lock; a link is hashed
+    as where it points and is never followed);
   - `import advtext` resolves anywhere else. The reference's interpreter has
     an editable install of ../imgui-adv-text, so that is what a run without
     PYTHONPATH=build/advtext-reference imports;
+  - any `advtext` module is found anywhere else, at the moment it is
+    imported. `require()` puts a finder first on `sys.meta_path` that looks
+    at where each `advtext` or `advtext.*` module is about to be loaded from
+    and exits before it is. A script therefore never runs a line of a module
+    from outside the pinned tree, whichever of its imports would have reached
+    one and however late: nothing has been dumped with it, and nothing is
+    written after it;
   - the interpreter was started without -B / PYTHONDONTWRITEBYTECODE, which
     would have it write __pycache__ into the pinned tree.
 
@@ -35,8 +43,11 @@ The invocation, from the repository root:
 from __future__ import annotations
 
 import hashlib
+import os
 import sys
+from importlib.machinery import ModuleSpec
 from pathlib import Path
+from types import ModuleType
 
 ROOT = Path(__file__).resolve().parents[2]
 ROOT_DIR = ROOT / "build" / "advtext-reference"
@@ -71,21 +82,38 @@ def _fields(path: Path) -> dict[str, str]:
     return out
 
 
+LINK_PREFIX = b"symlink\0"
+
+
 def tree_digest(root: Path) -> tuple[int, str]:
     """
-    The number of files under `root`, the stamp aside, and the SHA-256 of the
-    listing `<sha256>  <path>` of them sorted by path as bytes: what
-    pin_reference.sh computes with find, sort and sha256sum.
+    The number of files and symbolic links under `root`, the stamp aside, and
+    the SHA-256 of the listing `<sha256>  <path>` of them sorted by path as
+    bytes: what pin_reference.sh computes with find, sort and sha256sum.
+
+    A regular file is hashed as its bytes. A symbolic link -- to a file, to a
+    directory, or to nothing -- is one entry, hashed as `symlink`, a NUL and
+    where it points, and is not followed: what is behind it is not in the
+    tree. Both walks do exactly this, so a link added to the pinned tree
+    changes the digest in both and a tree with none hashes as its files alone.
+    Anything else (a directory, a socket, a FIFO) is no entry in either.
     """
-    paths = sorted(
-        (path.relative_to(root).as_posix().encode("utf-8"), path)
-        for path in root.rglob("*")
-        if path.is_file() and path != root / STAMP.name
-    )
+    entries: list[tuple[bytes, Path]] = []
+    for here, directories, files in os.walk(root, followlinks=False):
+        for name in (*directories, *files):
+            path = Path(here) / name
+            if path == root / STAMP.name:
+                continue
+            if path.is_symlink() or path.is_file():
+                entries.append((os.fsencode(path.relative_to(root).as_posix()), path))
     listing = hashlib.sha256()
-    for name, path in paths:
-        listing.update(hashlib.sha256(path.read_bytes()).hexdigest().encode("ascii") + b"  " + name + b"\n")
-    return len(paths), listing.hexdigest()
+    for name, path in sorted(entries):
+        if path.is_symlink():
+            digest = hashlib.sha256(LINK_PREFIX + os.fsencode(os.readlink(path))).hexdigest()
+        else:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        listing.update(digest.encode("ascii") + b"  " + name + b"\n")
+    return len(entries), listing.hexdigest()
 
 
 def lock() -> dict[str, str]:
@@ -125,38 +153,117 @@ def require() -> dict[str, str]:
 
     already = sys.modules.get("advtext")
     if already is None:
+        _install_guard()
         try:
             import advtext as already  # noqa: PLC0415 - the import is the thing being checked
         except ImportError as error:
             _refuse(f"`import advtext` failed ({error}); PYTHONPATH must be {SHOWN}")
-    origin = Path(getattr(already, "__file__", None) or "/nonexistent").resolve()
+    _verified = locked
+    _install_guard()
+    # What was imported before the guard was there to see it.
+    require_all_modules()
+    return locked
+
+
+def _is_ours(name: str) -> bool:
+    return name == "advtext" or name.startswith("advtext.")
+
+
+def _inside(location: str | None) -> bool:
+    if not location:
+        return False
     package = (ROOT_DIR / "advtext").resolve()
-    if package not in origin.parents:
-        _refuse(
-            f"`advtext` was imported from {origin.parent}, not from {SHOWN}/advtext. "
-            f"PYTHONPATH must be {SHOWN} (without it the interpreter's editable install of "
+    found = Path(location).resolve()
+    return found == package or package in found.parents
+
+
+def _outside(name: str, origin: str | None, locations: list[str] | None) -> str | None:
+    """
+    Where module `name` is from if that is not the pinned tree, else None.
+    `origin` is its file; `locations` what a package searches for submodules.
+    A module with neither cannot be placed, and is refused as such.
+    """
+    places = [origin] if origin else []
+    places += list(locations or ())
+    if not places:
+        return "nowhere on disk (no file and no search path)"
+    for place in places:
+        if not _inside(place):
+            return place
+    return None
+
+
+def _refuse_module(name: str, where: str) -> None:
+    hint = ""
+    if name == "advtext":
+        hint = (
+            f" PYTHONPATH must be {SHOWN} (without it the interpreter's editable install of "
             "../imgui-adv-text is what gets imported)"
         )
-    _verified = locked
-    return locked
+    _refuse(f"module `{name}` is from {where}, outside {SHOWN}/advtext.{hint}")
+
+
+class _Guard:
+    """
+    First on `sys.meta_path`: asks the finders after it where an `advtext`
+    module would come from, and exits 2 if that is not the pinned tree.
+    Otherwise it returns what they found, so the import goes on as it would
+    have. Every other name is passed over.
+    """
+
+    def find_spec(
+        self, name: str, path: object = None, target: ModuleType | None = None
+    ) -> ModuleSpec | None:
+        if not _is_ours(name):
+            return None
+        for finder in list(sys.meta_path):
+            find = getattr(finder, "find_spec", None)
+            if finder is self or find is None:
+                continue
+            spec = find(name, path, target)
+            if spec is None:
+                continue
+            origin = spec.origin if spec.has_location else None
+            where = _outside(name, origin, spec.submodule_search_locations)
+            if where is not None:
+                _refuse_module(name, where)
+            return spec
+        return None
+
+
+_guard: _Guard | None = None
+
+
+def _install_guard() -> None:
+    global _guard
+    if _guard is None:
+        _guard = _Guard()
+    if not sys.meta_path or sys.meta_path[0] is not _guard:
+        if _guard in sys.meta_path:
+            sys.meta_path.remove(_guard)
+        sys.meta_path.insert(0, _guard)
 
 
 def require_all_modules() -> None:
     """
-    Every `advtext` module imported so far comes from the pinned tree, or exit
-    2. Called at the end of a dump: `require()` checks the package before the
-    imports, this checks what the imports actually loaded.
+    Every `advtext` module loaded so far comes from the pinned tree, and the
+    import guard is still first on `sys.meta_path`; or exit 2.
+
+    The guard refuses a module as it is imported. This is the same question
+    asked of `sys.modules`, for what the guard cannot see: a module put there
+    by hand, or imported while something had moved the guard aside. A script
+    calls it after its last import and BEFORE it writes its first file.
     """
-    locked = require()
-    package = (ROOT_DIR / "advtext").resolve()
+    require()
+    _install_guard()
     for name, module in sorted(sys.modules.items()):
-        if name != "advtext" and not name.startswith("advtext."):
+        if not _is_ours(name) or module is None:
             continue
         origin = getattr(module, "__file__", None)
-        if origin is None:
-            continue
-        if package not in Path(origin).resolve().parents:
-            _refuse(f"module {name} was loaded from {origin}, outside {SHOWN} (commit {locked['commit']})")
+        locations = getattr(module, "__path__", None)
+        where = _outside(name, origin, list(locations) if locations is not None else None)
+        if where is not None:
+            _refuse_module(name, where)
 
 
 def header_lines() -> list[str]:

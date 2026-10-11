@@ -13,8 +13,8 @@ differs is looked at before the manifest is rewritten (CLAUDE.md, "The golden
 format").
 
 - Date written: 2026-10-11
-- SHA-256 of `MANIFEST.sha256`: `691f847b1d55099a2c769b9b5c3fabb02c82457a8182a62d753682badaca96dd`
-- Files listed: 159
+- SHA-256 of `MANIFEST.sha256`: `9d422af924dde2f86770ec85c2fb959d44213f0b1eb183769e5729f5037e63b1`
+- Files listed: 160
 
 ## The reference
 
@@ -89,6 +89,7 @@ before dumping (D32.3), as the script itself declares it.
 | `para` | 8 | `... tools/oracle/dump_para.py` | none (the script declares no REFERENCE_PATCHES) |
 | `para-map` | 1 | `... tools/oracle/dump_para_map.py` | none (the script declares no REFERENCE_PATCHES) |
 | `selection` | 2 | `... tools/oracle/dump_selection.py` | none (the script declares no REFERENCE_PATCHES) |
+| `specimen` | 1 | `... tools/oracle/dump_specimen.py` | none |
 | `tables` | 6 | `... tools/oracle/dump_tables.py` | none (the script declares no REFERENCE_PATCHES) |
 
 Scripts that take arguments, read files outside the repository (the fonts
