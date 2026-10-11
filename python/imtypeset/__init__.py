@@ -641,6 +641,9 @@ def _load():
     return lib, path, info, host, layout_checked, bundle_report
 
 
+# True when this is importlib.reload() of a package that had loaded: the names
+# below are then already bound, to what the load before answered.
+_reloading = "_lib" in globals()
 try:
     _lib, _path, _build, _host, _layout_checked, _bundle_report = _load()
 except BaseException:
@@ -653,10 +656,21 @@ except BaseException:
     # process (ctypes never unloads a library, and no platform promises that
     # it could), so its static initialisers have run. Loading it again later
     # is harmless.
-    import sys as _sys
+    #
+    # Not after a refused RELOAD. Python then keeps the package in
+    # sys.modules, still bound to the library and the submodules of the load
+    # that succeeded, and it goes on working; taking `_capi` out from under it
+    # would have the next `import imtypeset._capi` (imtypeset.demo does one)
+    # make a second module, whose struct classes are not the ones the
+    # package's functions were declared with.
+    if not _reloading:
+        import sys as _sys
 
-    for _name in [_n for _n in _sys.modules if _n.startswith(__name__ + ".")]:
-        del _sys.modules[_name]
+        # A copy of the names: another thread may be importing, and a
+        # dictionary that changes size while it is walked raises.
+        for _name in list(_sys.modules):
+            if _name.startswith(__name__ + "."):
+                _sys.modules.pop(_name, None)
     raise
 
 

@@ -3133,3 +3133,83 @@ layout; balanced columns; a break between blocks and none after a heading; the p
 `\splittopskip`; the page (gutter, x of a column); hit testing, selection, rectangles and copy
 across columns; per-column geometry and `GetDocumentColumnPos`; `DocumentView` in columns; what
 is kept across an edit; the estimate of the count.
+
+## D59. A font added here is marked, and the library knows its own by the mark; an ImGui context replaced under a kept context is the atlas emptied (task `swap-fixes`, 2026-10-11)
+
+*Agent decisions, taken unattended on a reviewer's finding (review-5, F3); the user may overrule
+any. It closes item 5 of D53, which is left as it was written. For the other session:
+`docs/advtext-swap-status.md`, answer (c).*
+
+**The defect, reproduced before anything changed** (`tests/test_api_answers.cpp`, against the tree
+of `0b21807`). One ImTypeset context, an ImGui context with the seven roles' fonts,
+`ImGui::DestroyContext()` alone, a second ImGui context at the first one's address:
+- with the host's seven fonts each put at the address of an old role font (the test's allocator
+  hands the blocks out again in order; an atlas numbers its fonts from one, so the `FontId`s agree
+  too): `GetFont(role)` answered the HOST's fonts, `RemoveFont(ImTypesetFace_Regular)` answered
+  true and took a host font out of the atlas, and adding the roles' fonts again removed host fonts
+  (7 fonts in the atlas where 14 were expected). With the first context run for no frame the
+  once-a-frame skip of `validate_fonts` was taken; with it run for two, the full look accepted
+  each font by address and `FontId`. Both of D53's collisions, then.
+- with the fonts where glibc put them, and exactly seven host fonts (the count the skip compares):
+  `GetFont` answered dangling pointers and `RemoveFont` ran `ImFontAtlas::RemoveFont` on one
+  (ImGui's `removed` assertion; a use after free without it). With zero to six host fonts the
+  roles were found empty, as D53 saw. No host font landed on an old font's address in any of the
+  eight runs: the reviewer's "fourth of seven" was not observed on this allocator.
+
+**Decided: a mark in the last eight bytes of `ImFontConfig::Name`.** Seven bytes of a counter
+that goes up with every font this process adds through the library, and a last byte of 0xFF. The
+name ImGui shows is cut to 31 bytes and ends before it. `validate_fonts` keeps a role's font only
+while the atlas holds that address (looked for before the pointer is read) with that `FontId`
+and that mark, and it takes its once-a-frame skip only while the first role font there is still
+stands so. Everything that hands a role's font out, draws with it or removes it goes through
+that look first. A host's font has its name's terminator or padding in the last byte, so it
+carries no mark whatever its address and id. `add_font` reads the mark back from the atlas and
+refuses the font (`BackendUnsupported`) if a Dear ImGui did not keep it.
+- *Weighed against a hook on the ImGui context's shutdown* (`ImGui::AddContextHook`, which would
+  SEE the context die and let the two outcomes below be one): it is `imgui_internal.h`, and the
+  library uses `imgui.h` alone (`docs/distribution.md`), which is what lets the sidecar be
+  compiled against stand-in headers. Both wheels export the function; the struct it takes is
+  internal and no probe row could hold it the way a field is held.
+- *Weighed against the font's data pointer as the witness:* the atlas owns a copy
+  (`add_face_to_atlas`), so there is no pointer of the library's to compare.
+- *What it does not cover:* a host that copies the `ImFontConfig` of a font added here into a
+  font of its own carries the mark with it; it would still have to stand at the address of that
+  very font with its `FontId` after that font was removed.
+
+**Decided: the outcome is the one a host gets by emptying the atlas, and it is not NoContext.**
+An ImGui context made at the address of the one destroyed is taken for it (`bound()` still
+compares addresses; `imgui.h` has nothing else), every role is found empty at the next look, text
+reports `NoFont`, no host font is read as a role's, handed out or removed, and after the roles
+are given fonts again the context and what it kept work on. Refusing with `NoContext`, as at any
+other address, was weighed and not taken: the library cannot tell this case from a host that
+called `ImFontAtlas::Clear()` to load its fonts again, which hello_imgui does and which must go
+on working. So which of the two refusals a context left behind gives is the allocator's choice,
+both are clean, and the rule a host follows is unchanged: `DestroyContext()` before
+`ImGui::DestroyContext()`, or `DestroyContext()` and `CreateContext()` before adding fonts where
+it cannot see the ImGui context go.
+
+**Decided, small, same task.**
+- *The demo keeps 32 states, not 8* (review-5, F8; reproduced: nine live contexts shown in turn
+  for five turns held 108 handles each where 27 are one set). The leak is not bounded: the header
+  has nothing to ask whether a context of some serial is alive, so a dropped state's handles
+  cannot be destroyed for it. Past 32 live contexts it is as before, and Known limits says so.
+  A state is 4,392 bytes; two sets of 32 are kept until exit at the most.
+- *A refused `importlib.reload(imtypeset)` leaves the package's submodules in `sys.modules`*
+  (review-5, F7; reproduced on the package of `0b21807`: a second `imtypeset._capi`). A refused
+  first import still removes them (D53, item 8), now over a copy of the names.
+- *The specimen is held to the reference in scaled points inside the library*
+  (`tests/test_specimen.cpp`; review-5, F4): 33 settings of `tests/golden/specimen` by `==`, with
+  every character's box, kern and glue. `tests/test_demo.cpp` keeps a display check (what the
+  section prints at two decimals is what the reference's figure prints as) and says it is not
+  oracle coverage. The reference's unkerned settings are held as the two letters set apart: the
+  library has no switch for kerning.
+- *A range that ends where a line starts copies without the space at the break.* Kept: it is the
+  reference's rule for every separator (`advtext/selection.py`, `SelectionModel.text`). Pinned.
+
+**Measured** (debug, GCC 12.2, FreeType 2.12.1, one run each): the numbers above;
+`test_specimen` 2,534 checks, and it fails 33 of them when one expected width is moved by one
+scaled point.
+
+**Not measured, not run:** what the witness costs a draw (one search of the atlas's font list
+for an address and eight bytes compared, per call that looks); a wheel whose Dear ImGui rewrites
+`ImFontConfig::Name` (the probe row and `add_font`'s read-back are what would say so); MSVC.

@@ -62,8 +62,10 @@ D39 item 8, `docs/performance.md` "X3").
 decision. D1 put the whole layout core on the native side; D20 added paragraph
 assembly; D32 and D34 made imtypeset the product and the Python library the
 prototype it grew from; D37 and D43 added the block layer and a public
-`Document`. What the note called "the wide reading" (the views) is still not
-here, and neither are markdown, diff, tables or columns.
+`Document`; D57 put tables in the core as a block of a `Document` (commit
+`be40444`) and D58 columns as a way a `Document` is shown (commit `0b21807`),
+on the ruling that both are TeX's. What the note called "the wide reading"
+(the views) is still not here, and neither are markdown or diff.
 
 **The device-space decisions "carry across intact".** Established for
 `reference()` rules, which is what every golden replay runs under:

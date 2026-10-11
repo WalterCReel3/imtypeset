@@ -173,6 +173,40 @@ class Loading(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("second attempt ok", result.stdout)
 
+    def test_a_refused_reload_leaves_the_package_as_it_was_loaded(self):
+        # importlib.reload() with the library gone: Python keeps the package,
+        # so its submodules must stay the ones it was loaded with. A second
+        # imtypeset._capi would hand the package's functions struct classes
+        # they were not declared with.
+        code = (
+            "import importlib, os, sys\n"
+            "import imtypeset\n"
+            "capi = sys.modules['imtypeset._capi']\n"
+            "version = imtypeset.version()\n"
+            "good = os.environ['IMTYPESET_LIBRARY']\n"
+            "os.environ['IMTYPESET_LIBRARY'] = '/nonexistent/libimtypeset.so'\n"
+            "try:\n"
+            "    importlib.reload(imtypeset)\n"
+            "except ImportError:\n"
+            "    pass\n"
+            "else:\n"
+            "    raise SystemExit('reloaded with a library that is not there')\n"
+            "assert sys.modules.get('imtypeset') is imtypeset\n"
+            "assert sys.modules.get('imtypeset._capi') is capi, 'the submodule was dropped'\n"
+            "import imtypeset._capi as again\n"
+            "assert again is capi and imtypeset._capi is capi, 'a second _capi'\n"
+            "assert imtypeset.version() == version\n"
+            "assert imtypeset.host_info()['library'] == os.path.abspath(good)\n"
+            "os.environ['IMTYPESET_LIBRARY'] = good\n"
+            "importlib.reload(imtypeset)\n"
+            "assert sys.modules['imtypeset._capi'] is capi\n"
+            "assert imtypeset.version() == version\n"
+            "print('reload ok')\n"
+        )
+        result = child(code)()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("reload ok", result.stdout)
+
     # `import imtypeset` in a child whose copy of imtypeset._capi was changed
     # by `patch` first: what the import does with a package and a library that
     # do not belong together.

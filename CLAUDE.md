@@ -193,19 +193,24 @@ the next reader has to take again without your evidence.
 
 ---
 
-## Scope (D1, as amended by D20, D27, D32, D34, D37, D43)
+## Scope (D1, as amended by D20, D27, D32, D34, D37, D43, D57, D58)
 
 Native: the OpenType reader, an in-memory `cmap` rewrite that hands each face
 to ImGui's own font loader (no custom `ImFontLoader` was built, D27), the
 layout core (`units`, `badness`, `nodes`, `pack`, `linebreak`, `shipout`), the
 style subset, paragraph assembly (`src/paragraph.*`, D20), the draw loop,
 selection and hit-testing geometry, the math list and the `mathtext` subset,
-the block layer (`src/blocks.*`, D37), a public API with widgets, paragraphs
+the block layer (`src/blocks.*`, D37), tables as TeX's alignment (`src/align.*`,
+D57), a document cut into columns (`src/vsplit.*`, `src/columns.*`, D58), a
+public API with widgets, paragraphs
 and a `Document` (D36, D43), the demo window (D42), a C ABI (D40) and a
 `ctypes` Python package over it.
 
-Not here: markdown, diff, find, tables and columns (a block's table fields are
-reserved and unused), the views. Dear ImGui Bundle binding the library the
+Not here: markdown, streaming, diff, find, themes, the views and their
+interaction: those are the application's (advtext's). The border, as the owner
+drew it: everything TeX does is here, with fonts, selection and drawing of what
+was set, and the specimen and formula galleries; content and application
+features are not. Dear ImGui Bundle binding the library the
 bundle's way (`bindings/imgui_bundle/`) is an outline that has never been built.
 
 No HarfBuzz, no fontTools equivalent, no third-party test or benchmark

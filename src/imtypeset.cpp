@@ -1319,18 +1319,77 @@ bool no_textures()
                 "backend that updates textures (Dear ImGui 1.92 or later)");
 }
 
-// Drops every role whose ImFont the host has taken out of the atlas, so that
-// nothing below dereferences it. The role is then as if nothing had been added
-// for it. Call with the context bound.
+// --- Which fonts in the atlas are this library's ----------------------------------------
+//
+// A font added here is marked: the last FONT_MARK_BYTES bytes of its
+// ImFontConfig::Name, past the terminator of the name ImGui shows, hold a
+// number no other font added in this process is given, and a last byte that
+// is never zero. The atlas copies the configuration whole and keeps it for as
+// long as the font. A host's font has its name's terminator or its padding in
+// that last byte, so it cannot carry a mark, wherever it stands and whatever
+// its FontId.
+constexpr size_t FONT_MARK_BYTES = 8;
+constexpr size_t FONT_MARK_AT = sizeof(ImFontConfig::Name) - FONT_MARK_BYTES;
+constexpr unsigned char FONT_MARK_LAST = 0xFF;
+static_assert(sizeof(ImFontConfig::Name) >= 24, "ImFontConfig::Name has no room for the mark");
+
+// How many fonts this process has marked: the last one's number.
+ImU64 g_fonts_marked = 0;
+
+void write_font_mark(ImFontConfig& cfg, ImU64 mark)
+{
+    unsigned char bytes[FONT_MARK_BYTES];
+    for (size_t i = 0; i + 1 < FONT_MARK_BYTES; ++i)
+        bytes[i] = static_cast<unsigned char>((mark >> (8 * i)) & 0xFF);
+    bytes[FONT_MARK_BYTES - 1] = FONT_MARK_LAST;
+    std::memcpy(cfg.Name + FONT_MARK_AT, bytes, FONT_MARK_BYTES);
+}
+
+// The mark a font of the atlas carries; 0, which is nobody's, if it has none.
+ImU64 read_font_mark(const ImFont& font)
+{
+    if (font.Sources.Size < 1 || font.Sources[0] == nullptr)
+        return 0;
+    unsigned char bytes[FONT_MARK_BYTES];
+    std::memcpy(bytes, font.Sources[0]->Name + FONT_MARK_AT, FONT_MARK_BYTES);
+    if (bytes[FONT_MARK_BYTES - 1] != FONT_MARK_LAST)
+        return 0;
+    ImU64 mark = 0;
+    for (size_t i = 0; i + 1 < FONT_MARK_BYTES; ++i)
+        mark |= static_cast<ImU64>(bytes[i]) << (8 * i);
+    return mark;
+}
+
+// Whether the font a role was given is in the atlas still. `font` is looked
+// for by address first and read only when the atlas holds it.
+bool still_the_roles(const ImFontAtlas* atlas, ImFont* font, ImGuiID id, ImU64 mark)
+{
+    if (atlas == nullptr || font == nullptr || mark == 0 || !atlas->Fonts.contains(font))
+        return false;
+    return font->FontId == id && read_font_mark(*font) == mark;
+}
+
+// Drops every role whose ImFont is no longer in the atlas, so that nothing
+// below dereferences it, hands it out or removes it. The role is then as if
+// nothing had been added for it. Call with the context bound.
+//
+// That covers a host that removed the font or cleared the atlas, and equally
+// an ImGui context destroyed under this one with another made at its address
+// (bound() compares addresses, which is all imgui.h gives to know a context
+// by): the atlas is then another atlas, none of its fonts carries a mark of
+// this context's, and every role is found empty.
 //
 // Looked at once a frame, and again whenever the atlas's fonts are not the
 // ones it had: a paragraph is drawn thousands of times a frame. What tells is
 // how many fonts the atlas holds and the FontId of the last of them. ImGui
 // gives each font it adds the next number of a counter that nothing sets back
 // (ImFontAtlas::FontNextUniqueID: ClearFonts() leaves it) and adds it at the
-// end, so no font leaves the atlas, alone or with another put in its place,
+// end, so no font leaves one atlas, alone or with another put in its place,
 // without one of the two changing: a host that empties the atlas between two
-// frames and fills it with as many fonts is seen.
+// frames and fills it with as many fonts is seen. Another atlas at the same
+// address can agree in all of that, frame included, so the look is skipped
+// only while one of the roles' fonts, the first there is, still stands in the
+// atlas with its mark.
 void validate_fonts(ImTypesetContext& ctx)
 {
     const ImFontAtlas* atlas = ImGui::GetIO().Fonts;
@@ -1338,21 +1397,28 @@ void validate_fonts(ImTypesetContext& ctx)
     const int count = atlas != nullptr ? atlas->Fonts.Size : -1;
     const ImGuiID newest = count > 0 ? atlas->Fonts.back()->FontId : 0;
     if (frame == ctx.fonts_checked_frame && count == ctx.fonts_checked_count &&
-        newest == ctx.fonts_checked_newest && atlas == ctx.fonts_checked_atlas)
-        return;
+        newest == ctx.fonts_checked_newest && atlas == ctx.fonts_checked_atlas) {
+        int witness = 0;
+        while (witness < FACE_COUNT && ctx.added[witness] == nullptr)
+            ++witness;
+        if (witness == FACE_COUNT ||
+            still_the_roles(atlas, ctx.added[witness], ctx.added_id[witness],
+                            ctx.added_mark[witness]))
+            return;
+    }
     ctx.fonts_checked_frame = frame;
     ctx.fonts_checked_count = count;
     ctx.fonts_checked_newest = newest;
     ctx.fonts_checked_atlas = atlas;
     bool lost = false;
     for (int i = 0; i < FACE_COUNT; ++i) {
-        ImFont* font = ctx.added[i];
-        if (font == nullptr)
+        if (ctx.added[i] == nullptr)
             continue;
-        if (atlas != nullptr && atlas->Fonts.contains(font) && font->FontId == ctx.added_id[i])
+        if (still_the_roles(atlas, ctx.added[i], ctx.added_id[i], ctx.added_mark[i]))
             continue;
         ctx.added[i] = nullptr;
         ctx.added_id[i] = 0;
+        ctx.added_mark[i] = 0;
         ctx.library.unregister_font(static_cast<Face>(i));
         lost = true;
     }
@@ -1885,8 +1951,8 @@ ImFont* add_font(ImTypesetFace face, const char* filename, const void* data, int
             return refuse(ImTypesetError_FontRefused,
                           std::string("the font file is empty: ") + filename);
         data = file.data();
-        // The file's own name: the atlas keeps 39 bytes of it for its font
-        // list, and a path's first 39 are its directories.
+        // The file's own name: the atlas has room for 31 bytes of it beside
+        // the mark, and a path's first 31 are its directories.
         name = filename;
         for (const char* at = filename; *at != '\0'; ++at) {
             if (*at == '/' || *at == '\\')
@@ -1900,6 +1966,7 @@ ImFont* add_font(ImTypesetFace face, const char* filename, const void* data, int
     // first, so that a refusal leaves the context's as it was.
     std::string why;
     ImFont* font = nullptr;
+    ImU64 mark = 0;
     {
         FontLibrary probe;
         if (!register_in(probe, role, data, size, name, face_index, &why))
@@ -1913,12 +1980,28 @@ ImFont* add_font(ImTypesetFace face, const char* filename, const void* data, int
         // The file handed to the atlas is rebuilt with one face in it.
         cfg.FontNo = 0;
         cfg.MergeMode = false;
+        // The name ImGui shows ends before the mark, which takes the rest.
+        if (cfg.Name[0] == '\0')
+            std::snprintf(cfg.Name, FONT_MARK_AT, "%s", name);
+        std::memset(cfg.Name + FONT_MARK_AT - 1, 0, FONT_MARK_BYTES + 1);
+        mark = ++g_fonts_marked;
+        write_font_mark(cfg, mark);
         const float size_pixels =
             is_finite(cfg.SizePixels) && cfg.SizePixels > 0.0f ? cfg.SizePixels : 0.0f;
         cfg.SizePixels = size_pixels;
         font = add_face_to_atlas(atlas, *probed, size_pixels, &cfg, &why);
         if (font == nullptr)
             return refuse(ImTypesetError_FontRefused, why);
+        // A Dear ImGui that does not keep the configuration's bytes as they
+        // were handed over would have every role found empty at the next
+        // look, with nothing to say why.
+        if (!still_the_roles(atlas, font, font->FontId, mark)) {
+            if (atlas->Fonts.contains(font))
+                IMTYPESET_NO_UNWIND(atlas->RemoveFont(font));
+            return refuse(ImTypesetError_BackendUnsupported,
+                          "the Dear ImGui in this process did not keep ImFontConfig::Name as it "
+                          "was given, which is where a font added here is told from the host's");
+        }
     }
     {
         // In the atlas and not yet the role's: taken out again if the
@@ -1943,6 +2026,7 @@ ImFont* add_font(ImTypesetFace face, const char* filename, const void* data, int
     ImFont* const old = ctx->added[role_index];
     ctx->added[role_index] = font;
     ctx->added_id[role_index] = font->FontId;
+    ctx->added_mark[role_index] = mark;
     // Everything of the context's that names the role's font is brought up to
     // date before the old one is taken out of the atlas: if that last step is
     // unwound out of (an IM_ASSERT that throws), the old font is left in the
@@ -2432,6 +2516,7 @@ bool RemoveFont(ImTypesetFace face)
                     "the ImGui font atlas is locked: remove fonts outside a frame");
     ctx->added[role] = nullptr;
     ctx->added_id[role] = 0;
+    ctx->added_mark[role] = 0;
     ctx->library.unregister_font(static_cast<Face>(role));
     if (ImGui::GetIO().FontDefault == font)
         ImGui::GetIO().FontDefault = nullptr;

@@ -255,6 +255,12 @@ def _probe(lib, facts: dict) -> list:
                 C.memmove(owned, data, len(data))
                 label = b"imtypeset-probe"
                 C.memmove(mem.at(cfg_p, "ImFontConfig.Name"), label + b"\0", len(label) + 1)
+                # The library marks a font it adds in the last eight bytes of
+                # Name, past the name's terminator, and knows its own fonts by
+                # reading them back through ImFont::Sources[0].
+                name_size = facts["ImFontConfig.Name"][1]
+                mark = b"\x21\x43\x65\x87\xa9\xcb\xed\xff"
+                C.memmove(mem.at(cfg_p, "ImFontConfig.Name") + name_size - len(mark), mark, len(mark))
                 added = function(
                     _ADD_FONT_FROM_MEMORY,
                     C.c_void_p, C.c_void_p, C.c_void_p, C.c_int, C.c_float, C.c_void_p, C.c_void_p,
@@ -274,6 +280,49 @@ def _probe(lib, facts: dict) -> list:
                 if third is not None and atlas.sources.size() == 3:
                     stored_p = atlas.sources.data_address() + 2 * own_size
                     stored = atlas.sources[2]
+
+                    # ImFont::Sources, a vector of pointers into the atlas's
+                    # configurations: one source for each of the three fonts,
+                    # and the third font's is the configuration the binding
+                    # shows as the atlas's third.
+                    def sources_of(font_p):
+                        size = mem.read(font_p, "ImFont.Sources", "<i")
+                        data = mem.read(font_p, "ImFont.Sources", "<Q", 8)
+                        return size, data
+
+                    # A library built before the mark has no such offset to
+                    # report, and cannot be told from one that reports it wrong.
+                    known = "ImFont.Sources" in facts
+                    sizes = [
+                        known and sources_of(font_at(i))[0] == len(font.sources) == 1
+                        for i, font in enumerate((first, second, third))
+                    ]
+                    source_p = 0
+                    if all(sizes):
+                        source_p = struct.unpack("<Q", C.string_at(sources_of(font_at(2))[1], 8))[0]
+                    record(
+                        "ImFont.Sources",
+                        all(sizes) and source_p == stored_p,
+                        f"{sizes} {source_p:#x} {stored_p:#x}"
+                        if known
+                        else "the library does not report this offset: it was built before the "
+                        "package",
+                    )
+                    # The mark: forty bytes of Name as the library counts them,
+                    # kept whole by the atlas's copy, and the name the wheel
+                    # shows ending where its terminator was put.
+                    kept_mark = b""
+                    if source_p == stored_p:
+                        kept_mark = C.string_at(
+                            mem.at(source_p, "ImFontConfig.Name") + name_size - len(mark), len(mark)
+                        )
+                    record(
+                        "ImFontConfig.Name mark",
+                        name_size == 40
+                        and kept_mark == mark
+                        and third.get_debug_name() == label.decode(),
+                        f"Name is {name_size} bytes; kept {kept_mark.hex()}",
+                    )
                     fields = [
                         mem.read(stored_p, "ImFontConfig.FontData", "<Q") == owned,
                         mem.read(stored_p, "ImFontConfig.FontDataSize", "<i")

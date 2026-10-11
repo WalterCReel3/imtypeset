@@ -16,8 +16,8 @@
 namespace
 {
 
-const char* const WORDS[] = {"alpha", "beta", "gamma", "delta",  "epsilon", "zeta",
-                             "eta",   "theta", "iota", "kappa", "lambda",  "mu"};
+const char* const WORDS[] = {"alpha", "beta",  "gamma", "delta", "epsilon", "zeta",
+                             "eta",   "theta", "iota",  "kappa", "lambda",  "mu"};
 
 // Row `r` of a four-column table: a number, two short cells and a phrase, none
 // wider than the header's.

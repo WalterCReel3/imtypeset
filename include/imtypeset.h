@@ -1276,14 +1276,22 @@ IMTYPESET_API bool DebugCheckDocumentDataLayout(size_t sz_block, size_t sz_block
 //     ImTypesetError_NoContext, and GetFont() answers null; layout, hit tests
 //     and copies still answer, since they need no ImGui;
 //   - DestroyContext() is still safe, and is the one thing left to do with it;
-//   - an ImGui context made LATER AT THE SAME ADDRESS cannot be told from the
-//     one that was destroyed (an address is all imgui.h gives to know one by,
-//     and allocators hand the same block out again). It is taken for this
-//     context's own: every role is found empty by the next call that looks,
-//     text reports ImTypesetError_NoFont until fonts are added again, and
-//     paragraphs and documents kept from before are then laid out and drawn
-//     as before. That is what happens in every case tested, not a promise: a
-//     host that makes ImGui contexts in turn destroys this one each time.
+//   - an ImGui context made LATER AT THE SAME ADDRESS is taken for the one
+//     that was destroyed (an address is all imgui.h gives to know one by, and
+//     allocators hand the same block out again), and this context goes on in
+//     it. Its fonts are not there: each font added here carries a mark (see
+//     AddFontFromFileTTF) and a role's font is used, handed out or removed
+//     only while the atlas holds it with that mark, so every role is found
+//     empty by the next call that looks, whatever fonts the host has put in
+//     the new atlas, and none of those is touched. Text then reports
+//     ImTypesetError_NoFont until the roles are given fonts again, after
+//     which paragraphs and documents kept from before are laid out and drawn
+//     as before. It is the outcome of a host emptying the atlas.
+// So whether a context left behind answers NoContext or NoFont is the
+// allocator's choice. A host that makes ImGui contexts in turn does not rely
+// on either: it calls DestroyContext() before each ImGui::DestroyContext(),
+// or, where it cannot know that one happened, DestroyContext() and
+// CreateContext() before it adds its fonts.
 IMTYPESET_API ImTypesetContext* CreateContext();
 // Null destroys the current one. Its paragraphs and documents die with it. The
 // fonts it added stay in the ImGui atlas, which owns them. Touches nothing of
@@ -1344,6 +1352,11 @@ IMTYPESET_API void SetTextCacheLimits(int max_paragraphs, int max_bytes);
 //   - A role that already has a font is given the new one and the old ImFont
 //     is removed from the atlas. Do not keep the old pointer.
 //   - ImTypesetFace_Default is not a role: it is refused.
+//   - THE LAST 8 BYTES OF THE FONT'S ImFontConfig::Name ARE THE LIBRARY'S: a
+//     mark, past the terminator of the name, by which a font added here is
+//     told from any other in the atlas. The name ImGui shows is the first 31
+//     bytes of `font_cfg->Name`, or of the file's name when that is empty.
+//     Do not write over the mark; a font without it is no longer the role's.
 //
 // ONE COPY OF A FACE, NOT TWO. The font added here is a copy of the file made
 // for typesetting (its character map rewritten so that every codepoint layout
@@ -1465,7 +1478,9 @@ IMTYPESET_API bool SelectableText(const char* str_id, const char* text, const ch
 // comes. Needs a context and its fonts but no window and no frame. Lays the
 // text out when it, the width or the style differ from the call before; an
 // ImTypesetParagraph keeps an answer for as long as the host wants it.
-// (0, 0) when the text cannot be set at all. [E]
+// (0, 0) when the text cannot be set at all. The answer is in whole pixels,
+// rounded up, as GetParagraphSize()'s is: the width a text has to a fraction
+// of a pixel is GetParagraphLine()'s (see GetParagraphSize). [E]
 IMTYPESET_API ImVec2 CalcTextSize(const char* text, const char* text_end = NULL,
                                   float wrap_width = 0.0f, ImTypesetTextFlags flags = 0,
                                   const ImTypesetStyle* style = NULL);

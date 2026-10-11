@@ -450,7 +450,8 @@ hold:
 - Documents: paragraphs, headings, list items, code, quotes, rules, tables and
   host-reserved rectangles, described once; edits that cost what changed;
   layout only of what a window shows; one draw call; marks, underlines and a
-  tag under the mouse for links; positions as (block, byte offset).
+  tag under the mouse for links; positions as (block, byte offset); the same
+  document shown in columns.
 - Fonts a host brings: TrueType and CFF outlines, collections, CID-keyed CFF;
   pair kerning from GPOS and legacy `kern`; the `MATH` table. FreeType or
   stb_truetype as ImGui's rasteriser; a 16-bit or a 32-bit `ImWchar`.
@@ -460,13 +461,16 @@ hold:
 
 - **Markdown or any markup.** This is a typesetter; a host that parses markup
   hands over text and runs.
-- **Columns, and what a table does not do.** A table is a block of a document
+- **What a table and columns do not do.** A table is a block of a document
   (cells with runs, links and formulas; a header; alignment a column; widths
   fitted, stated or held while it grows; cells that wrap; selection, marks
   and copy through cells). It has no cell borders or fills, no cell that
   spans columns or rows, and no hard break inside a cell; a table is laid out
-  whole when first seen, 262,144 cells at most. Text cut into columns is not
-  in the core.
+  whole when first seen, 262,144 cells at most. Columns are a way a document
+  is shown (`SetDocumentColumns`, D58): its one column cut where TeX's
+  `\vsplit` would cut it, filled in order or balanced. They are all one
+  width, nothing spans them, and a cut takes no account of widows, of a
+  table's header or of a common first baseline.
 - **Fallback fonts.** Seven fixed roles (regular, bold, italic, bold italic,
   code, code bold, math). A character its face lacks is looked for in the
   Regular, Math and Code faces and nowhere else, so CJK, emoji and icons are
@@ -679,8 +683,8 @@ code.
   package manager (the install route ran against a fixture).
 - The pictures other than the nine demo pages rendered again from one tree.
 - A decision on the trades under "Known rough edges": the word-width bound,
-  how far the line breaker may shrink a space, and whether tables belong in the
-  core.
+  and how far the line breaker may shrink a space. (Whether tables and
+  columns belong in the core is decided: they are in it, D57 and D58.)
 - Continuous integration: every result in this file is from one machine on one
   day.
 

@@ -46,6 +46,16 @@
 // built, not a wrong call.
 #ifdef IMTYPESET_BUNDLE_STAND_IN
 #include <functional>
+#include <type_traits>
+
+// The forwarders below overload the wheel's two functions on the callback's
+// type and tell "no callback" by comparing with null. Both need the headers
+// compiled against to declare the callback as a plain function pointer: were
+// it the fork's std::function already, each forwarder would redefine the
+// function it means to call.
+static_assert(std::is_pointer<ImGuiInputTextCallback>::value,
+              "IMTYPESET_BUNDLE_STAND_IN is for headers whose ImGuiInputTextCallback is a "
+              "function pointer; these are the fork's, which need no forwarders");
 
 namespace ImGui
 {
@@ -158,6 +168,7 @@ IMTYPESET_BUNDLE_EXPORT int ImTypesetBundle_LayoutFacts(char* out, int out_size)
         FACT(ImFontAtlas, Locked),
         FACT(ImFontAtlas, Fonts),
         FACT(ImFont, FontId),
+        FACT(ImFont, Sources),
         FACT(ImFontBaked, Size),
         FACT(ImFontBaked, Ascent),
         FACT(ImDrawList, VtxBuffer),

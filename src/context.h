@@ -315,11 +315,17 @@ struct ImTypesetContext {
     ImTypeset::detail::MetricsResolver resolve;
     ImTypeset::detail::CharMeasureCache cache;
     ImTypeset::detail::FaceFonts fonts;
-    // The ImFont added for each role that has a file of its own, and the
-    // atlas's identifier for it: an ImFont the host has since removed is
-    // told from one that took its address.
+    // The ImFont added for each role that has a file of its own, with the
+    // atlas's identifier for it and the mark it was given (font_mark in
+    // imtypeset.cpp). A pointer here is dereferenced only once
+    // validate_fonts has found it in the current atlas carrying that mark:
+    // the host may have removed the font, or destroyed the ImGui context and
+    // made another at its address, and a font of the host's can stand where
+    // one of these did with the same FontId, since each atlas numbers its
+    // fonts from one.
     ImFont* added[ImTypeset::detail::FACE_COUNT] = {};
     ImGuiID added_id[ImTypeset::detail::FACE_COUNT] = {};
+    ImU64 added_mark[ImTypeset::detail::FACE_COUNT] = {};
     // When they were last looked for in the atlas: see validate_fonts.
     int fonts_checked_frame = -1;
     int fonts_checked_count = -1;

@@ -1158,7 +1158,8 @@ void ShowDemoMath(DemoMathState* state, int fonts_added)
         } else {
             ImGui::TextDisabled("Under the pointer: move the mouse over the blocks");
         }
-        ImGui::TextDisabled("Not here: a table cell. Tables are not laid out yet.");
+        ImGui::TextDisabled(
+            "Not here: a table cell. The table that ends the Document section has one.");
     }
 
     ImGui::SeparatorText("In text that is still arriving");
@@ -1933,9 +1934,10 @@ void ShowDemoKnownLimits()
         "styled stretch, as Faces and sizes does.",
         "No hyphenation. A word is never broken, so a narrow justified column has loose lines "
         "where a long word would not fit.",
-        "No tables. An ImTypesetDocument stacks paragraphs, headings, list items, code, quotes "
-        "and rules and leaves a rectangle where a host wants a widget of its own; a table is one "
-        "of those rectangles for now.",
+        "This window keeps what it shows for the 32 contexts it was last shown in. A program "
+        "with more live ImTypeset contexts than that, showing it in each in turn, has it start "
+        "over in a context at every turn, and what it had made there before stays in that "
+        "context until the context is destroyed.",
         "Math is a subset. Accents, matrices, alignment and macros are refused, and a refused "
         "formula is shown as its source: $\\hat{x}$.",
         "A formula's type is as small as its style makes it: the scripts of scripts in "
@@ -2244,7 +2246,17 @@ struct DemoState {
 // the demo grow. A context that comes back after that many others starts from
 // the defaults; what the demo made in it before is still its own and dies
 // with it. The states themselves are freed with the program.
-const int DEMO_STATES_MAX = 8;
+//
+// The limit that follows: a program that keeps MORE than DEMO_STATES_MAX
+// contexts alive and shows the demo in each in turn has a context's state
+// dropped and made again at every turn, and each time the paragraphs and
+// documents the dropped state had made stay in their context, unused, until
+// that context is destroyed. The public header has nothing to ask whether a
+// context of some serial is still alive, so the demo cannot destroy them for
+// it. Thirty-two is far past any number of contexts a program shows a demo
+// in, and costs at most that many states of some 4 kB each, in each of the
+// two sets below, kept until the program ends. Known limits says so.
+const int DEMO_STATES_MAX = 32;
 struct DemoStates {
     ImVector<DemoState*> All;
     ImU64 Calls = 0;

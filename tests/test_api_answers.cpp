@@ -13,6 +13,7 @@
 
 #include "context.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -346,6 +347,46 @@ TEST(a_copy_has_one_separator_between_two_texts_and_none_beside_a_block_that_giv
     CHECK_EQ(ImTypeset::AppendDocumentRangeText(document, all, &buffer, " | "), 15);
     CHECK_EQ(std::string(buffer.c_str()), std::string("heldone | two | [w]"));
 
+    ImTypeset::DestroyDocument(document);
+}
+
+// The space a line was broken at is written between two pieces of selected
+// text and not at the end of a selection: a range that ends exactly where the
+// next line starts copies the line before it without that space, and one
+// character further has it. It is the reference's rule for every separator
+// (advtext/selection.py, SelectionModel.text: "written only between two pieces
+// of selected text"), so a host that cuts a text at positions and joins the
+// copies does not get the text back at a line break.
+TEST(a_range_that_ends_where_a_line_starts_copies_without_the_space_at_the_break)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    const std::string words = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu";
+    Content content;
+    content.styles.resize(1);
+    content.styles[0].Align = ImTypesetAlign_Left;
+    content.add(ImTypesetBlockKind_Paragraph, words);
+    ImTypesetDocument* const document = document_of(content, 160.0f);
+    REQUIRE(document != nullptr);
+    const ImTypesetBlockGeometry geometry = ImTypeset::GetDocumentBlockGeometry(document, 0);
+    REQUIRE(geometry.LineCount >= 2);
+    const float line_height =
+        (geometry.Max.y - geometry.Min.y) / static_cast<float>(geometry.LineCount);
+    for (int line = 1; line < geometry.LineCount; ++line) {
+        CHECK_CONTEXT("line %d", line);
+        const ImTypesetDocumentHit hit = ImTypeset::HitTestDocument(
+            document, ImVec2(0.0f, line_height * (static_cast<float>(line) + 0.5f)));
+        const int start = hit.Position.Offset;
+        REQUIRE(start > 1 && start < static_cast<int>(words.size()));
+        // The line starts after the space it was broken at.
+        REQUIRE(words[static_cast<size_t>(start) - 1] == ' ');
+        const auto upto = [&](int end) {
+            return copied(document, ImTypesetPosition{0, 0}, ImTypesetPosition{0, end});
+        };
+        CHECK_EQ(upto(start - 1), words.substr(0, static_cast<size_t>(start) - 1));
+        CHECK_EQ(upto(start), words.substr(0, static_cast<size_t>(start) - 1));
+        CHECK_EQ(upto(start + 1), words.substr(0, static_cast<size_t>(start) + 1));
+    }
     ImTypeset::DestroyDocument(document);
 }
 
@@ -711,6 +752,247 @@ TEST(a_new_imgui_context_at_the_address_of_the_one_destroyed_finds_every_role_em
         ImGui::End();
     }
     ImTypeset::DestroyContext(kept.ctx);
+    ImGui::DestroyContext();
+}
+
+namespace
+{
+
+// The roles' fonts in one ImGui context, that context destroyed under the
+// library, and another made at its address whose host adds its own fonts.
+// With `collide` every one of the host's fonts stands at the address of one
+// of the roles' old fonts, and since an atlas numbers its fonts from one, with
+// that font's FontId: nothing that compares addresses and ids tells the two
+// apart. Without it the fonts fall where the allocator puts them.
+struct Replaced {
+    ImTypesetContext* ctx = nullptr;
+    ImFont* olds[IM_ARRAYSIZE(FONTS)] = {};
+    ImGuiID old_ids[IM_ARRAYSIZE(FONTS)] = {};
+    ImFont* hosts[IM_ARRAYSIZE(FONTS)] = {};
+    int same_address = 0;
+    int same_address_and_id = 0;
+
+    // `frames`: how many frames the first ImGui context ran. With none, the
+    // library last looked at the atlas in frame 0 of a context holding seven
+    // fonts, which is also what it meets in the second.
+    bool make(Tracking& tracking, bool collide, int frames, int host_fonts)
+    {
+        new_imgui_context();
+        if (!IMTYPESET_CHECKVERSION())
+            return false;
+        ctx = ImTypeset::CreateContext();
+        if (ctx == nullptr || !add_fonts())
+            return false;
+        for (int f = 0; f < frames; ++f)
+            Frame frame;
+        for (int i = 0; i < static_cast<int>(IM_ARRAYSIZE(FONTS)); ++i) {
+            olds[i] = ImTypeset::GetFont(FONTS[i].face);
+            if (olds[i] == nullptr)
+                return false;
+            old_ids[i] = olds[i]->FontId;
+        }
+        ImGuiContext* const imgui = ImGui::GetCurrentContext();
+        ImFontAtlas* const atlas = ImGui::GetIO().Fonts;
+        tracking.recycle(imgui);
+        tracking.recycle(atlas);
+        if (collide) {
+            for (ImFont* font : olds)
+                tracking.recycle(font, false);
+        }
+        ImGui::DestroyContext();
+        new_imgui_context();
+        if (ImGui::GetCurrentContext() != imgui || ImGui::GetIO().Fonts != atlas)
+            return false;
+        // What an atlas allocates for itself the first time it is used, before
+        // any of the old fonts' blocks is on offer.
+        if (collide)
+            ImGui::GetIO().Fonts->AddCustomRect(1, 1);
+        for (int i = 0; i < host_fonts && i < static_cast<int>(IM_ARRAYSIZE(FONTS)); ++i) {
+            // One block at a time, so that the i-th font the host adds is
+            // what takes the i-th old font's.
+            tracking.arm(olds[i]);
+            hosts[i] =
+                ImGui::GetIO().Fonts->AddFontFromFileTTF(font_path(FONTS[i].file).c_str(), 15.0f);
+            if (hosts[i] == nullptr)
+                return false;
+            for (int k = 0; k < static_cast<int>(IM_ARRAYSIZE(FONTS)); ++k) {
+                if (hosts[i] == olds[k]) {
+                    ++same_address;
+                    same_address_and_id += hosts[i]->FontId == old_ids[k] ? 1 : 0;
+                }
+            }
+        }
+        return true;
+    }
+
+    int hosts_in_atlas() const
+    {
+        int count = 0;
+        for (ImFont* font : hosts)
+            count += font != nullptr && ImGui::GetIO().Fonts->Fonts.contains(font) ? 1 : 0;
+        return count;
+    }
+    bool is_a_hosts(const ImFont* font) const
+    {
+        for (const ImFont* host : hosts) {
+            if (font != nullptr && font == host)
+                return true;
+        }
+        return false;
+    }
+};
+
+// What must hold in the second ImGui context whatever stands where: no role
+// answers a host's font, adding a role's font takes no host's font out of the
+// atlas, and the context works on with the fonts it is given.
+void check_the_hosts_fonts_are_left_alone(Replaced& replaced, int host_fonts)
+{
+    for (int face = 0; face < ImTypesetFace_COUNT; ++face) {
+        CHECK_CONTEXT("face %d", face);
+        CHECK(ImTypeset::GetFont(face) == nullptr);
+        CHECK(!replaced.is_a_hosts(ImTypeset::GetFont(face)));
+    }
+    CHECK(!ImTypeset::RemoveFont(ImTypesetFace_Regular));
+    CHECK_EQ(ImTypeset::GetLastError()->Code, static_cast<int>(ImTypesetError_NoFont));
+    CHECK_EQ(replaced.hosts_in_atlas(), host_fonts);
+    ImFont* const default_before = ImGui::GetIO().FontDefault;
+
+    CHECK(add_fonts());
+    CHECK_EQ(replaced.hosts_in_atlas(), host_fonts);
+    CHECK_EQ(ImGui::GetIO().Fonts->Fonts.Size, host_fonts + static_cast<int>(IM_ARRAYSIZE(FONTS)));
+    CHECK(ImGui::GetIO().FontDefault == default_before);
+    for (const auto& entry : FONTS) {
+        ImFont* const font = ImTypeset::GetFont(entry.face);
+        CHECK(font != nullptr);
+        CHECK(!replaced.is_a_hosts(font));
+    }
+    ImTypesetParagraph* const paragraph = ImTypeset::CreateParagraph();
+    ImTypeset::SetParagraphText(paragraph, "Set in the second context.");
+    CHECK(ImTypeset::LayoutParagraph(paragraph, 300.0f));
+    Buffers buffers;
+    {
+        Frame frame;
+        CHECK(ImTypeset::DrawParagraphToBuffers(paragraph, ImVec2(0.0f, 0.0f),
+                                                ImVec4(0.0f, 0.0f, 4000.0f, 4000.0f),
+                                                &buffers.vertices, &buffers.indices));
+        CHECK(buffers.vertices.Size > 50);
+    }
+    CHECK_EQ(replaced.hosts_in_atlas(), host_fonts);
+}
+
+} // namespace
+
+// The collision at its worst, made on purpose: the second context's host adds
+// exactly as many fonts as the roles had, each at the address and with the
+// FontId of one of them, and the library looks at the atlas in the frame it
+// last looked in.
+TEST(a_hosts_font_at_the_address_and_id_of_a_roles_old_font_is_not_taken_for_it)
+{
+    for (const int frames : {0, 2}) {
+        CHECK_CONTEXT("the first ImGui context ran %d frames", frames);
+        Tracking tracking;
+        Replaced replaced;
+        const int host_fonts = static_cast<int>(IM_ARRAYSIZE(FONTS));
+        REQUIRE(replaced.make(tracking, true, frames, host_fonts));
+        // The premise: without it this test shows nothing.
+        REQUIRE_EQ(replaced.same_address_and_id, host_fonts);
+        check_the_hosts_fonts_are_left_alone(replaced, host_fonts);
+        ImTypeset::DestroyContext(replaced.ctx);
+        ImGui::DestroyContext();
+    }
+}
+
+// The same with the fonts where this machine's allocator puts them, for every
+// number of host fonts up to the roles' seven. How many land on an old font's
+// address is printed and not asserted; what must hold is asserted either way.
+TEST(a_hosts_fonts_wherever_the_allocator_puts_them_are_left_alone)
+{
+    for (int host_fonts = 0; host_fonts <= static_cast<int>(IM_ARRAYSIZE(FONTS)); ++host_fonts) {
+        CHECK_CONTEXT("%d host fonts", host_fonts);
+        Tracking tracking;
+        Replaced replaced;
+        REQUIRE(replaced.make(tracking, false, 0, host_fonts));
+        std::printf("    %d host fonts: %d at an old font's address, %d of them with its FontId\n",
+                    host_fonts, replaced.same_address, replaced.same_address_and_id);
+        check_the_hosts_fonts_are_left_alone(replaced, host_fonts);
+        ImTypeset::DestroyContext(replaced.ctx);
+        ImGui::DestroyContext();
+    }
+}
+
+// What a host that destroys and makes this library's context again inside ONE
+// ImGui context is left with: the first context's fonts, still in the atlas,
+// which owns them, and known to nobody. The second context finds its roles
+// empty and adds its own beside them.
+TEST(a_context_destroyed_leaves_its_fonts_in_the_atlas_and_the_next_does_not_know_them)
+{
+    Tracking tracking;
+    new_imgui_context();
+    REQUIRE(IMTYPESET_CHECKVERSION());
+    REQUIRE(ImTypeset::CreateContext() != nullptr);
+    REQUIRE(add_fonts());
+    const int fonts = static_cast<int>(IM_ARRAYSIZE(FONTS));
+    CHECK_EQ(ImGui::GetIO().Fonts->Fonts.Size, fonts);
+    ImTypeset::DestroyContext();
+    CHECK_EQ(ImGui::GetIO().Fonts->Fonts.Size, fonts);
+
+    REQUIRE(ImTypeset::CreateContext() != nullptr);
+    for (int face = 0; face < ImTypesetFace_COUNT; ++face)
+        CHECK(ImTypeset::GetFont(face) == nullptr);
+    CHECK(!ImTypeset::RemoveFont(ImTypesetFace_Regular));
+    CHECK_EQ(ImGui::GetIO().Fonts->Fonts.Size, fonts);
+    CHECK(add_fonts());
+    CHECK_EQ(ImGui::GetIO().Fonts->Fonts.Size, 2 * fonts);
+    // Removing a role's font takes out the second context's and no other.
+    ImFont* const regular = ImTypeset::GetFont(ImTypesetFace_Regular);
+    CHECK(ImTypeset::RemoveFont(ImTypesetFace_Regular));
+    CHECK(!ImGui::GetIO().Fonts->Fonts.contains(regular));
+    CHECK_EQ(ImGui::GetIO().Fonts->Fonts.Size, 2 * fonts - 1);
+    ImTypeset::DestroyContext();
+    ImGui::DestroyContext();
+}
+
+// The mark is in the last eight bytes of ImFontConfig::Name and the name
+// ImGui shows ends before it: the file's name, or the one the host gave, cut
+// to 31 bytes.
+TEST(a_font_added_here_keeps_a_name_imgui_can_show_and_a_mark_after_it)
+{
+    Tracking tracking;
+    new_imgui_context();
+    REQUIRE(IMTYPESET_CHECKVERSION());
+    REQUIRE(ImTypeset::CreateContext() != nullptr);
+    ImFont* const plain = ImTypeset::AddFontFromFileTTF(ImTypesetFace_Regular,
+                                                        font_path("Roboto-Regular.ttf").c_str());
+    REQUIRE(plain != nullptr);
+    CHECK_EQ(std::string(plain->GetDebugName()), std::string("Roboto-Regular.ttf"));
+
+    ImFontConfig cfg;
+    const std::string given(sizeof(cfg.Name) - 1, 'n');
+    std::snprintf(cfg.Name, sizeof cfg.Name, "%s", given.c_str());
+    ImFont* const named = ImTypeset::AddFontFromFileTTF(
+        ImTypesetFace_Bold, font_path("Roboto-Bold.ttf").c_str(), 0, &cfg);
+    REQUIRE(named != nullptr);
+    CHECK_EQ(std::string(named->GetDebugName()), std::string(31, 'n'));
+
+    // Two fonts, two marks, neither of them nothing.
+    REQUIRE(plain->Sources.Size == 1 && named->Sources.Size == 1);
+    const char* const first = plain->Sources[0]->Name + sizeof(cfg.Name) - 8;
+    const char* const second = named->Sources[0]->Name + sizeof(cfg.Name) - 8;
+    const char none[8] = {};
+    CHECK(std::memcmp(first, second, 8) != 0);
+    CHECK(std::memcmp(first, none, 8) != 0);
+    CHECK(first[7] != 0 && second[7] != 0);
+
+    // A host that writes over the mark has taken the font from the role: it is
+    // found empty, and the font stays in the atlas as the host's.
+    std::memset(named->Sources[0]->Name, 0, sizeof(cfg.Name));
+    {
+        Frame frame;
+    }
+    CHECK(ImTypeset::GetFont(ImTypesetFace_Bold) == nullptr);
+    CHECK(ImTypeset::GetFont(ImTypesetFace_Regular) == plain);
+    CHECK(ImGui::GetIO().Fonts->Fonts.contains(named));
+    ImTypeset::DestroyContext();
     ImGui::DestroyContext();
 }
 

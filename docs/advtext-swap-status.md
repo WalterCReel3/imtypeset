@@ -8,7 +8,8 @@ States: **done**, **in progress**, **queued**, **declined** (with the reason),
 user is the only one who moves the border.
 
 Last updated: 2026-10-11, after commit `0b21807`: items 2 to 7 and item 8's assessment are
-committed. Next: fixes from two reviews (tasks `swap-fixes`, `tables-fixes`), then all presets from clean.
+committed; task `swap-fixes` is finished in the working tree and not yet in a commit (see "After
+`0b21807`" under "API changes"). Next: task `tables-fixes`, then all presets from clean.
 
 ## Build from
 
@@ -122,6 +123,19 @@ with out-of-order runs likewise; `Document.edit_error` keeps what was cut.)
 Rule from here on: no public Python name is renamed or removed without a line
 in this section naming the commit.
 
+**After `0b21807`, in the working tree, not yet in a commit** (task `swap-fixes`; D59). No
+declaration was added, removed or changed in `imtypeset.h`, `imtypeset_c.h` or the Python package's
+functions. What a caller can notice:
+
+| what | where | note |
+|---|---|---|
+| a role's font is the library's only while it carries the library's mark | `GetFont` / `get_font`, `RemoveFont` / `remove_font`, `AddFont…` / `add_font`, every draw | **fixed**: after an ImGui context was destroyed under a kept imtypeset context and another made at its address, these could answer, remove or draw with a font of the HOST's, or a freed one. Now every role is found empty there and nothing of the host's is touched: answer (c) |
+| the name of a font added here | `ImFontConfig::Name` of the role's font | **changed**: ImGui shows the first 31 bytes of the file's name (or of `font_cfg->Name`), where it showed 39; the last 8 bytes are the library's mark |
+| the gate of a sidecar | `python/imtypeset/_bundle.py`, `python/host/imtypeset_bundle_shim.cpp` | two probe rows more (24): rebuild the sidecar from the same tree as the package |
+| a refused `importlib.reload(imtypeset)` | `python/imtypeset/__init__.py` | **fixed**: it left the package in place with its submodules removed, and the next `import imtypeset._capi` (or `imtypeset.demo`) made a second `_capi`. The package now stays as it was loaded. A refused FIRST import still removes every `imtypeset.*` |
+| the demo window's state | `ShowDemoWindow`, `ShowDemoSection` | kept for the 32 contexts it was last shown in (was 8). Past 32 LIVE contexts shown in turn, a context's demo starts over each turn and leaves the handles it had made in that context; the window says so under Known limits |
+| `CalcTextSize` | header comment | says what it always did: whole pixels, rounded up |
+
 ## Items
 
 | # | item | state |
@@ -155,7 +169,38 @@ in this section naming the commit.
   OFF for the rest of that process. Call `destroy_context()` / `unload()` when
   the ImGui context goes, or make an imtypeset context per ImGui context
   (answer (c) below has the rule). The rarer case of a new ImGui context at the
-  old one's address is queued here as task `swap-fixes`.
+  old one's address is closed by task `swap-fixes` (answer (c), D59): the roles
+  are found empty and no host font is touched.
+- **`destroy_context()` leaves the context's fonts in the ImGui atlas** (the
+  atlas owns them; *run here*, `tests/test_api_answers.cpp`). `load_fonts()`
+  as it now stands destroys and makes the imtypeset context on every call: in
+  an ImGui context that is still the same one, each call leaves the seven
+  fonts of the call before in the atlas, known to nobody (14 fonts after two
+  calls, 21 after three). Under hello_imgui the callback runs once, or after
+  the atlas was cleared, so nothing piles up. Where a test calls it twice in
+  one ImGui context, call `imtypeset.remove_font(face)` for each role before
+  `destroy_context()`: that takes the role's font out of the atlas.
+- **The last 8 bytes of `ImFontConfig::Name` of a font added through the
+  library are the library's** (a mark by which it knows its own fonts; D59).
+  The name ImGui shows for such a font is its first 31 bytes. Do not write to
+  `font.sources[0].name` of a role's font past that; a font without its mark
+  is no longer the role's.
+- **A copy does not end in the space a line was broken at.** *Run here:*
+  `range_text(((b, 0), (b, n)))` with `n` exactly the first byte of a wrapped
+  line gives the line before WITHOUT its trailing space; `n + 1` has the space
+  and the next character. With or without columns. It is your reference's own
+  rule (`SelectionModel.text`: a separator is written only between two pieces
+  of selected text) and is kept. So cutting a block's text at arbitrary
+  positions and joining the copies does not give the text back; copy the whole
+  range in one call.
+- **`CalcTextSize` answers whole pixels, rounded up; the width to a fraction
+  of a pixel is a paragraph's line** (`paragraph.lines()[0]`, max minus min).
+  Now said in the header at `CalcTextSize`.
+- **The sidecar must be rebuilt from this tree**: the gate's probe has two new
+  rows (`ImFont.Sources`, `ImFontConfig.Name mark`) and the shim reports one
+  more offset; a package from this tree refuses at import a library whose
+  shim does not report it (the rows `ImFont.Sources` and
+  `ImFontConfig.Name mark` fail).
 
 ## Border questions for the user
 
@@ -306,17 +351,22 @@ ASan + UBSan, no report in any case below.
 - `destroy_context()` is safe then, and with no ImGui context at all. It is
   the one thing left to do with such a context.
 - **A new ImGui context at the address of the destroyed one is taken for the
-  old one.** An address is all `imgui.h` gives to know a context by, and the
-  allocator reused it in every unsanitised run here. What then happens, in
-  every case tested: each role is found without a font (its `ImFont` is not
-  in the new atlas), text reports `NoFont` and draws nothing, the host's own
-  fonts are untouched, and after `add_font` again the kept documents lay out
-  and draw. That is observed, not promised: two collisions were reasoned
-  about and not reproduced (a host font landing at an old font's address
-  with the same `FontId`; the first call into the library in the new context
-  falling on the same frame number with the same number of fonts). Closing
-  them needs the library to read two more ImGui fields and the wheel probe to
-  learn them: **queued**, not built.
+  old one, and finds every role empty.** An address is all `imgui.h` gives to
+  know a context by, and the allocator reused it in every unsanitised run
+  here. **Fixed in task `swap-fixes` (D59), in the working tree after
+  `0b21807`:** the two collisions this entry used to call "reasoned, not
+  reproduced" were reproduced (a host font at an old role font's address with
+  its `FontId` was handed out by `get_font` and REMOVED by `remove_font` and
+  by `add_font`; with exactly as many host fonts as the roles had, `get_font`
+  returned a dangling address). Every font the library adds now carries a mark
+  in the last 8 bytes of its `ImFontConfig::Name`, and a role's font is used,
+  returned or removed only while the atlas holds it with that mark. What you
+  get, always: each role without a font, `NoFont` from text, the host's fonts
+  untouched whatever their addresses, and after `add_font` again the kept
+  documents lay out and draw. It is the same outcome as a host clearing the
+  atlas. It is NOT `NoContext`: which of the two a context left behind
+  answers depends on where the allocator put the new ImGui context, so rely
+  on neither.
 - **The rule for `typesetter.load_fonts()`:** do not reuse a context you find
   (`current_context()` says one exists, never that its ImGui context does).
   Call `destroy_context()` whenever the ImGui context is destroyed, or, if
@@ -458,3 +508,50 @@ Found by reading, not by running; each will be reproduced before it is fixed
 - Appending rows one at a time costs time proportional to the rows already
   there (about 0.2 us a row an append): fine at hundreds of rows, not at tens of
   thousands.
+
+**Seen by eye and measured, task `swap-fixes`** (the demo's Document section through the software
+rasteriser, and the public API; none of it fixed, all of it for task `tables-fixes`):
+
+- **A table not yet laid out is estimated without the space its header's rule takes.** A
+  four-row table with a header: 88 px estimated, 111.2 px laid out. `document.size()` right
+  after `layout()` is short by that much (23 px here) until the table has been drawn or asked
+  for its geometry, and a view scrolled to the end the first time stops one row short of a
+  table that ends the document; the second scroll reaches it.
+- The space between a header row and the first body row is 21.4 px at a 19 px size, with the
+  rule nearer the body than the header; other rows are 0 to 1.6 px apart. Not judged against
+  the reference.
+- **A held table's other columns DO move** when text arriving in the last cell makes the table
+  as wide as the pane: the first two columns were squeezed until "The golden ratio" stood on
+  three lines. Until then they hold.
+- In a row selected from its start, the blank between the first column's text and a
+  right-aligned second column is highlighted; in a row selected from mid-cell it is not.
+
+## Known defects in columns at `0b21807` (from a read-only review; fixed with the table defects)
+
+Found by reading, not by running; each will be reproduced before it is fixed
+(task `tables-fixes`). The cutting itself is held by goldens and was re-derived
+by hand in two cases; these are in the layer the reference has no answer for.
+
+- **A caret or range rectangle asked for before the columns are cut that far
+  can name the wrong column** (or be one line off after an edit under balance).
+  Until fixed, ask for rectangles after the frame's draw, or call
+  `GetDocumentColumnCount` first so the cut is settled.
+- With columns filled in order inside `DocumentView`, content that overflows
+  the last column is not reachable by scrolling.
+- Under `Balance`, `Overfull` can be true for columns that fit (a document
+  with no more uncuttable pieces than columns).
+- `GetDocumentColumnPos` maps a point, not a rectangle: the bottom edge of a
+  column's last line maps to the head of the next column.
+- An empty block between a heading and its text lets a column end after the
+  heading.
+
+**Seen by eye, task `swap-fixes`** (the same pictures; for task `tables-fixes`):
+
+- A table can be cut between its header row and the rule under it: the header at the foot of
+  one column, the rule and the body at the head of the next.
+- Filled in order inside `DocumentView`, a table row that grows past the column's foot is
+  clipped there and cannot be scrolled to (the second item above, seen).
+- Columns do not share a first baseline (a column that starts with a heading has its first
+  baseline 5 px lower than its neighbours at 19 px), and a cut leaves single lines of a
+  paragraph at the head or the foot of a column (the line breaker hands over no club or widow
+  penalties: `docs/divergences.md`, B10). Neither was checked against what the reference shows.

@@ -1,0 +1,97 @@
+// Scratch: the demo window under a list of scripted actions, one frame drawn.
+//   look OUT.png WxH SECTIONS action...
+//   click:X,Y   wheel:X,Y,DY   wait:N   key:left|right (unused)   shift_wheel:X,Y,DX
+#include "imgui.h"
+#include "imtypeset.h"
+#include "support/soft_raster.h"
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include <cfloat>
+
+int main(int argc, char** argv)
+{
+    if (argc < 4) return 2;
+    int W = 0, H = 0;
+    std::sscanf(argv[2], "%dx%d", &W, &H);
+    const std::string open = std::string(",") + argv[3] + ",";
+    static const struct { ImTypesetFace Face; const char* File; } faces[] = {
+        {ImTypesetFace_Regular, "Roboto-Regular.ttf"}, {ImTypesetFace_Bold, "Roboto-Bold.ttf"},
+        {ImTypesetFace_Italic, "Roboto-RegularItalic.ttf"}, {ImTypesetFace_BoldItalic, "Roboto-BoldItalic.ttf"},
+        {ImTypesetFace_Code, "Inconsolata-Medium.ttf"}, {ImTypesetFace_Math, "latinmodern-math.otf"},
+    };
+    const std::string fonts = IMTYPESET_TEST_DATA_DIR "/fonts/";
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    io.DeltaTime = 1.0f / 60.0f;
+    io.DisplaySize = ImVec2((float)W, (float)H);
+    ImGui::StyleColorsDark();
+    soft_raster::Renderer renderer;
+    renderer.init();
+    if (!IMTYPESET_CHECKVERSION() || ImTypeset::CreateContext() == nullptr) return 3;
+    io.Fonts->AddFontDefault();
+    for (const auto& f : faces)
+        if (ImTypeset::AddFontFromFileTTF(f.Face, (fonts + f.File).c_str()) == nullptr) return 4;
+    const ImU32 CLEAR = IM_COL32(115, 140, 153, 255);
+    soft_raster::Image image(W, H, CLEAR);
+    soft_raster::Image strip(W, 1, CLEAR);
+    bool first = true;
+    auto frame = [&](bool last) {
+        ImGui::NewFrame();
+        ImTypeset::ShowDemoWindow();
+        if (first) {
+            ImGui::Begin("ImTypeset Demo");
+            for (int n = 0; n < ImTypesetDemoSection_COUNT; ++n) {
+                const char* section = ImTypeset::GetDemoSectionName(n);
+                const bool is_open = open.find("," + std::string(section) + ",") != std::string::npos;
+                ImGui::GetStateStorage()->SetInt(ImGui::GetID(section), is_open ? 1 : 0);
+            }
+            ImGui::SetWindowPos(ImVec2(0.0f, 0.0f));
+            ImGui::SetWindowSize(io.DisplaySize);
+            ImGui::End();
+            first = false;
+        }
+        ImGui::Render();
+        if (last) { image.clear(CLEAR); renderer.render(ImGui::GetDrawData(), image); }
+        else { strip.clear(CLEAR); renderer.render(ImGui::GetDrawData(), strip); }
+    };
+    for (int i = 0; i < 4; ++i) frame(false);
+    for (int a = 4; a < argc; ++a) {
+        float x = 0, y = 0, d = 0; int n = 0;
+        if (std::sscanf(argv[a], "click:%f,%f", &x, &y) == 2) {
+            io.AddMousePosEvent(x, y); frame(false);
+            io.AddMouseButtonEvent(0, true); frame(false); frame(false);
+            io.AddMouseButtonEvent(0, false); frame(false);
+        } else if (std::sscanf(argv[a], "drag:%f,%f,%f", &x, &y, &d) == 3) {
+            io.AddMousePosEvent(x, y); frame(false);
+            io.AddMouseButtonEvent(0, true); frame(false);
+            io.AddMousePosEvent(d, y); frame(false); frame(false);
+            io.AddMouseButtonEvent(0, false); frame(false);
+        } else if (std::sscanf(argv[a], "sel:%f,%f,%f,%d", &x, &y, &d, &n) == 4) {
+            // drag from (x,y) to (d,n), left held for the picture
+            io.AddMousePosEvent(x, y); frame(false);
+            io.AddMouseButtonEvent(0, true); frame(false);
+            io.AddMousePosEvent(d, (float)n); frame(false); frame(false);
+        } else if (std::sscanf(argv[a], "wheel:%f,%f,%f", &x, &y, &d) == 3) {
+            io.AddMousePosEvent(x, y); frame(false);
+            io.AddMouseWheelEvent(0.0f, d); frame(false); frame(false);
+        } else if (std::sscanf(argv[a], "hwheel:%f,%f,%f", &x, &y, &d) == 3) {
+            io.AddMousePosEvent(x, y); frame(false);
+            io.AddMouseWheelEvent(d, 0.0f); frame(false); frame(false);
+        } else if (std::sscanf(argv[a], "wait:%d", &n) == 1) {
+            for (int i = 0; i < n; ++i) frame(false);
+        } else if (std::strcmp(argv[a], "away") == 0) {
+            io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); frame(false);
+        } else return 5;
+    }
+    for (int i = 0; i < 6; ++i) frame(false);
+    frame(true);
+    if (!soft_raster::write_png(argv[1], image)) return 6;
+    std::printf("wrote %s; last error: %s\n", argv[1], ImTypeset::GetLastError()->Message);
+    ImTypeset::DestroyContext();
+    renderer.shutdown();
+    ImGui::DestroyContext();
+    return 0;
+}

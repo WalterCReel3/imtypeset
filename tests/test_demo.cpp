@@ -8,7 +8,7 @@
 // Built with IMTYPESET_DISABLE_DEMO in the compiler flags of the whole build,
 // the one test that remains checks that the symbol links and draws nothing.
 
-#include "check.h"
+#include "golden.h"
 
 #include "context.h" // The handles a context holds, to be counted.
 #include "imgui.h"
@@ -516,6 +516,24 @@ TEST(two_live_contexts_showing_the_demo_each_keep_one_set_of_handles)
     CHECK_EQ(ImTypeset::GetStats().Layouts - settled_two, ImU64(0));
 }
 
+// More live contexts than the eight a state was once kept for, each showing
+// the demo in turn: none is taken for a new one at its next turn, so none is
+// left holding the handles of a state that was dropped.
+TEST(nine_live_contexts_showing_the_demo_in_turn_each_keep_one_set_of_handles)
+{
+    Host hosts[9];
+    for (Host& host : hosts) {
+        REQUIRE(host.library);
+        host.open(ALL);
+    }
+    for (int turn = 0; turn < 5; ++turn) {
+        for (Host& host : hosts)
+            host.frame();
+    }
+    for (Host& host : hosts)
+        CHECK_EQ(handles_of(host), DEMO_HANDLES);
+}
+
 TEST(a_context_replaced_between_two_frames_that_show_the_demo_gets_handles_of_its_own)
 {
     // No frame without the demo, nothing typeset in between: nothing for the
@@ -596,17 +614,20 @@ TEST(what_the_demo_holds_is_kept_while_the_window_is_collapsed_closed_or_not_sho
     CHECK_EQ(extent_of_the_demo(host), changed);
 }
 
-// The demo keeps a state for each of the eight contexts it was last shown in.
-// One that comes back after eight others is a new one to it: defaults, and
-// handles made again beside those it made before, which stay the context's.
-TEST(a_context_shown_again_after_eight_others_starts_over_and_after_seven_does_not)
+// The demo keeps a state for each of the 32 contexts it was last shown in
+// (DEMO_STATES_MAX in src/imtypeset_demo.cpp). One that comes back after 32
+// others is a new one to it: defaults, and handles made again beside those it
+// made before, which stay the context's. That is the limit the demo states
+// under Known limits, and this is what it costs each time it is passed.
+TEST(a_context_shown_again_after_32_others_starts_over_and_after_31_does_not)
 {
+    const int STATES_MAX = 32;
     Host host;
     REQUIRE(host.library);
     host.open(ALL);
     host.run(6);
     CHECK_EQ(handles_of(host), DEMO_HANDLES);
-    for (int others = 7; others <= 8; ++others) {
+    for (int others = STATES_MAX - 1; others <= STATES_MAX; ++others) {
         CHECK_CONTEXT("%d other contexts", others);
         for (int i = 0; i < others; ++i) {
             Host other;
@@ -614,7 +635,7 @@ TEST(a_context_shown_again_after_eight_others_starts_over_and_after_seven_does_n
             other.run(2);
         }
         host.run(4);
-        CHECK_EQ(handles_of(host), others == 7 ? DEMO_HANDLES : 2 * DEMO_HANDLES);
+        CHECK_EQ(handles_of(host), others == STATES_MAX - 1 ? DEMO_HANDLES : 2 * DEMO_HANDLES);
     }
 }
 
@@ -699,46 +720,97 @@ TEST(shown_alone_with_no_context_a_section_says_so_and_typesets_nothing)
     CHECK_EQ(ImTypeset::GetStats().DrawCalls, ImU64(0));
 }
 
-// What the Specimen section reads its numbers off: the extent of the one line
-// of a paragraph object is the width layout set the text to, in fractions of a
-// pixel. Held to the widths the Python reference's specimen
-// (advtext.ui.specimen.build_specimen, tag advtext-reference) reports for the
-// same faces, printed there to four decimals of a pixel: so the comparison is
-// to half of the last printed digit plus a float's own step at 500, and it is
-// not a golden replay.
-TEST(the_width_of_a_line_is_the_set_width_the_reference_measures)
+// A DISPLAY CHECK, NOT ORACLE COVERAGE. The Specimen section reads its numbers
+// off the extent of the one line of a paragraph object, a float in pixels,
+// and prints them to two decimals. This holds what it prints, as text, to what
+// the Python reference's specimen comes to at two decimals
+// (tests/golden/specimen). A float pixel cannot tell a width from one a scaled
+// point away, so a pass here says the chart shows the reference's figures and
+// nothing finer: the widths are held to the reference exactly, as integers of
+// scaled points inside the library, by tests/test_specimen.cpp.
+TEST(the_specimen_prints_the_references_figures_to_the_two_decimals_it_shows)
 {
+    const std::string path = golden::path("specimen/specimen.golden");
+    golden::File file;
+    REQUIRE(file.load(path));
     Host host;
     REQUIRE(host.library);
     ImTypesetParagraph* paragraph = ImTypeset::CreateParagraph();
     REQUIRE(paragraph != nullptr);
-    const auto width = [&](const char* text, ImTypesetFace face, float em) {
+    // As SpecimenMeasure() in src/imtypeset_demo.cpp measures a row.
+    const auto width = [&](const std::string& text, ImTypesetFace face, float em) {
         ImTypesetStyle style;
         style.Face = face;
         style.EmSize = em;
         style.Align = ImTypesetAlign_Left;
-        ImTypeset::SetParagraphText(paragraph, text);
+        ImTypeset::SetParagraphText(paragraph, text.c_str());
         ImTypeset::LayoutParagraph(paragraph, 4096.0f, &style);
         const ImTypesetLine line = ImTypeset::GetParagraphLine(paragraph, 0);
-        return double(line.Max.x - line.Min.x);
+        return line.Max.x - line.Min.x;
     };
-    const double step = 0.0001;
-    static const char PANGRAM[] = "The quick brown fox jumps over the lazy dog";
-    CHECK_NEAR(width(PANGRAM, ImTypesetFace_Regular, 24.0f), 473.4376, step);
-    CHECK_NEAR(width(PANGRAM, ImTypesetFace_Bold, 24.0f), 480.5627, step);
-    CHECK_NEAR(width(PANGRAM, ImTypesetFace_Italic, 24.0f), 464.2618, step);
-    CHECK_NEAR(width(PANGRAM, ImTypesetFace_BoldItalic, 24.0f), 471.1994, step);
-    CHECK_NEAR(width(PANGRAM, ImTypesetFace_Code, 24.0f), 516.0001, step);
-    CHECK_NEAR(width(PANGRAM, ImTypesetFace_Math, 24.0f), 479.4241, step);
-    CHECK_NEAR(width("Hamburgefonstiv", ImTypesetFace_Regular, 31.25f), 240.7532, step);
-    // A pair set as one text, and letter by letter: the difference is the
-    // font's kern for the pair at this size, with its sign.
-    CHECK_NEAR(width("AV", ImTypesetFace_Regular, 44.0f), 54.8281, step);
-    CHECK_NEAR(width("A", ImTypesetFace_Regular, 44.0f) + width("V", ImTypesetFace_Regular, 44.0f),
-               56.6973, step);
-    CHECK_NEAR(width("rt", ImTypesetFace_Regular, 44.0f), 30.3359, step);
-    CHECK_NEAR(width("r", ImTypesetFace_Regular, 44.0f) + width("t", ImTypesetFace_Regular, 44.0f),
-               29.2617, step);
+    const auto shown = [](const char* fmt, double value) {
+        char text[64];
+        std::snprintf(text, sizeof text, fmt, value);
+        return std::string(text);
+    };
+    const auto face_of = [](const std::string& name) -> ImTypesetFace {
+        if (name == "prose")
+            return ImTypesetFace_Regular;
+        if (name == "prose_bold")
+            return ImTypesetFace_Bold;
+        if (name == "prose_italic")
+            return ImTypesetFace_Italic;
+        if (name == "prose_bold_italic")
+            return ImTypesetFace_BoldItalic;
+        if (name == "code")
+            return ImTypesetFace_Code;
+        return name == "math" ? ImTypesetFace_Math : -1;
+    };
+
+    double px_per_inch = 0.0;
+    std::string pangram, ladder_text, section;
+    std::string label;
+    ImTypesetFace face = -1;
+    double em = 0.0;
+    int rows = 0, pairs = 0;
+    for (const golden::Record& r : file) {
+        CHECK_CONTEXT("%s line %d", path.c_str(), r.line);
+        if (r.is("theme")) {
+            px_per_inch = r.f64(0);
+        } else if (r.is("texts")) {
+            pangram = r.str(0);
+            ladder_text = r.str(1);
+        } else if (r.is("section")) {
+            section = r.str(0);
+        } else if (r.is("row")) {
+            REQUIRE(px_per_inch > 0.0);
+            label = r.str(0);
+            face = face_of(r.str(1));
+            REQUIRE(face >= 0);
+            const double per_sp = px_per_inch / 72.27 / 65536.0;
+            em = static_cast<double>(r.i64(2)) * per_sp;
+            ++rows;
+            if (r.boolean(5))
+                continue; // Its figures are the pair's, on the next record.
+            const std::string& text = section == "A size ladder" ? ladder_text : pangram;
+            CHECK_EQ(shown("%.2f px", static_cast<double>(width(text, face, float(em)))),
+                     shown("%.2f px", static_cast<double>(r.i64(3)) * per_sp));
+        } else if (r.is("pair")) {
+            const double per_sp = px_per_inch / 72.27 / 65536.0;
+            const float kerned = width(r.str(0) + r.str(1), face, float(em));
+            const float apart = width(r.str(0), face, float(em)) + width(r.str(1), face, float(em));
+            CHECK_EQ(shown("%.2f px", static_cast<double>(kerned)),
+                     shown("%.2f px", static_cast<double>(r.i64(3)) * per_sp));
+            CHECK_EQ(shown("%.2f px", static_cast<double>(apart)),
+                     shown("%.2f px", static_cast<double>(r.i64(4)) * per_sp));
+            // The gutter of a kerning row: the kern, signed, as the reference
+            // writes it there.
+            CHECK_EQ(shown("%+.2f px", static_cast<double>(kerned - apart)), label);
+            ++pairs;
+        }
+    }
+    CHECK_EQ(rows, 19);
+    CHECK_EQ(pairs, 7);
     // What CalcTextSize() answers for the same text is whole pixels, rounded up.
     ImTypesetStyle style;
     style.EmSize = 44.0f;

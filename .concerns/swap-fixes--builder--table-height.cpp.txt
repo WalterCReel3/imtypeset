@@ -1,0 +1,94 @@
+// Scratch: the demo's table at the end of a short document; sizes as the API reports them.
+#include "imgui.h"
+#include "imtypeset.h"
+#include <cstdio>
+#include <string>
+int main(int argc, char** argv)
+{
+    const int paragraphs = argc > 1 ? atoi(argv[1]) : 2;
+    const bool view = argc > 2;
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr; io.DisplaySize = ImVec2(1100, 720); io.DeltaTime = 1.f/60;
+    io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+    if (!IMTYPESET_CHECKVERSION() || !ImTypeset::CreateContext()) return 3;
+    const std::string fonts = IMTYPESET_TEST_DATA_DIR "/fonts/";
+    ImTypeset::AddFontFromFileTTF(ImTypesetFace_Regular, (fonts + "Roboto-Regular.ttf").c_str());
+    ImTypeset::AddFontFromFileTTF(ImTypesetFace_Bold, (fonts + "Roboto-Bold.ttf").c_str());
+    ImTypeset::AddFontFromFileTTF(ImTypesetFace_Math, (fonts + "latinmodern-math.otf").c_str());
+    ImGuiTextBuffer text;
+    ImVector<ImTypesetBlock> blocks;
+    ImTypesetBlockStyle styles[4];
+    styles[0].SpaceBelow = 8.0f;
+    styles[2].Align = ImTypesetAlign_Left; styles[2].SpaceBelow = 8.0f;
+    for (int i = 0; i < paragraphs; ++i) {
+        ImTypesetBlock b; b.Kind = ImTypesetBlockKind_Paragraph; b.Style = 0; b.TextStart = text.size();
+        text.append("A formula written between dollar signs is set by the math engine and sits in its line as one box. The subset is small on purpose.");
+        b.TextEnd = text.size(); blocks.push_back(b);
+    }
+    static const char* const TABLE[4][3] = {
+        {"Quantity", "Value", "Remarks"},
+        {"The golden ratio", "$\\frac{1 + \\sqrt{5}}{2}$", "A formula is a cell's text like any."},
+        {"A dozen", "12", "Numbers read best set right."},
+        {"Text that arrives", "0", "This cell grows:"},
+    };
+    ImVector<ImTypesetCell> cells; ImVector<ImTypesetRun> runs;
+    ImTypesetTableColumn columns[3]; columns[1].Align = ImTypesetAlign_Right;
+    ImTypesetBlock table; table.Kind = ImTypesetBlockKind_Table;
+    table.Flags = ImTypesetBlockFlags_TableHeader | ImTypesetBlockFlags_TableHeld | ImTypesetBlockFlags_Math;
+    table.Style = 2; table.TextStart = text.size(); table.CellCount = 12; table.ColumnCount = 3;
+    for (int row = 0; row < 4; ++row) for (int column = 0; column < 3; ++column) {
+        if (column != 0) text.append("\t"); else if (row != 0) text.append("\n");
+        ImTypesetCell cell; cell.TextStart = text.size() - table.TextStart; text.append(TABLE[row][column]);
+        cell.TextEnd = text.size() - table.TextStart; cell.Flags = column == 0 ? ImTypesetCellFlags_RowStart : 0;
+        cells.push_back(cell);
+        if (row == 0) { ImTypesetRun bold; bold.Start = cell.TextStart; bold.End = cell.TextEnd; bold.Face = ImTypesetFace_Bold; runs.push_back(bold); }
+    }
+    table.TextEnd = text.size(); table.RunCount = runs.Size; blocks.push_back(table);
+    ImTypesetDocumentContent content;
+    content.Text = text.begin(); content.TextSize = text.size(); content.Blocks = blocks.Data; content.BlockCount = blocks.Size;
+    content.Runs = runs.Data; content.RunCount = runs.Size; content.Cells = cells.Data; content.CellCount = cells.Size;
+    content.Columns = columns; content.ColumnCount = 3; content.Styles = styles; content.StyleCount = 4;
+    ImTypesetDocument* d = ImTypeset::CreateDocument();
+    if (!ImTypeset::SetDocumentBlocks(d, &content)) std::printf("set: %s\n", ImTypeset::GetLastError()->Message);
+    ImTypesetStyle style; style.FontSize = 19.0f;
+    auto report = [&](const char* when) {
+        const ImVec2 size = ImTypeset::GetDocumentSize(d);
+        const int t = blocks.Size - 1;
+        const ImTypesetBlockGeometry g = ImTypeset::GetDocumentBlockGeometry(d, t);
+        const ImTypesetTableGeometry tg = ImTypeset::GetDocumentTableGeometry(d, t);
+        std::printf("%s: document %.1f x %.1f; table block y %.1f..%.1f full %.1f..%.1f laid_out %d; table %.1f..%.1f rows %d laid_out %d\n", when,
+                    size.x, size.y, g.Min.y, g.Max.y, g.FullMin.y, g.FullMax.y, (int)g.LaidOut, tg.Min.y, tg.Max.y, tg.RowCount, (int)tg.LaidOut);
+        for (int r = 0; r < tg.RowCount; ++r) {
+            const ImTypesetTableRowGeometry row = ImTypeset::GetDocumentTableRow(d, t, r);
+            std::printf("   row %d: %.1f..%.1f\n", r, row.Min, row.Max);
+        }
+    };
+    if (!view) {
+        ImTypeset::LayoutDocument(d, 1070.0f, &style);
+        std::printf("size right after LayoutDocument: %.1f\n", ImTypeset::GetDocumentSize(d).y);
+        report("LayoutDocument");
+        std::printf("size after the geometry queries: %.1f\n", ImTypeset::GetDocumentSize(d).y);
+        ImTypeset::LayoutDocumentWindow(d, 0.0f, 5000.0f);
+        std::printf("size after LayoutDocumentWindow(0, 5000): %.1f\n", ImTypeset::GetDocumentSize(d).y);
+        ImTypeset::LayoutDocument(d, 1070.0f, &style);
+        std::printf("size after a second LayoutDocument: %.1f\n", ImTypeset::GetDocumentSize(d).y);
+    } else {
+        for (int f = 0; f < 20; ++f) {
+            ImGui::NewFrame();
+            ImGui::SetNextWindowPos(ImVec2(0, 0)); ImGui::SetNextWindowSize(io.DisplaySize);
+            ImGui::Begin("w");
+            if (argc > 3) ImTypeset::SetDocumentColumns(d, NULL);
+            ImTypeset::DocumentView("##d", d, ImVec2(0.0f, 234.0f), NULL, NULL, &style);
+            ImGui::End();
+            // Scroll the view's child to its end.
+            ImGui::Render();
+            if (f == 1) { io.AddMousePosEvent(300, 80); }
+            if (f >= 2) { io.AddMouseWheelEvent(0, -100); }
+        }
+        std::printf("DocumentView for 8 frames, wheel to the end: size %.1f, scroll max as ImGui has it: see below\n", ImTypeset::GetDocumentSize(d).y);
+        report("then the geometry queries");
+    }
+    ImTypeset::DestroyContext(); ImGui::DestroyContext();
+    return 0;
+}
