@@ -39,7 +39,7 @@
 //
 // THE REFERENCE'S RULES AND THE PRODUCT'S. The reference is a prototype and its
 // block stacking has shortcuts (docs/divergences.md, `## blocks`, lists
-// fifteen). Each is a switch in DocumentRules. A default DocumentRules is the
+// sixteen). Each is a switch in DocumentRules. A default DocumentRules is the
 // reference, which tests/golden/blocks holds stage by stage;
 // DocumentRules::product() is what a document API should use.
 //
@@ -76,6 +76,12 @@
 // Document a table's layout keeps each row as it was shipped (TableLayout),
 // and a row is set again only when its cells, the column widths or anything
 // else it was set from has changed: a row appended to a table costs that row.
+//
+// COLUMNS. A document is laid out as one column whatever it is shown in.
+// What cutting it into columns needs of this layer is the vertical list by
+// dimension, a unit at a time (Document::unit_vlist), and to be told from
+// which unit on the document has changed (Document::take_changed): the cuts
+// and what is kept of them are src/columns.
 //
 // Not here: hosted blocks, display formulas (an inline formula is a box
 // in a text block's material, in Document::arena), links, markdown, drawing,
@@ -208,6 +214,16 @@ struct DocumentRules {
     // 13. A rule takes what 8 and 12 do to its container's indent. Off, a
     // rule's indent is used as given.
     bool rule_in_container = false;
+    // 16. The space between two blocks is a place a column may end. In the
+    // list a document's columns are cut from (Document::unit_vlist) it is
+    // glue, where a cut is legal after a box (tex.web section 973), and it is
+    // there between any two blocks, of no width where they have no space;
+    // after a block that says keep_with_next it is the kern it is in the
+    // stack. Off, it is that kern everywhere, which is no legal break unless
+    // glue follows it, and none does: a column never ends between two blocks,
+    // and a run of one-line blocks cannot be cut at all. The uncut document
+    // does not read this.
+    bool break_between_blocks = false;
 
     // What a document API should use: every switch on, code lines wrapped. `em`
     // is the body size; the least measure is eight of it and a continuation
@@ -350,6 +366,12 @@ struct Block {
     CodeLines code;
     // TABLE: the cells.
     TableCells table;
+    // A column does not end between this block and the next (a heading and
+    // what it heads): read under DocumentRules::break_between_blocks, by
+    // Document::unit_vlist alone. tex.web's way to it is a \nobreak, a
+    // penalty of 10000, after the heading's box; here the gap after the block
+    // stays a kern, which section 973 does not break at.
+    bool keep_with_next = false;
     // How much the block will hold, for one whose material or lines are made
     // only when it is first laid out (DocumentComposer::materialize): TEXT,
     // how many nodes; CODE, how many lines, which must then be exact: whether
@@ -1004,6 +1026,28 @@ public:
     // that is not a laid-out table.
     Scaled table_floor(DocumentComposer& composer, size_t block, size_t column);
 
+    // --- The vertical list, for cutting into columns (src/columns.h) ------------
+
+    // What take_changed answers when nothing has changed.
+    static constexpr size_t UNCHANGED = static_cast<size_t>(-1);
+    // The first unit that is not what it was when this was last asked: laid
+    // out again or due to be, another block's, in another place among the
+    // units, or new. Every unit before it stands at the height it stood at
+    // with the lines it had. UNCHANGED if there is none. Asking forgets the
+    // answer; ask after `prepare`.
+    size_t take_changed();
+    // Appends unit `u`'s part of the document's vertical list by dimension:
+    // the gap above it and, for each of its boxes, the interline glue and the
+    // box, as Stacker::stack puts them in the list at level 0. A box is a RULE
+    // node of its width, height and depth: what a scan for a place to cut
+    // reads of a box, with no arena behind it. A quoted run is one box. The
+    // gap is a kern, or glue under DocumentRules::break_between_blocks. The
+    // unit must be laid out (layout_unit).
+    void unit_vlist(size_t u, std::vector<Node>& out) const;
+    // The top of each box of a laid-out block, down from the block's top:
+    // where unit_vlist's boxes stand.
+    void block_line_tops(size_t block, std::vector<Scaled>& tops) const;
+
     // The whole document as one command sequence, as shipping the reference's
     // document box from its top-left corner gives it: every block's commands
     // moved to its place and renumbered, with each quote's LINE and its bar's
@@ -1040,6 +1084,11 @@ private:
     void reset_block(size_t index);
     Scaled prefix(size_t u) const;
     void tree_add(size_t u, Scaled delta);
+    void note_changed(size_t u)
+    {
+        if (u < _changed)
+            _changed = u;
+    }
 
     NodeArena _arena;
     // The first `_count` are the document's; the rest are kept for their
@@ -1059,6 +1108,10 @@ private:
     bool _prepared = false;
 
     std::vector<DocumentUnit> _units;
+    // The units as they were before the last `prepare`, to find the first
+    // that differs; and that, since take_changed was last asked.
+    std::vector<DocumentUnit> _units_before;
+    size_t _changed = 0;
     std::vector<uint32_t> _unit_of;
     std::vector<Bar> _bars;
     // A Fenwick tree over each unit's gap plus extent.

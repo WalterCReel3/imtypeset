@@ -158,6 +158,8 @@ static void test_build_info(void)
     CHECK(g_info.SizeofTableColumnGeometry == (int)sizeof(ImTypeset_TableColumnGeometry));
     CHECK(g_info.SizeofTableRowGeometry == (int)sizeof(ImTypeset_TableRowGeometry));
     CHECK(g_info.SizeofCellPosition == (int)sizeof(ImTypeset_CellPosition));
+    CHECK(g_info.SizeofColumns == (int)sizeof(ImTypeset_Columns));
+    CHECK(g_info.SizeofColumnGeometry == (int)sizeof(ImTypeset_ColumnGeometry));
 
     /* A caller compiled against a shorter struct gets its prefix and no more. */
     memset(&partial, 0x5A, sizeof partial);
@@ -267,6 +269,12 @@ static void test_version_check(void)
               sizeof(ImTypeset_Cell), sizeof(ImTypeset_TableColumn),
               sizeof(ImTypeset_TableGeometry), sizeof(ImTypeset_TableColumnGeometry),
               sizeof(ImTypeset_TableRowGeometry), sizeof(ImTypeset_CellPosition)) == 1);
+    /* And the fourth, for a struct of columns. */
+    CHECK(ImTypeset_DebugCheckColumnDataLayout(sizeof(ImTypeset_Columns) + 4,
+                                               sizeof(ImTypeset_ColumnGeometry)) == 0);
+    CHECK(last_error_code() == ImTypeset_Error_VersionMismatch);
+    CHECK(ImTypeset_DebugCheckColumnDataLayout(sizeof(ImTypeset_Columns),
+                                               sizeof(ImTypeset_ColumnGeometry)) == 1);
     CHECK(IMTYPESET_C_CHECKVERSION(wchar_size, vert_size, idx_size) == 1);
     CHECK(last_error_code() == ImTypeset_Error_None);
 }
@@ -1375,6 +1383,111 @@ static void test_table(void)
     CHECK(ImTypeset_DestroyDocument(document) == 1);
 }
 
+/* Columns through the C ABI: twelve paragraphs shown in columns filled in
+ * order and then balanced; each column asked for, a point taken to the page
+ * and hit there, and the document shown uncut again. */
+static void test_columns(void)
+{
+    static const char PARAGRAPH[] =
+        "Stored letters and other symbols are retrieved and ordered according to a "
+        "language's orthography for visual display.";
+    enum { COUNT = 12, LENGTH = (int)(sizeof PARAGRAPH - 1) };
+    static char text[COUNT * (sizeof PARAGRAPH - 1) + 1];
+    ImTypeset_Block blocks[COUNT];
+    ImTypeset_DocumentContent content;
+    ImTypeset_Document* document;
+    ImTypeset_Columns columns;
+    ImTypeset_ColumnGeometry column;
+    ImTypeset_ColumnGeometry next;
+    ImTypeset_BlockGeometry geometry;
+    ImTypeset_DocumentHit hit;
+    ImTypeset_DocumentStats stats;
+    ImTypeset_Vec2 size;
+    ImTypeset_Vec2 point;
+    int count;
+    int k;
+    int i;
+
+    SECTION("columns");
+    memset(blocks, 0, sizeof blocks);
+    memset(&content, 0, sizeof content);
+    for (i = 0; i < COUNT; ++i) {
+        memcpy(text + i * LENGTH, PARAGRAPH, (size_t)LENGTH);
+        blocks[i].TextStart = i * LENGTH;
+        blocks[i].TextEnd = (i + 1) * LENGTH;
+    }
+    content.Text = text;
+    content.TextSize = COUNT * LENGTH;
+    content.Blocks = blocks;
+    content.BlockCount = COUNT;
+    document = ImTypeset_CreateDocument();
+    REQUIRE(document != NULL);
+    CHECK(ImTypeset_SetDocumentBlocks(document, &content) == 1);
+    CHECK(ImTypeset_LayoutDocument(document, 240.0f, NULL) == 1);
+    CHECK(ImTypeset_GetDocumentColumnCount(document) == 1);
+    CHECK(ImTypeset_GetDocumentColumnCount(NULL) == 1);
+
+    /* In order: columns 200 px tall, as many as it takes. */
+    memset(&columns, 0, sizeof columns);
+    columns.Height = 200.0f;
+    columns.Gutter = 20.0f;
+    CHECK(ImTypeset_SetDocumentColumns(NULL, &columns) == 0);
+    CHECK(ImTypeset_SetDocumentColumns(document, &columns) == 1);
+    CHECK(ImTypeset_LayoutDocumentWindow(document, 0.0f, 1.0e9f) == 1);
+    count = ImTypeset_GetDocumentColumnCount(document);
+    CHECK(count >= 3);
+    CHECK(ImTypeset_GetDocumentSize(document, &size) == 1);
+    CHECK(size.y == 200.0f);
+    CHECK(ImTypeset_GetDocumentColumn(document, 0, NULL) == 0);
+    CHECK(ImTypeset_GetDocumentColumn(document, 0, &column) == 1);
+    CHECK(column.Exists && column.Start.Block == 0 && column.Start.Offset == 0);
+    CHECK(column.Min.x == 0.0f && column.Max.y == 200.0f);
+    for (k = 1; k < count; ++k) {
+        CHECK(ImTypeset_GetDocumentColumn(document, k, &next) == 1);
+        CHECK(next.Exists);
+        CHECK(next.Start.Block == column.End.Block && next.Start.Offset == column.End.Offset);
+        CHECK(next.Min.x > column.Max.x);
+        column = next;
+    }
+    CHECK(column.End.Block == COUNT - 1 && column.End.Offset == LENGTH);
+    CHECK(ImTypeset_GetDocumentColumn(document, count, &next) == 1);
+    CHECK(!next.Exists && next.Max.x == 0.0f);
+    CHECK(ImTypeset_GetDocumentStats(document, &stats) == 1);
+    CHECK(stats.ColumnsCut == (ImTypeset_U64)count);
+    CHECK(stats.BalanceHeightsTried == 0);
+
+    /* The last block's corner, from the uncut column to the page, hits it. */
+    CHECK(ImTypeset_GetDocumentBlockGeometry(document, COUNT - 1, &geometry) == 1);
+    CHECK(ImTypeset_GetDocumentColumnPos(document, NULL, &point) == 0);
+    CHECK(ImTypeset_GetDocumentColumnPos(document, &geometry.FullMin, NULL) == 0);
+    CHECK(ImTypeset_GetDocumentColumnPos(document, &geometry.FullMin, &point) == 1);
+    CHECK(point.x > 250.0f && point.y >= 0.0f && point.y < 200.0f);
+    point.x += 3.0f;
+    point.y += 3.0f;
+    CHECK(ImTypeset_HitTestDocument(document, &point, &hit) == 1);
+    CHECK(hit.Position.Block == COUNT - 1);
+
+    /* Balanced into three. */
+    columns.Count = 3;
+    columns.Height = 0.0f;
+    columns.Flags = ImTypeset_ColumnFlags_Balance;
+    CHECK(ImTypeset_SetDocumentColumns(document, &columns) == 1);
+    CHECK(ImTypeset_GetDocumentColumnCount(document) == 3);
+    CHECK(ImTypeset_GetDocumentStats(document, &stats) == 1);
+    CHECK(stats.BalanceHeightsTried > 0);
+    CHECK(ImTypeset_GetDocumentColumn(document, 2, &column) == 1);
+    CHECK(column.Exists && !column.Overfull);
+    CHECK(column.End.Block == COUNT - 1 && column.End.Offset == LENGTH);
+
+    /* Uncut again. */
+    CHECK(ImTypeset_SetDocumentColumns(document, NULL) == 1);
+    CHECK(ImTypeset_GetDocumentColumnCount(document) == 1);
+    point = geometry.FullMin;
+    CHECK(ImTypeset_GetDocumentColumnPos(document, &geometry.FullMin, &point) == 1);
+    CHECK(point.x == geometry.FullMin.x && point.y == geometry.FullMin.y);
+    CHECK(ImTypeset_DestroyDocument(document) == 1);
+}
+
 static void test_with_a_context(void)
 {
     ImTypeset_Context* context;
@@ -1449,6 +1562,7 @@ static void test_with_a_context(void)
             test_paragraph_buffers(paragraph, reference);
             test_document(draw_list);
             test_table();
+            test_columns();
             test_demo_sections();
         }
         c_api_host_end_frame();

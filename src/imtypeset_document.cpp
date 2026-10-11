@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -604,6 +605,7 @@ void apply_spec(ImTypesetDocument& d, size_t i)
     }
     block.item = static_cast<uint32_t>(std::max(b.item, 0));
     block.thickness = spec.extent;
+    block.keep_with_next = b.kind == ImTypesetBlockKind_Heading;
     block.length_hint = length_hint(b);
     b.cells_built = 0;
     b.last_cell_boxes = 0;
@@ -985,6 +987,35 @@ void take_style(ImTypesetDocument& d, const ImTypesetStyle& given, float width)
     d.doc.set_width(d.width);
 }
 
+// What SetDocumentColumns said, against the style: whether the document is
+// shown in columns, and how they are cut.
+void apply_column_rules(ImTypesetDocument& d)
+{
+    const ImTypesetColumns& given = d.columns_given;
+    const bool balance = (given.Flags & ImTypesetColumnFlags_Balance) != 0 && given.Count >= 2;
+    // A view gives its own height to columns that state none.
+    const float height =
+        given.Height > 0.0f ? given.Height : (given.Count >= 2 ? d.view_height : 0.0f);
+    d.columned = balance || height > 0.0f;
+    if (!d.columned)
+        return;
+    ColumnRules rules;
+    rules.balance =
+        balance ? std::min(static_cast<uint32_t>(given.Count), MAX_BALANCED_COLUMNS) : 0u;
+    rules.height = balance ? 0 : std::max<Scaled>(length_sp(d, height), 1);
+    // The reference's \splittopskip is ten points whatever the type. The
+    // product's is the height of a line of the document's style above its
+    // baseline, so that a column headed by something shorter than a line (a
+    // rule, a table's rule, small type) has it where a line's baseline would
+    // be, and one headed by a line or anything taller is flush.
+    if (!d.reference_rules)
+        rules.split_top_skip.width = Strut::filling(d.style.baselineskip).height;
+    d.columns.set_rules(rules);
+    d.gutter = given.Gutter < 0.0f
+                   ? 0
+                   : (given.Gutter > 0.0f ? length_sp(d, given.Gutter) : d.style.baselineskip);
+}
+
 // Everything a question about the document's layout needs first.
 void ready(ImTypesetDocument& d)
 {
@@ -1004,7 +1035,70 @@ void ready(ImTypesetDocument& d)
         d.specs_stale = false;
     }
     collect_boxes(d);
+    apply_column_rules(d);
 }
+
+// Where a height of the uncut column is shown on the page: the column, and
+// what is added to a point of the uncut column to put it there. Cuts the
+// columns up to that one.
+struct Shown {
+    size_t column = 0;
+    Scaled dx = 0;
+    Scaled dy = 0;
+};
+
+Scaled pitch_of(const ImTypesetDocument& d)
+{
+    return std::max<Scaled>(add_saturating(d.width, d.gutter), 1);
+}
+
+Shown shown_at(ImTypesetDocument& d, Scaled y)
+{
+    Shown out;
+    if (!d.columned)
+        return out;
+    const size_t k = d.columns.column_at(d.doc, d.composer, y);
+    if (k >= d.columns.count())
+        return out;
+    const DocumentColumn& column = d.columns.column(k);
+    if (column.empty)
+        return out;
+    out.column = k;
+    out.dx = static_cast<Scaled>(k) * pitch_of(d);
+    out.dy = sub_saturating(column.head, column.top);
+    return out;
+}
+
+// The point of the uncut column that a point of the page shows. A point in
+// the space after a column is that column's; one above a column's first line
+// is at that line's top and one below its last line at that line's foot, so
+// that what is nearest in the column is what is found; a point past the last
+// column is the last column's.
+Point uncut_of(ImTypesetDocument& d, Scaled x, Scaled y)
+{
+    if (!d.columned)
+        return Point{x, y};
+    const Scaled pitch = pitch_of(d);
+    const Scaled across = x <= 0 ? 0 : floor_div(x, pitch);
+    size_t k = static_cast<size_t>(std::min<Scaled>(across, Scaled(1) << 40));
+    d.columns.cut_through(d.doc, d.composer, k);
+    const size_t count = d.columns.count();
+    if (count == 0)
+        return Point{x, y};
+    k = std::min(k, count - 1);
+    while (k > 0 && d.columns.column(k).empty)
+        --k;
+    const DocumentColumn& column = d.columns.column(k);
+    if (column.empty)
+        return Point{x, y};
+    const Scaled last = column.bottom > column.top ? column.bottom - 1 : column.top;
+    const Scaled down = add_saturating(column.top, sub_saturating(y, column.head));
+    return Point{sub_saturating(x, static_cast<Scaled>(k) * pitch),
+                 std::min(std::max(down, column.top), last)};
+}
+
+// The first position set at or below a height of the uncut column.
+ImTypesetPosition position_at(ImTypesetDocument& d, Scaled y);
 
 // --- A block as it was laid out ---------------------------------------------------------
 
@@ -1365,9 +1459,12 @@ ImU32 shown(ImU32 colour)
 }
 
 // One block, with its top-left corner at (`left`, `top`) on the screen.
+// `from` and `to` are heights down from the block's top: only its lines whose
+// tops are at or after the one and before the other are drawn, which is all
+// of them unless a column is cut inside the block.
 void draw_block(ImTypesetDocument& d, size_t i, double left, double top, const Target& target,
                 const ImTypesetDocumentDraw* draw, const ImTypesetDocumentRange& selection,
-                DrawArgs& args)
+                DrawArgs& args, Scaled from = 0, Scaled to = MAX_BLOCK_EXTENT + 1)
 {
     ImTypesetContext& ctx = *d.ctx;
     DocBlock& b = d.blocks[i];
@@ -1469,6 +1566,21 @@ void draw_block(ImTypesetDocument& d, size_t i, double left, double top, const T
         }
     }
 
+    // A column cut inside the block: what is drawn behind and under its
+    // lines goes with the lines.
+    const bool cut = from > 0 || to < layout.extent;
+    if (cut) {
+        const auto outside = [&](const Rect& rect) {
+            const Scaled middle = rect.y + rect.height / 2;
+            return middle < from || middle >= to;
+        };
+        d.highlights.erase(std::remove_if(d.highlights.begin(), d.highlights.end(), outside),
+                           d.highlights.end());
+        d.fills.erase(std::remove_if(d.fills.begin(), d.fills.end(),
+                                     [&](const Fill& fill) { return outside(fill.rect); }),
+                      d.fills.end());
+    }
+
     args.inks = own_inks ? d.inks.data() : b.inks.data();
     args.ink_count = own_inks ? d.inks.size() : b.inks.size();
     if (!d.fills.empty()) {
@@ -1494,6 +1606,33 @@ void draw_block(ImTypesetDocument& d, size_t i, double left, double top, const T
     run.cmds = layout.cmds.data();
     run.count = layout.cmds.size();
     run.lines = &b.lines;
+    if (cut) {
+        // The commands of the lines that are the column's: each line's start
+        // with its LINE, which ends whatever span the one before left open,
+        // so a list can be entered at any of them.
+        const std::vector<LineSpan>& spans = b.lines.spans;
+        const auto first_at = [&](size_t begin, Scaled height) {
+            if (b.lines.sorted)
+                return static_cast<size_t>(
+                    std::partition_point(spans.begin() + static_cast<std::ptrdiff_t>(begin),
+                                         spans.end(),
+                                         [&](const LineSpan& span) { return span.top < height; }) -
+                    spans.begin());
+            size_t at = begin;
+            while (at < spans.size() && spans[at].top < height)
+                ++at;
+            return at;
+        };
+        const size_t first = first_at(0, from);
+        const size_t end = first_at(first, to);
+        const size_t first_cmd = first < spans.size() ? spans[first].first : layout.cmds.size();
+        const size_t end_cmd = end < spans.size() ? spans[end].first : layout.cmds.size();
+        run.cmds = layout.cmds.data() + std::min(first_cmd, layout.cmds.size());
+        run.count = end_cmd > first_cmd ? end_cmd - first_cmd : 0;
+        run.lines = nullptr;
+        if (run.count == 0 && d.highlights.empty() && d.fills.empty())
+            return;
+    }
     // The clip rectangle is popped however the draw is left: a host can
     // unwind through it, and its draw list must not keep a rectangle of ours.
     struct Clip {
@@ -1531,6 +1670,101 @@ bool can_draw(ImTypesetDocument* document)
     return true;
 }
 
+// The bars of a unit whose top-left corner is at (`left`, `unit_top`).
+void draw_bars(ImTypesetDocument& d, const DocumentUnit& unit, double left, double unit_top,
+               const Target& target, const DrawArgs& args)
+{
+    ImTypesetContext& ctx = *d.ctx;
+    for (uint32_t k = 0; k < unit.bar_count; ++k) {
+        const Bar& bar = d.doc.bar(unit.first_bar + k);
+        if (!(bar.extent > 0 && bar.thickness > 0))
+            continue;
+        d.bar_cmds.clear();
+        d.bar_cmds.push_back(DrawCmd::rule_rect(bar.x, bar.top, bar.thickness, bar.extent));
+        ImU32 colour = d.options.QuoteBarColor;
+        if (bar.quote >= 0) {
+            const Structure structure = d.doc.structure();
+            if (static_cast<size_t>(bar.quote) < structure.quote_count &&
+                structure.quotes[bar.quote].ink != 0)
+                colour = structure.quotes[bar.quote].ink;
+        }
+        DrawArgs bar_args;
+        bar_args.px_per_inch = args.px_per_inch;
+        bar_args.rules = args.rules;
+        bar_args.origin = ImVec2(static_cast<float>(left), static_cast<float>(unit_top));
+        bar_args.palette.rule =
+            colour != 0 ? shown(colour) : ImGui::GetColorU32(ImGuiCol_Separator);
+        DrawRun run;
+        run.cmds = d.bar_cmds.data();
+        run.count = d.bar_cmds.size();
+        run.ink = bar_args.palette.rule;
+        emit(ctx, target, run, bar_args);
+    }
+}
+
+// The columns the clip rectangle shows, each the stretch of the uncut column
+// it holds, moved to its place on the page. `window_top` and `window_bottom`
+// are the clip's, down from the page's top.
+void draw_columns(ImTypesetDocument& d, const Target& target, double left, double top,
+                  const ImVec4& clip, Scaled window_top, Scaled window_bottom,
+                  const ImTypesetDocumentDraw* draw, const ImTypesetDocumentRange& selection,
+                  DrawArgs& args, const ErrorState*& trouble, size_t& blocks)
+{
+    const Scaled pitch = pitch_of(d);
+    const Scaled margin = coordinate_sp(d, WINDOW_MARGIN_PX);
+    const Scaled x0 = coordinate_sp(d, static_cast<double>(clip.x) - left);
+    const Scaled x1 = coordinate_sp(d, static_cast<double>(clip.z) - left);
+    // Column k is [k * pitch, k * pitch + width): the first whose right edge
+    // is past the clip's left, to the last whose left edge is before its right.
+    const Scaled first_k = std::max<Scaled>(
+        floor_div(sub_saturating(x0, add_saturating(d.width, margin)), pitch) + 1, 0);
+    const Scaled last_k = ceil_div(add_saturating(x1, margin), pitch) - 1;
+    for (Scaled at = first_k; at <= last_k; ++at) {
+        const size_t k = static_cast<size_t>(at);
+        if (!d.columns.cut_through(d.doc, d.composer, k))
+            break;
+        // A copy: laying a block out below can cut further columns.
+        const DocumentColumn column = d.columns.column(k);
+        if (column.empty)
+            continue;
+        const Scaled dy = sub_saturating(column.head, column.top);
+        const Scaled from = std::max(column.top, sub_saturating(window_top, dy));
+        const Scaled to = std::min(column.limit, sub_saturating(window_bottom, dy));
+        if (from >= to)
+            continue;
+        const double column_left = left + px_of(d, static_cast<Scaled>(k) * pitch);
+        size_t u = std::max<size_t>(column.first_unit, d.doc.unit_at(from));
+        if (u >= d.doc.unit_count())
+            continue;
+        Scaled y = d.doc.unit_top(u);
+        for (; u < d.doc.unit_count() && y < to; ++u) {
+            const DocumentUnit& unit = d.doc.unit(u);
+            // A quoted run is one box, in one column.
+            if (y >= column.top)
+                draw_bars(d, unit, column_left, top + px_of(d, add_saturating(y, dy)), target,
+                          args);
+            for (size_t i = unit.first_block; i < unit.first_block + unit.block_count; ++i) {
+                const Scaled block_top = add_saturating(y, d.doc.top_in_unit(i));
+                const Scaled extent = d.doc.layout(i).extent;
+                // Wholly an earlier column's, or a later one's.
+                if (block_top >= column.limit ||
+                    (add_saturating(block_top, extent) <= column.top && block_top < column.top))
+                    continue;
+                sync(d, i);
+                ++blocks;
+                if (trouble == nullptr && !d.blocks[i].error.ok())
+                    trouble = &d.blocks[i].error;
+                draw_block(d, i, column_left, top + px_of(d, add_saturating(block_top, dy)), target,
+                           draw, selection, args, sub_saturating(column.top, block_top),
+                           sub_saturating(column.limit, block_top));
+            }
+            y += unit.extent;
+            if (u + 1 < d.doc.unit_count())
+                y += d.doc.unit(u + 1).gap;
+        }
+    }
+}
+
 // What in view could not be set as asked: the first such block's error.
 bool draw_document(ImTypesetDocument& d, const Target& target, const ImVec2& pos,
                    const ImVec4& clip, const ImTypesetDocumentDraw* draw)
@@ -1546,7 +1780,7 @@ bool draw_document(ImTypesetDocument& d, const Target& target, const ImVec2& pos
     if (!(clip.w > clip.y) || !(clip.z > clip.x) || d.blocks.empty())
         return succeed();
 
-    const UnitRange range = layout_window(d, window_top, window_bottom);
+    const UnitRange range = d.columned ? UnitRange() : layout_window(d, window_top, window_bottom);
     const ImTypesetDocumentRange selection =
         draw != nullptr ? ordered(d, draw->Selection) : ImTypesetDocumentRange{{0, 0}, {0, 0}};
 
@@ -1561,35 +1795,14 @@ bool draw_document(ImTypesetDocument& d, const Target& target, const ImVec2& pos
 
     const ErrorState* trouble = nullptr;
     size_t blocks = 0;
+    if (d.columned)
+        draw_columns(d, target, left, top, clip, window_top, window_bottom, draw, selection, args,
+                     trouble, blocks);
     Scaled y = range.first < range.end ? d.doc.unit_top(range.first) : 0;
     for (size_t u = range.first; u < range.end; ++u) {
         const DocumentUnit& unit = d.doc.unit(u);
         const double unit_top = top + px_of(d, y);
-        for (uint32_t k = 0; k < unit.bar_count; ++k) {
-            const Bar& bar = d.doc.bar(unit.first_bar + k);
-            if (!(bar.extent > 0 && bar.thickness > 0))
-                continue;
-            d.bar_cmds.clear();
-            d.bar_cmds.push_back(DrawCmd::rule_rect(bar.x, bar.top, bar.thickness, bar.extent));
-            ImU32 colour = d.options.QuoteBarColor;
-            if (bar.quote >= 0) {
-                const Structure structure = d.doc.structure();
-                if (static_cast<size_t>(bar.quote) < structure.quote_count &&
-                    structure.quotes[bar.quote].ink != 0)
-                    colour = structure.quotes[bar.quote].ink;
-            }
-            DrawArgs bar_args;
-            bar_args.px_per_inch = args.px_per_inch;
-            bar_args.rules = args.rules;
-            bar_args.origin = ImVec2(static_cast<float>(left), static_cast<float>(unit_top));
-            bar_args.palette.rule =
-                colour != 0 ? shown(colour) : ImGui::GetColorU32(ImGuiCol_Separator);
-            DrawRun run;
-            run.cmds = d.bar_cmds.data();
-            run.count = d.bar_cmds.size();
-            run.ink = bar_args.palette.rule;
-            emit(ctx, target, run, bar_args);
-        }
+        draw_bars(d, unit, left, unit_top, target, args);
         for (size_t i = unit.first_block; i < unit.first_block + unit.block_count; ++i) {
             sync(d, i);
             ++blocks;
@@ -1652,10 +1865,34 @@ Probe probe(ImTypesetDocument& d, const ImVec2& local_pos)
     Probe out;
     const Scaled x = coordinate_sp(d, is_finite(local_pos.x) ? local_pos.x : 0.0);
     const Scaled y = coordinate_sp(d, is_finite(local_pos.y) ? local_pos.y : 0.0);
+    const Point at = uncut_of(d, x, y);
     Scaled top = 0;
-    out.block = block_at(d, y, &out.in_block, &top);
-    out.local.x = x;
-    out.local.y = y - top;
+    out.block = block_at(d, at.y, &out.in_block, &top);
+    out.local.x = at.x;
+    out.local.y = at.y - top;
+    return out;
+}
+
+ImTypesetPosition position_at(ImTypesetDocument& d, Scaled y)
+{
+    ImTypesetPosition out = {0, 0};
+    bool inside = false;
+    Scaled top = 0;
+    const int block = block_at(d, y, &inside, &top);
+    if (block < 0)
+        return out;
+    out.Block = block;
+    const size_t i = static_cast<size_t>(block);
+    const DocBlock& b = d.blocks[i];
+    if (!is_lined(b.kind))
+        return out;
+    const ImTypesetParagraph& p = view_of(d, i);
+    ensure_lines(p);
+    const Scaled local = y - top;
+    const auto line = std::partition_point(p.line_boxes.begin(), p.line_boxes.end(),
+                                           [&](const LineBox& box) { return box.bottom <= local; });
+    const int size = text_size_of(b);
+    out.Offset = line != p.line_boxes.end() ? std::min(byte_at_index(p, line->index), size) : size;
     return out;
 }
 
@@ -1809,10 +2046,23 @@ ImTypesetPosition moved_by_edit(ImTypesetPosition position, size_t at, size_t re
     return ImTypesetPosition{static_cast<int>(is_end ? at : at + incoming), 0};
 }
 
-void append_px(const ImTypesetDocument& d, const Rect& rect, Scaled top, ImVector<ImVec4>* out)
+// A rectangle of a block whose top is at `top` of the uncut column, where it
+// is shown: in a column, by the column its middle is in.
+void append_px(ImTypesetDocument& d, const Rect& rect, Scaled top, ImVector<ImVec4>* out)
 {
-    out->push_back(ImVec4(pxf(d, rect.x), pxf(d, top + rect.y), pxf(d, rect.x + rect.width),
-                          pxf(d, top + rect.y + rect.height)));
+    const Shown at = shown_at(d, top + rect.y + rect.height / 2);
+    const Scaled x = rect.x + at.dx;
+    const Scaled y = top + rect.y + at.dy;
+    out->push_back(ImVec4(pxf(d, x), pxf(d, y), pxf(d, x + rect.width), pxf(d, y + rect.height)));
+}
+
+// How many columns a document shown in columns has: see GetDocumentColumnCount.
+size_t column_count(ImTypesetDocument& d)
+{
+    // Balanced columns are all cut or none; in order, the first is enough to
+    // bring the cuts up to date with the document.
+    d.columns.cut_through(d.doc, d.composer, 0);
+    return std::max<size_t>(d.columns.estimated_count(d.doc), 1);
 }
 
 } // namespace
@@ -1832,6 +2082,12 @@ void destroy_documents(ImTypesetContext& ctx)
 Document& block_document(ImTypesetDocument& document)
 {
     return document.doc;
+}
+
+DocumentColumns& block_columns(ImTypesetDocument& document)
+{
+    ready(document);
+    return document.columns;
 }
 
 DocumentComposer& block_composer(ImTypesetDocument& document)
@@ -1898,6 +2154,30 @@ bool DebugCheckTableDataLayout(size_t sz_cell, size_t sz_column, size_t sz_table
         {"ImTypesetTableColumnGeometry", sz_column_geometry, sizeof(ImTypesetTableColumnGeometry)},
         {"ImTypesetTableRowGeometry", sz_row_geometry, sizeof(ImTypesetTableRowGeometry)},
         {"ImTypesetCellPosition", sz_cell_position, sizeof(ImTypesetCellPosition)},
+    };
+    std::string& mismatch = layout_mismatch();
+    for (const auto& entry : structs) {
+        if (entry.given == entry.own)
+            continue;
+        mismatch = std::string(entry.name) + " is " + std::to_string(entry.given) +
+                   " bytes where IMTYPESET_CHECKVERSION() is called and " +
+                   std::to_string(entry.own) +
+                   " in the imtypeset library: the two were compiled against different "
+                   "imtypeset.h";
+        return fail(ImTypesetError_VersionMismatch, mismatch);
+    }
+    return succeed();
+}
+
+bool DebugCheckColumnDataLayout(size_t sz_columns, size_t sz_column_geometry)
+{
+    const struct {
+        const char* name;
+        size_t given;
+        size_t own;
+    } structs[] = {
+        {"ImTypesetColumns", sz_columns, sizeof(ImTypesetColumns)},
+        {"ImTypesetColumnGeometry", sz_column_geometry, sizeof(ImTypesetColumnGeometry)},
     };
     std::string& mismatch = layout_mismatch();
     for (const auto& entry : structs) {
@@ -2245,6 +2525,8 @@ bool LayoutDocument(ImTypesetDocument* document, float width, const ImTypesetSty
     ImTypesetContext& ctx = *d->ctx;
     if (bound(ctx))
         validate_fonts(ctx);
+    // A height a view lent the columns is the view's to lend again.
+    d->view_height = 0.0f;
     take_style(*d, style != nullptr ? *style : ctx.style, width);
     return succeed();
 }
@@ -2255,8 +2537,12 @@ bool LayoutDocumentWindow(ImTypesetDocument* document, float top, float bottom)
     if (d == nullptr)
         return no_document();
     ready(*d);
-    const UnitRange range = layout_window(*d, coordinate_sp(*d, is_finite(top) ? top : 0.0),
-                                          coordinate_sp(*d, is_finite(bottom) ? bottom : 0.0));
+    const Scaled window_bottom = coordinate_sp(*d, is_finite(bottom) ? bottom : 0.0);
+    const UnitRange range =
+        layout_window(*d, coordinate_sp(*d, is_finite(top) ? top : 0.0), window_bottom);
+    // The columns that show those heights.
+    if (d->columned)
+        d->columns.column_at(d->doc, d->composer, window_bottom);
     const ErrorState* trouble = nullptr;
     for (size_t u = range.first; u < range.end; ++u) {
         const DocumentUnit& unit = d->doc.unit(u);
@@ -2276,6 +2562,12 @@ ImVec2 GetDocumentSize(ImTypesetDocument* document)
         return ImVec2(0.0f, 0.0f);
     ready(*d);
     d->doc.prepare_if_needed(d->composer);
+    if (d->columned) {
+        const Scaled count = static_cast<Scaled>(column_count(*d));
+        const Scaled across =
+            add_saturating(count * d->width, (count - 1) * std::max<Scaled>(d->gutter, 0));
+        return ImVec2(ceil_px(px_of(*d, across)), ceil_px(px_of(*d, d->columns.height())));
+    }
     return ImVec2(ceil_px(px_of(*d, d->width)), ceil_px(px_of(*d, d->doc.height())));
 }
 
@@ -2299,6 +2591,8 @@ ImTypesetDocumentStats GetDocumentStats(const ImTypesetDocument* document)
     out.UnitsStacked = d->composer.units_assembled;
     out.StructureVisits = d->composer.blocks_prepared + d->spec_visits;
     out.TableRowsSet = d->composer.table_rows_set;
+    out.ColumnsCut = d->columns.columns_cut;
+    out.BalanceHeightsTried = d->columns.heights_tried;
     out.Blocks = static_cast<int>(d->blocks.size());
     for (size_t i = 0; i < d->blocks.size(); ++i)
         out.BlocksDeferred += d->doc.laid_out(i) ? 0 : 1;
@@ -2474,9 +2768,12 @@ ImVec4 GetDocumentCaretRect(ImTypesetDocument* document, const ImTypesetPosition
     const DocBlock& b = d->blocks[i];
     const Scaled top = d->doc.block_top(i);
     if (!is_lined(b.kind)) {
+        const Scaled extent = d->doc.layout(i).extent;
         const Scaled x = d->doc.block(i).style.left_indent;
-        const Scaled y = position.Offset > 0 ? d->doc.layout(i).extent : 0;
-        return ImVec4(pxf(*d, x), pxf(*d, top + y), pxf(*d, x), pxf(*d, top + y));
+        const Scaled y = position.Offset > 0 ? extent : 0;
+        const Shown at = shown_at(*d, top + (y > 0 ? y - 1 : 0));
+        return ImVec4(pxf(*d, x + at.dx), pxf(*d, top + y + at.dy), pxf(*d, x + at.dx),
+                      pxf(*d, top + y + at.dy));
     }
     const ImTypesetParagraph& p = view_of(*d, i);
     ensure_lines(p);
@@ -2492,7 +2789,9 @@ ImVec4 GetDocumentCaretRect(ImTypesetDocument* document, const ImTypesetPosition
             break;
         }
     }
-    return ImVec4(pxf(*d, x), pxf(*d, top + line->top), pxf(*d, x), pxf(*d, top + line->bottom));
+    const Shown at = shown_at(*d, top + line->top + (line->bottom - line->top) / 2);
+    return ImVec4(pxf(*d, x + at.dx), pxf(*d, top + line->top + at.dy), pxf(*d, x + at.dx),
+                  pxf(*d, top + line->bottom + at.dy));
 }
 
 int AppendDocumentRangeText(ImTypesetDocument* document, const ImTypesetDocumentRange& range,
@@ -2803,6 +3102,108 @@ ImTypesetPosition GetDocumentTablePosition(const ImTypesetDocument* document, in
     return out;
 }
 
+bool SetDocumentColumns(ImTypesetDocument* document, const ImTypesetColumns* columns)
+{
+    ImTypesetDocument* d = owned(document);
+    if (d == nullptr)
+        return no_document();
+    ImTypesetColumns given;
+    if (columns != nullptr) {
+        given.Count = std::min(std::max(columns->Count, 0), static_cast<int>(MAX_BALANCED_COLUMNS));
+        given.Height = is_finite(columns->Height) ? columns->Height : 0.0f;
+        given.Gutter = is_finite(columns->Gutter) ? columns->Gutter : 0.0f;
+        given.Flags = columns->Flags;
+    }
+    d->columns_given = given;
+    d->view_height = 0.0f;
+    return succeed();
+}
+
+int GetDocumentColumnCount(ImTypesetDocument* document)
+{
+    ImTypesetDocument* d = owned(document);
+    if (d == nullptr)
+        return 1;
+    ready(*d);
+    if (!d->columned)
+        return 1;
+    return static_cast<int>(std::min<size_t>(column_count(*d), 0x7FFFFFFF));
+}
+
+ImTypesetColumnGeometry GetDocumentColumn(ImTypesetDocument* document, int column)
+{
+    ImTypesetColumnGeometry out = {ImVec2(0.0f, 0.0f),
+                                   ImVec2(0.0f, 0.0f),
+                                   ImVec2(0.0f, 0.0f),
+                                   ImVec2(0.0f, 0.0f),
+                                   {0, 0},
+                                   {0, 0},
+                                   0.0f,
+                                   false,
+                                   false};
+    ImTypesetDocument* d = owned(document);
+    if (d == nullptr || column < 0)
+        return out;
+    ready(*d);
+    d->doc.prepare_if_needed(d->composer);
+    const ImTypesetPosition end = {d->blocks.empty() ? 0 : static_cast<int>(d->blocks.size()) - 1,
+                                   d->blocks.empty() ? 0 : text_size_of(d->blocks.back())};
+    if (!d->columned) {
+        if (column != 0)
+            return out;
+        out.Max = ImVec2(pxf(*d, d->width), pxf(*d, d->doc.height()));
+        out.ContentMax = out.Max;
+        out.End = end;
+        out.Exists = true;
+        return out;
+    }
+    const size_t k = static_cast<size_t>(column);
+    if (!d->columns.cut_through(d->doc, d->composer, k))
+        return out;
+    // A copy: finding the positions below lays blocks out.
+    const DocumentColumn cut = d->columns.column(k);
+    const Scaled left = static_cast<Scaled>(k) * pitch_of(*d);
+    const Scaled right = add_saturating(left, d->width);
+    out.Min = ImVec2(pxf(*d, left), 0.0f);
+    out.Max = ImVec2(pxf(*d, right), pxf(*d, d->columns.height()));
+    out.Exists = true;
+    if (cut.empty) {
+        out.ContentMin = out.Min;
+        out.ContentMax = ImVec2(out.Max.x, out.Min.y);
+        out.Start = end;
+        out.End = end;
+        out.UncutTop = pxf(*d, d->doc.height());
+        return out;
+    }
+    out.ContentMin = ImVec2(pxf(*d, left), pxf(*d, cut.head));
+    out.ContentMax = ImVec2(pxf(*d, right), pxf(*d, cut.used));
+    out.UncutTop = pxf(*d, cut.top);
+    out.Overfull = cut.overfull;
+    out.Start = position_at(*d, cut.top);
+    out.End = cut.next_unit < d->doc.unit_count() ? position_at(*d, cut.limit) : end;
+    return out;
+}
+
+ImVec2 GetDocumentColumnPos(ImTypesetDocument* document, const ImVec2& uncut_pos)
+{
+    ImTypesetDocument* d = owned(document);
+    if (d == nullptr)
+        return uncut_pos;
+    ready(*d);
+    if (!d->columned)
+        return uncut_pos;
+    const float given_y = is_finite(uncut_pos.y) ? uncut_pos.y : 0.0f;
+    const Scaled x = coordinate_sp(*d, is_finite(uncut_pos.x) ? uncut_pos.x : 0.0);
+    const Scaled y = coordinate_sp(*d, given_y);
+    // The top of a column's first line, answered in pixels and handed back,
+    // is that line's column: a float of pixels does not hold a scaled point,
+    // so the column is the one that shows the next height a float can say.
+    const Scaled next =
+        coordinate_sp(*d, std::nextafter(given_y, std::numeric_limits<float>::infinity()));
+    const Shown at = shown_at(*d, std::max(y, next));
+    return ImVec2(pxf(*d, x + at.dx), pxf(*d, y + at.dy));
+}
+
 bool DocumentView(const char* str_id, ImTypesetDocument* document, const ImVec2& size,
                   ImTypesetDocumentRange* selection, const ImTypesetDocumentDraw* draw,
                   const ImTypesetStyle* style)
@@ -2829,11 +3230,34 @@ bool DocumentView(const char* str_id, ImTypesetDocument* document, const ImVec2&
                 IMTYPESET_NO_UNWIND(ImGui::EndChild());
         }
     } child;
-    const bool open = ImGui::BeginChild(str_id != nullptr ? str_id : "##document", size);
+    // Columns filled in order go on to the right: the view scrolls sideways.
+    const ImTypesetColumns& columns = d.columns_given;
+    const bool balanced = (columns.Flags & ImTypesetColumnFlags_Balance) != 0 && columns.Count >= 2;
+    const bool across = balanced || columns.Height > 0.0f || columns.Count >= 2;
+    const bool open =
+        ImGui::BeginChild(str_id != nullptr ? str_id : "##document", size, 0,
+                          across && !balanced ? ImGuiWindowFlags_HorizontalScrollbar : 0);
     child.begun = true;
     bool ok = true;
     if (open) {
-        const float width = ImGui::GetContentRegionAvail().x;
+        const ImVec2 room = ImGui::GetContentRegionAvail();
+        float width = room.x;
+        d.view_height = 0.0f;
+        if (across) {
+            // Count columns across the view: what the gutters leave, shared.
+            const ImTypesetStyle& given = style != nullptr ? *style : ctx.style;
+            const ResolvedStyle resolved = resolve_style(ctx, given);
+            const double gutter = columns.Gutter < 0.0f
+                                      ? 0.0
+                                      : (columns.Gutter > 0.0f ? static_cast<double>(columns.Gutter)
+                                                               : px_from_sp(resolved.baselineskip,
+                                                                            resolved.px_per_inch));
+            const int count = std::max(columns.Count, 1);
+            width = static_cast<float>(
+                std::max((static_cast<double>(room.x) - gutter * (count - 1)) / count, 1.0));
+            if (!balanced && !(columns.Height > 0.0f))
+                d.view_height = std::max(room.y, 1.0f);
+        }
         take_style(d, style != nullptr ? *style : ctx.style, width);
         if (selection != nullptr)
             d.selection = *selection;

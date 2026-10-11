@@ -99,6 +99,7 @@ const Row TABLE[] = {
     BOTH(ParagraphByteToCodepointOffset),
     BOTH(DebugCheckDocumentDataLayout),
     BOTH(DebugCheckTableDataLayout),
+    BOTH(DebugCheckColumnDataLayout),
     BOTH(CreateDocument),
     BOTH(DestroyDocument),
     BOTH(SetDocumentBlocks),
@@ -131,6 +132,10 @@ const Row TABLE[] = {
     BOTH(GetDocumentTableRow),
     BOTH(GetDocumentTableCell),
     BOTH(GetDocumentTablePosition),
+    BOTH(SetDocumentColumns),
+    BOTH(GetDocumentColumnCount),
+    BOTH(GetDocumentColumn),
+    BOTH(GetDocumentColumnPos),
     BOTH(DocumentView),
     BOTH(ShowDemoWindow),
     BOTH(ShowDemoSection),
@@ -547,7 +552,7 @@ TEST(every_enum_type_has_its_c_typedef)
         ++found;
         at = semi;
     }
-    CHECK_EQ(found, 18);
+    CHECK_EQ(found, 19);
 }
 
 TEST(the_two_headers_are_one_version)

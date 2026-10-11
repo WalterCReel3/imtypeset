@@ -231,10 +231,51 @@ class Loading(unittest.TestCase):
         self.assertIn("ImportError", result.stderr)
         self.assertIn("refuses this package's table structs", result.stderr)
 
+    def test_a_column_struct_that_moved_is_refused_at_import(self):
+        patch = (
+            "class ColumnGeometry(ctypes.Structure):\n"
+            "    _fields_ = capi.ColumnGeometry._fields_ + [('Extra', ctypes.c_int)]\n"
+            "capi.ColumnGeometry = ColumnGeometry\n"
+            "capi.COLUMN_STRUCTS = tuple((n, ColumnGeometry if n == 'ColumnGeometry' else t) for n, t in capi.COLUMN_STRUCTS)"
+        )
+        result = child(self.PATCHED_IMPORT.format(patch=patch))()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("ImportError", result.stderr)
+        self.assertIn("refuses this package's column structs", result.stderr)
+
+    def test_a_package_from_before_columns_is_refused_at_import(self):
+        # The document's stats as they were before columns added two counts.
+        patch = (
+            "class DocumentStats(ctypes.Structure):\n"
+            "    _fields_ = capi.DocumentStats._fields_[:-2]\n"
+            "capi.DocumentStats = DocumentStats\n"
+            "capi.DOCUMENT_STRUCTS = tuple((n, DocumentStats if n == 'DocumentStats' else t) for n, t in capi.DOCUMENT_STRUCTS)"
+        )
+        result = child(self.PATCHED_IMPORT.format(patch=patch))()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("ImportError", result.stderr)
+        self.assertIn("refuses this package's document structs", result.stderr)
+
+    def test_a_library_that_describes_itself_in_fewer_bytes_is_refused_at_import(self):
+        # A package that reads more of ImTypeset_BuildInfo than the library has.
+        patch = (
+            "class BuildInfo(ctypes.Structure):\n"
+            "    _fields_ = capi.BuildInfo._fields_ + [('SizeofLater', ctypes.c_int)]\n"
+            "capi.BuildInfo = BuildInfo\n"
+            "capi.PROTOTYPES['ImTypeset_GetBuildInfo'] = (ctypes.c_int, [ctypes.POINTER(BuildInfo), ctypes.c_int])"
+        )
+        result = child(self.PATCHED_IMPORT.format(patch=patch))()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("ImportError", result.stderr)
+        self.assertIn("the library is older than the package", result.stderr)
+
     def test_the_mirrored_document_structs_have_the_sizes_the_library_reports(self):
         raw = ts._capi.BuildInfo()
-        ts.library().ImTypeset_GetBuildInfo(raw, ts._capi.C.sizeof(raw))
-        for name, struct_type in ts._capi.DOCUMENT_STRUCTS + ts._capi.TABLE_STRUCTS:
+        whole = ts.library().ImTypeset_GetBuildInfo(raw, ts._capi.C.sizeof(raw))
+        self.assertEqual(whole, ts._capi.C.sizeof(raw))
+        structs = ts._capi.DOCUMENT_STRUCTS + ts._capi.TABLE_STRUCTS + ts._capi.COLUMN_STRUCTS
+        self.assertEqual(len(structs), 20)
+        for name, struct_type in structs:
             self.assertEqual(getattr(raw, "Sizeof" + name), ts._capi.C.sizeof(struct_type), name)
         self.assertEqual(raw.SizeofRun, ts._capi.C.sizeof(ts._capi.Run))
 
@@ -1560,6 +1601,369 @@ class Tables(unittest.TestCase):
                 text = "\n".join("\t".join(row or [""]) for row in rows)
                 document = self.table(rows)
                 self.assertEqual(document.range_text(((0, 0), (0, len(text)))), text)
+
+
+class Columns(unittest.TestCase):
+    """A document shown in columns. Every block's text is not ASCII, so every
+    position below that is past a block's start is one a byte offset would get wrong."""
+
+    WIDTH = 240.0
+    GUTTER = 16.0
+    COUNT = 35
+
+    def setUp(self):
+        self.texts = [
+            f"Paragraphe numéro {i:02d}. {ACCENTED} {ACCENTED}" for i in range(self.COUNT)
+        ]
+        self.document = ts.Document.from_blocks([ts.Block(text=text) for text in self.texts])
+        self.addCleanup(self.document.close)
+        # The size is stated: the default is ImGui's current font's, which is
+        # another before the first frame than after it.
+        self.assertTrue(self.document.layout(self.WIDTH, ts.Style(EmSize=16.0)))
+        self.end = ts.Position(self.COUNT - 1, len(self.texts[-1]))
+        first = self.document.block_line(0, 0)
+        self.pitch = first.max[1] - first.min[1]
+        self.assertGreater(self.document.block_geometry(0).line_count, 5)
+        # A column in order: a whole number of lines and half of one, so that
+        # a column's foot is not always a paragraph's.
+        self.height = 13.5 * self.pitch
+
+    def uncut_height(self):
+        """The uncut column's height, everything laid out to say it."""
+        self.document.set_columns(None)
+        self.assertTrue(self.document.layout_window(0.0, 1e9))
+        return self.document.block_geometry(self.COUNT - 1).full_max[1]
+
+    def in_order(self):
+        self.document.set_columns(ts.Columns(height=self.height, gutter=self.GUTTER))
+
+    def balanced(self, count=3):
+        self.document.set_columns(
+            ts.Columns(count=count, gutter=self.GUTTER, flags=ts.ColumnFlags.Balance)
+        )
+
+    def columns(self):
+        """Every column there is, found by asking for one after another."""
+        found = []
+        while True:
+            column = self.document.column(len(found))
+            if not column.exists:
+                return found
+            found.append(column)
+            self.assertLess(len(found), 1000)
+
+    def lines(self):
+        """(block, its geometry, the line) for every line, of the UNCUT column."""
+        for block in range(self.COUNT):
+            geometry = self.document.block_geometry(block)
+            for index in range(geometry.line_count):
+                yield block, geometry, self.document.block_line(block, index)
+
+    def slice(self, start, end):
+        """What a copy of [start, end) gives, from the strs."""
+        pieces = []
+        for block in range(start[0], end[0] + 1):
+            first = start[1] if block == start[0] else 0
+            last = end[1] if block == end[0] else len(self.texts[block])
+            if last > first:
+                pieces.append(self.texts[block][first:last])
+        return "\n\n".join(pieces)
+
+    def check_tiling(self, columns):
+        self.assertEqual(columns[0].start, ts.Position(0, 0))
+        for left, right in zip(columns, columns[1:]):
+            self.assertEqual(left.end, right.start)
+            self.assertLess(left.start, left.end)
+        self.assertEqual(columns[-1].end, self.end)
+        for k, column in enumerate(columns):
+            self.assertIsInstance(column.start, ts.Position)
+            self.assertAlmostEqual(column.min[0], k * (self.WIDTH + self.GUTTER), places=3)
+            self.assertAlmostEqual(column.max[0] - column.min[0], self.WIDTH, places=3)
+            self.assertEqual(column.min[1], 0.0)
+
+    def test_uncut_is_one_column_that_holds_everything(self):
+        document = self.document
+        self.assertEqual(document.column_count(), 1)
+        only = document.column(0)
+        self.assertTrue(only.exists)
+        self.assertEqual((only.start, only.end), (ts.Position(0, 0), self.end))
+        self.assertEqual(document.column_pos((7.0, 1234.5)), (7.0, 1234.5))
+        self.assertEqual(
+            document.column(1),
+            ts.ColumnGeometry(
+                (0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0, 0), (0, 0), 0.0, False, False
+            ),
+        )
+        self.assertFalse(document.column(-1).exists)
+        stats = document.stats()
+        self.assertEqual((stats.ColumnsCut, stats.BalanceHeightsTried), (0, 0))
+
+    def test_columns_filled_in_order_tile_the_document(self):
+        document = self.document
+        self.in_order()
+        self.assertGreater(document.column_count(), 1)
+        columns = self.columns()
+        self.assertGreater(len(columns), 1)
+        self.assertEqual(document.column_count(), len(columns))
+        self.check_tiling(columns)
+        for column in columns:
+            self.assertFalse(column.overfull)
+            self.assertAlmostEqual(column.max[1], self.height, places=3)
+            self.assertLessEqual(column.content_max[1], self.height + self.pitch)
+            self.assertGreater(column.content_max[1], column.content_min[1])
+            self.assertGreaterEqual(column.content_min[1], 0.0)
+        tops = [column.uncut_top for column in columns]
+        self.assertEqual(tops[0], 0.0)
+        self.assertEqual(tops, sorted(set(tops)))
+        width, height = document.size()
+        self.assertAlmostEqual(
+            width, len(columns) * self.WIDTH + (len(columns) - 1) * self.GUTTER, delta=1.0
+        )
+        self.assertAlmostEqual(height, self.height, delta=1.0)
+        stats = document.stats()
+        self.assertGreaterEqual(stats.ColumnsCut, len(columns))
+        self.assertEqual(stats.BalanceHeightsTried, 0)
+        self.assertEqual(stats.BlocksLaidOut, self.COUNT)
+        # No column holds more than its height, so there are at least as many
+        # as the uncut column's height asks for; and none is nearly empty.
+        uncut_height = self.uncut_height()
+        self.assertGreaterEqual(len(columns) * self.height, uncut_height - 0.5)
+        self.assertLess(len(columns) * self.height, 2.0 * uncut_height)
+        # The same cuts, found again from the front.
+        self.in_order()
+        self.assertEqual(self.columns(), columns)
+        self.assertEqual(document.stats().BlocksLaidOut, self.COUNT)
+
+    def test_balanced_columns_are_the_count_asked_for_and_one_height(self):
+        document = self.document
+        uncut_height = self.uncut_height()
+        self.balanced(3)
+        self.assertEqual(document.column_count(), 3)
+        columns = self.columns()
+        self.assertEqual(len(columns), 3)
+        self.check_tiling(columns)
+        heights = {column.max[1] for column in columns}
+        self.assertEqual(len(heights), 1)
+        height = heights.pop()
+        # Three columns hold what one did, so they are a third of it or
+        # more; and the least height that does is not far over that.
+        self.assertGreaterEqual(height * 3, uncut_height - 0.5)
+        self.assertLess(height, uncut_height / 3.0 + 4.0 * self.pitch)
+        for column in columns:
+            self.assertFalse(column.overfull)
+            self.assertLessEqual(column.content_max[1], height + self.pitch)
+        self.assertEqual(document.size()[0], 3 * self.WIDTH + 2 * self.GUTTER)
+        stats = document.stats()
+        self.assertGreater(stats.BalanceHeightsTried, 0)
+        self.assertGreaterEqual(stats.ColumnsCut, 3)
+        self.assertEqual(stats.BlocksLaidOut, self.COUNT)
+        # Asking again searches for nothing.
+        self.columns()
+        self.assertEqual(document.stats().BalanceHeightsTried, stats.BalanceHeightsTried)
+
+    def test_a_column_starts_at_a_line_start_counted_in_characters(self):
+        starts = {
+            (block, line.text_start): geometry.full_min[1] + line.min[1]
+            for block, geometry, line in self.lines()
+        }
+        for fill in (self.in_order, self.balanced):
+            with self.subTest(fill=fill.__name__):
+                fill()
+                columns = self.columns()
+                inside = [c for c in columns if c.start.offset > 0]
+                # Some cut falls between two lines of a paragraph, where an
+                # offset in bytes is past the one in characters.
+                self.assertTrue(inside)
+                for column in columns:
+                    self.assertIn(tuple(column.start), starts)
+                    self.assertAlmostEqual(column.uncut_top, starts[tuple(column.start)], delta=0.01)
+                for column in inside:
+                    block, offset = column.start
+                    text = self.texts[block]
+                    self.assertEqual(text[offset - 1], " ")
+                    self.assertGreater(len(text[:offset].encode("utf-8")), offset)
+                    self.assertEqual(
+                        self.document.range_text(((block, offset), (block, len(text)))),
+                        text[offset:],
+                    )
+
+    def test_a_copy_across_a_cut_is_the_copy_of_the_uncut_document(self):
+        document = self.document
+        self.in_order()
+        columns = self.columns()
+        self.assertGreaterEqual(len(columns), 3)
+        ranges = [
+            (columns[0].start, columns[2].start),
+            ((columns[0].end.block, 0), columns[1].end),
+            (
+                (columns[1].start.block, max(columns[1].start.offset - 9, 0)),
+                (columns[1].start.block, columns[1].start.offset + 9),
+            ),
+            ((0, 5), self.end),
+        ]
+        in_order = [document.range_text(given) for given in ranges]
+        self.balanced()
+        balanced = [document.range_text(given) for given in ranges]
+        document.set_columns(None)
+        uncut = [document.range_text(given) for given in ranges]
+        for given, a, b, c in zip(ranges, in_order, balanced, uncut):
+            wanted = self.slice(*given)
+            self.assertTrue(wanted)
+            # The uncut document's copy is the slice of the strs, less the
+            # space a line was broken at when the range ends at that break.
+            self.assertIn(c, (wanted, wanted.rstrip(" ")))
+            self.assertEqual(a, c)
+            self.assertEqual(b, c)
+        self.assertEqual(document.range_text(((0, 0), self.end), "|"), "|".join(self.texts))
+
+    def test_a_hit_in_a_column_answers_a_position_the_column_holds(self):
+        document = self.document
+        for fill in (self.in_order, self.balanced):
+            with self.subTest(fill=fill.__name__):
+                fill()
+                columns = self.columns()
+                for k, column in enumerate(columns):
+                    x = column.min[0] + 30.0
+                    for part in (0.1, 0.5, 0.9):
+                        y = column.content_min[1] + part * (
+                            column.content_max[1] - column.content_min[1]
+                        )
+                        hit = document.hit_test((x, y))
+                        self.assertLessEqual(column.start, hit.position, (k, part))
+                        self.assertLess(hit.position, column.end, (k, part))
+                        caret = document.caret_rect(hit.position)
+                        self.assertGreaterEqual(caret[0], column.min[0] - 0.5)
+                        self.assertLessEqual(caret[2], column.max[0] + 0.5)
+                # A point in a gutter belongs to the column on its left.
+                second = columns[1]
+                y = (second.content_min[1] + second.content_max[1]) / 2.0
+                hit = document.hit_test((second.max[0] + self.GUTTER / 2.0, y))
+                self.assertLessEqual(second.start, hit.position)
+                self.assertLessEqual(hit.position, second.end)
+
+    def test_a_drag_from_one_column_to_the_next_selects_in_reading_order(self):
+        document = self.document
+        self.in_order()
+        first, second = self.columns()[:2]
+        anchor = (first.min[0] + 30.0, (first.content_min[1] + first.content_max[1]) / 2.0)
+        active = (second.min[0] + 30.0, second.content_min[1] + 5.0)
+        selected = document.select_range(anchor, active)
+        self.assertEqual(selected.start, document.hit_test(anchor).position)
+        self.assertEqual(selected.end, document.hit_test(active).position)
+        self.assertLess(selected.start, first.end)
+        self.assertGreaterEqual(selected.end, second.start)
+        self.assertEqual(document.range_text(selected), self.slice(*selected))
+        # One rectangle a line, each inside the column that holds the line.
+        rects = document.range_rects(selected)
+        self.assertGreater(len(rects), 1)
+        for rect in rects:
+            column = first if rect[0] < first.max[0] else second
+            self.assertGreaterEqual(rect[0], column.min[0] - 0.5)
+            self.assertLessEqual(rect[2], column.max[0] + 0.5)
+        self.assertTrue(any(rect[0] >= second.min[0] for rect in rects))
+        self.assertTrue(any(rect[2] <= first.max[0] + 0.5 for rect in rects))
+
+    def test_column_pos_takes_a_point_of_the_uncut_column_into_its_column(self):
+        document = self.document
+        lines = list(self.lines())
+        for fill in (self.in_order, self.balanced):
+            with self.subTest(fill=fill.__name__):
+                fill()
+                columns = self.columns()
+                seen = set()
+                for block, geometry, line in lines:
+                    at = ts.Position(block, line.text_start)
+                    k = max(i for i, column in enumerate(columns) if column.start <= at)
+                    seen.add(k)
+                    column = columns[k]
+                    uncut = (
+                        geometry.full_min[0] + line.min[0] + 1.0,
+                        geometry.full_min[1] + (line.min[1] + line.max[1]) / 2.0,
+                    )
+                    x, y = document.column_pos(uncut)
+                    self.assertAlmostEqual(x, column.min[0] + uncut[0], delta=0.01)
+                    self.assertAlmostEqual(
+                        y, uncut[1] - column.uncut_top + column.content_min[1], delta=0.01
+                    )
+                    self.assertTrue(column.min[0] <= x < column.max[0], (block, k))
+                    self.assertTrue(column.content_min[1] <= y <= column.content_max[1], (block, k))
+                    # And the point on the page is the line it was in the uncut column.
+                    self.assertEqual(document.hit_test((x, y)).position, at)
+                self.assertEqual(seen, set(range(len(columns))))
+
+    def test_no_columns_shows_it_uncut_again(self):
+        document = self.document
+        point = (30.0, self.uncut_height() / 2.0)
+        uncut = document.hit_test(point)
+        size = document.size()
+        for none in (None, ts.Columns(), (0, 0.0, 0.0, 0), ts.Columns(count=3)):
+            self.balanced()
+            self.assertEqual(document.column_count(), 3)
+            self.assertNotEqual(document.size(), size)
+            document.set_columns(none)
+            self.assertEqual(document.column_count(), 1)
+            self.assertEqual(document.column(0).end, self.end)
+            self.assertFalse(document.column(1).exists)
+            self.assertEqual(document.hit_test(point), uncut)
+            self.assertEqual(document.size(), size)
+            self.assertEqual(document.column_pos(point), point)
+        # Nothing was laid out again for any of it.
+        self.assertEqual(document.stats().BlocksLaidOut, self.COUNT)
+
+    def test_columns_are_drawn_side_by_side(self):
+        document = self.document
+        build = ts.build_info()
+
+        def reach():
+            vertices, _ = document.draw_to_buffers((0.0, 0.0), (0.0, 0.0, 1e5, 1e5))
+            size, at = build.sizeof_imdrawvert, build.offsetof_imdrawvert_pos
+            points = [
+                struct.unpack_from("<ff", vertices, i * size + at)
+                for i in range(len(vertices) // size)
+            ]
+            return len(points), max(p[0] for p in points), max(p[1] for p in points)
+
+        count, right, foot = frame(reach)
+        self.assertLessEqual(right, self.WIDTH + 1.0)
+        self.assertGreater(foot, self.uncut_height() - 2.0 * self.pitch)
+        self.balanced()
+        last = self.columns()[-1]
+        count_in_columns, right, foot = frame(reach)
+        self.assertEqual(count_in_columns, count)
+        self.assertGreater(right, last.min[0])
+        self.assertLessEqual(right, last.max[0] + 1.0)
+        self.assertLessEqual(foot, last.max[1] + 8.0)
+
+    def test_a_question_about_a_column_is_one_call_into_the_library(self):
+        document = self.document
+        with Calls() as calls:
+            document.set_columns(ts.Columns(2, flags=ts.ColumnFlags.Balance))
+            document.column_count()
+            document.column(1)
+            document.column_pos((1.0, 2.0))
+            document.set_columns(None)
+        self.assertEqual(
+            calls.names,
+            [
+                "ImTypeset_SetDocumentColumns",
+                "ImTypeset_GetDocumentColumnCount",
+                "ImTypeset_GetDocumentColumn",
+                "ImTypeset_GetDocumentColumnPos",
+                "ImTypeset_SetDocumentColumns",
+            ],
+        )
+
+    def test_a_closed_document_answers_no_question_about_columns(self):
+        document = ts.Document.from_blocks([ts.Block(text="x")])
+        document.close()
+        for call in (
+            lambda: document.set_columns(None),
+            lambda: document.column_count(),
+            lambda: document.column(0),
+            lambda: document.column_pos((0.0, 0.0)),
+        ):
+            with self.assertRaises(ValueError):
+                call()
 
 
 class ParagraphFailures(unittest.TestCase):

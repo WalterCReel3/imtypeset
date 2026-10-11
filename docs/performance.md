@@ -927,6 +927,45 @@ What the rows say.
 passes inside its time limit); the cost of the first hit test or selection after an append,
 which builds the block's view from all of its commands; a table with formulas; memory.
 
+## Columns (task `columns-core`, D58)
+
+No benchmark was written. These are single timings printed by the tests in a release build
+(GNU 12.2.0, `-O3 -DNDEBUG` plus `-ffp-contract=off -fno-exceptions -fno-rtti`; private
+directory `build/columns-core-rel`, one run, another build finishing on the machine), and the
+work counters, which do not depend on the machine. 10,000 paragraphs of 20 to 40 words;
+`tests/test_columns.cpp` (a fake face of round numbers, 200 pt column) and
+`tests/test_api_columns.cpp` (the public calls, Roboto at 16 px, 300 px column).
+
+| what | work, by the counters | time |
+|---|---|---|
+| filled in order, a frame that shows three columns of 600 px | 14 blocks laid out (the columns hold 14), 3 columns cut | not timed |
+| the same frame again; a hit test; the size; the count | 0 blocks, 0 columns | not timed |
+| a frame of columns 10 to 12 | 62 blocks laid out in all (they end at block 57), 14 columns cut in all | not timed |
+| every column (2,308 of them) | 10,000 blocks laid out | not timed apart from the layout |
+| cutting 10,000 laid-out blocks into 1,177 columns again (no block is laid out) | 1,177 scans over 84,000 nodes | 4.6 ms |
+| text appended to the last block, every column already cut | 1 block laid out, at most 2 columns cut | not timed |
+| balanced into five or six: the first question | 10,000 blocks laid out, 36 heights tried | the layout, plus the next row |
+| balancing 10,000 laid-out blocks again, which is what any edit costs | 36 passes over 84,000 nodes, 5 columns cut | 29 ms |
+| `split_into_columns` at the core, 200,000 lines into 20,000 columns | one pass | 9 ms |
+
+What the rows say.
+
+- **Filled in order, a frame costs what its columns hold, plus every column before them once.**
+  Nothing stands in for the columns before: where a column starts is where they ended.
+- **Balancing needs every height, and an edit to a balanced document of 10,000 paragraphs costs
+  about 29 ms** with no block laid out again: the bisection makes 36 passes over the document's
+  lines. It scales with the lines (about 3 ms at 1,000 paragraphs, by proportion, not measured).
+  A document that streams should be filled in order.
+- The estimate of the column count made after three columns was 2,653 against 2,308 (the
+  estimate is the document's estimated height over the column's, and a block that has never
+  been laid out is itself an estimate).
+
+*Not measured:* any of this on a quiet machine or more than once; the draw of a column against
+the draw of the same lines uncut (a block a cut falls in is drawn without its line index, so
+its lines outside the clip are not skipped before their commands are visited); memory (a
+balanced document keeps a node, a height and a unit number for each line and gap while its
+columns stand: about 44 bytes each, 3.7 MB at 84,000); columns of tables and code.
+
 ## Not measured
 
 - **stb_truetype.** Every number is the FreeType build. Layout does not depend

@@ -2085,6 +2085,8 @@ struct DemoDocumentState {
     int Wanted = 2000;
     bool Stream = false;
     bool MarksOn = true;
+    int Columns = 1; // How many the view shows across; 1 is the document uncut.
+    bool Balance = false;
     ImTypesetDocumentStats Last = ImTypesetDocumentStats();
 };
 
@@ -2106,6 +2108,17 @@ void ShowDemoDocument(DemoDocumentState* state, int fonts_added)
     HelpMarker("Every \"formula\" of the first paragraphs, given to the draw as (block, byte) "
                "ranges: a filled mark behind one, an underline and another ink for the next. "
                "Marks are no part of the layout and cost nothing when they change.");
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
+    ImGui::SliderInt("Columns", &state->Columns, 1, 4);
+    ImGui::SameLine();
+    ImGui::Checkbox("Balance", &state->Balance);
+    ImGui::SameLine();
+    HelpMarker("SetDocumentColumns(): the same document, cut where TeX would end a page and "
+               "read down one column and then the next. Filled in order, a column is as tall "
+               "as the view, the rest are to the right (scroll sideways), and only the columns "
+               "in view are laid out. Balanced, the columns are one height, the least that "
+               "holds the document, which needs every block laid out: watch the counts below. "
+               "Drag across columns to select in reading order.");
 
     if (state->Document == NULL || state->BuiltFonts != fonts_added) {
         if (state->Document == NULL)
@@ -2159,6 +2172,13 @@ void ShowDemoDocument(DemoDocumentState* state, int fonts_added)
     draw.Marks = marks.Data;
     draw.MarkCount = marks.Size;
 
+    // Columns are how a document is shown, said beside the layout and not in
+    // the description: one column is the document uncut.
+    ImTypesetColumns columns;
+    columns.Count = state->Columns;
+    columns.Flags = state->Balance ? ImTypesetColumnFlags_Balance : ImTypesetColumnFlags_None;
+    ImTypeset::SetDocumentColumns(state->Document, state->Columns > 1 ? &columns : NULL);
+
     // The whole document in a child window that scrolls it. Drag to select
     // across blocks; Ctrl+C copies.
     ImTypeset::DocumentView("##document", state->Document,
@@ -2175,6 +2195,11 @@ void ShowDemoDocument(DemoDocumentState* state, int fonts_added)
     ImGui::Text("Of the table: %d cells measured and %d rows set this frame.",
                 (int)(now.TableCellsMeasured - state->Last.TableCellsMeasured),
                 (int)(now.TableRowsSet - state->Last.TableRowsSet));
+    if (state->Columns > 1)
+        ImGui::Text("In %d columns: %d cut this frame, %d heights tried to balance them.",
+                    ImTypeset::GetDocumentColumnCount(state->Document),
+                    (int)(now.ColumnsCut - state->Last.ColumnsCut),
+                    (int)(now.BalanceHeightsTried - state->Last.BalanceHeightsTried));
     state->Last = now;
 }
 

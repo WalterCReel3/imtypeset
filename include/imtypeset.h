@@ -156,7 +156,9 @@
      ImTypeset::DebugCheckTableDataLayout(                                                    \
          sizeof(ImTypesetCell), sizeof(ImTypesetTableColumn), sizeof(ImTypesetTableGeometry), \
          sizeof(ImTypesetTableColumnGeometry), sizeof(ImTypesetTableRowGeometry),             \
-         sizeof(ImTypesetCellPosition)))
+         sizeof(ImTypesetCellPosition)) &&                                                    \
+     ImTypeset::DebugCheckColumnDataLayout(sizeof(ImTypesetColumns),                          \
+                                           sizeof(ImTypesetColumnGeometry)))
 
 struct ImTypesetContext;   // Everything the library holds. Opaque.
 struct ImTypesetParagraph; // One paragraph: text, its layout for a width, what was shipped. Opaque.
@@ -181,6 +183,7 @@ typedef int ImTypesetMarkPlace;         // -> enum ImTypesetMarkPlace_
 typedef int ImTypesetDocumentDrawFlags; // -> enum ImTypesetDocumentDrawFlags_
 typedef int ImTypesetDemoSection;       // -> enum ImTypesetDemoSection_
 typedef int ImTypesetCellFlags;         // -> enum ImTypesetCellFlags_
+typedef int ImTypesetColumnFlags;       // -> enum ImTypesetColumnFlags_
 
 // A typographic role. A host says which file plays each; text names roles.
 enum ImTypesetFace_ {
@@ -1075,6 +1078,126 @@ struct ImTypesetCellPosition {
     int Offset; // Bytes from the start of the cell's text.
 };
 
+// --- Columns --------------------------------------------------------------------------
+//
+// A document can be SHOWN in columns: the one column it is laid out in is cut
+// at good places into pieces that stand side by side and are read down one
+// and then down the next. Columns are a property of how a document is shown
+// and not of what it is. Nothing of the description changes; LayoutDocument()
+// still says how wide ONE column is; and every ImTypesetPosition, range and
+// mark means what it meant, so one document can be shown uncut in one frame
+// and in columns in the next, at any width, and a selection survives it.
+//
+// WHERE A COLUMN IS CUT is decided as TeX decides where to end a page (its
+// \vsplit): between two lines of a paragraph or of a code block, between two
+// rows of a table, and between two blocks; never inside a line, a table row,
+// a quote or a host block, and not after a heading, which stays with what
+// follows it. The space between two blocks is dropped where a cut falls in it.
+// What cannot be cut and is taller than a column is put in a column alone and
+// reaches past its foot: ImTypesetColumnGeometry::Overfull says so, and the
+// host decides whether to clip it, scroll to it or give the columns more
+// height.
+//
+// TWO WAYS OF FILLING.
+//
+//   IN ORDER   Height above zero, and no ImTypesetColumnFlags_Balance. Every
+//              column is Height tall and takes as much as fits; there are as
+//              many columns as the document needs, one after another to the
+//              right. LAZY, like the uncut document, from the front: a column
+//              is cut, and the blocks in it laid out, when a draw, a hit test
+//              or a question first reaches it. The first columns of a
+//              ten-thousand-block document cost what they show. Column k costs
+//              every column before it, once, because where it starts is where
+//              they ended: a jump to the end lays everything out. After an
+//              edit the columns before the edit stand and the ones from it on
+//              are cut again when next reached.
+//   BALANCED   ImTypesetColumnFlags_Balance and a Count of two or more. Count
+//              columns of one height, the least at which that many hold the
+//              document; a block that cannot be cut and is taller than that
+//              makes its column, and so the page, as tall as it is. NOT LAZY:
+//              the height depends on every block, so all of them are laid out
+//              the first time anything is asked, and after any edit the height
+//              is searched for again (no block is laid out again for that:
+//              ImTypesetDocumentStats::BalanceHeightsTried counts the passes
+//              over the document's lines). For a document that streams, or a
+//              long one, fill in order.
+//
+// Anything else is no columns: the document is shown uncut.
+//
+// THE PAGE is what the columns make side by side. Column k's top-left corner
+// is at x = k * (column width + Gutter), y = 0 from the corner DrawDocument()
+// is given. In a document shown in columns these speak of the page: the
+// points DrawDocument, HitTestDocument and SelectDocumentRange take, the
+// rectangles GetDocumentRangeRects and GetDocumentCaretRect answer, and
+// GetDocumentSize. These speak of the UNCUT column, as if there were no
+// columns: GetDocumentBlockGeometry, GetDocumentBlockLine, the three table
+// queries and LayoutDocumentWindow; GetDocumentColumnPos() takes a point from
+// there to the page.
+//
+// READING ORDER is the document's order, down each column and then to the
+// next. A drag from a point in one column to a point in a later one selects
+// from the first point to the foot of its column, every column between, and
+// the later column from its head to the second point; a point below a
+// column's last line is that line's end and a point in a gutter belongs to
+// the column on its left. A copy of such a range is the text in the order it
+// is read, exactly as from the uncut document: a cut adds nothing to it.
+enum ImTypesetColumnFlags_ {
+    ImTypesetColumnFlags_None = 0,
+    // Count columns of one height, the least that holds the document: see
+    // "Columns", BALANCED.
+    ImTypesetColumnFlags_Balance = 1 << 0,
+};
+
+// How a document is shown in columns. Zero everywhere is no columns.
+struct ImTypesetColumns {
+    // BALANCED: how many columns. IN ORDER: not read by the layout, which
+    // makes as many as it takes; DocumentView() reads it as how many columns
+    // to show across its width. Less than 1 is 1.
+    int Count;
+    // IN ORDER: how tall a column is, in pixels. BALANCED: not read.
+    // DocumentView() takes its own height for a Height of 0 when Count is two
+    // or more.
+    float Height;
+    // The space between two columns, in pixels. 0 is one line of the
+    // document's style (its EmSize times its LineHeight); below zero is none.
+    float Gutter;
+    ImTypesetColumnFlags Flags;
+
+    ImTypesetColumns()
+        : Count(0)
+        , Height(0.0f)
+        , Gutter(0.0f)
+        , Flags(0)
+    {
+    }
+};
+
+// One column of a document shown in columns, on the page, in pixels.
+struct ImTypesetColumnGeometry {
+    // The column's own rectangle: as wide as the document's column, as tall
+    // as the columns are.
+    ImVec2 Min;
+    ImVec2 Max;
+    // From the top of its first line to the foot of its last, descenders
+    // included: what it holds. ContentMax.y is past Max.y when the column is
+    // Overfull, and can be by a descender when it is not.
+    ImVec2 ContentMin;
+    ImVec2 ContentMax;
+    // The first position set in it, and the first set in the next column (the
+    // document's end for the last): the column holds [Start, End).
+    ImTypesetPosition Start;
+    ImTypesetPosition End;
+    // Where its first line's top is in the uncut column. For everything in
+    // this column, y on the page is y there less UncutTop plus ContentMin.y,
+    // and x on the page is x there plus Min.x.
+    float UncutTop;
+    // It holds something taller than a column that cannot be cut.
+    bool Overfull;
+    // False if there is no such column (the rest is then zero), or under IN
+    // ORDER if it is past what GetDocumentColumnCount() counts.
+    bool Exists;
+};
+
 // A DEBUG FACILITY, like ImTypesetStats, for one document. The first five
 // count since the document was made, and so do the two about tables.
 struct ImTypesetDocumentStats {
@@ -1091,6 +1214,11 @@ struct ImTypesetDocumentStats {
                               // (counted when asked: one step a block).
     ImU64 TableCellsMeasured; // Cells whose text was made into material and measured.
     ImU64 TableRowsSet;       // Rows boxed to their columns' widths.
+    // Columns (see "Columns"), since the document was made: columns whose cut
+    // was found, each one scan down the lines it holds; and, when balancing,
+    // heights tried, each one pass over every line of the document.
+    ImU64 ColumnsCut;
+    ImU64 BalanceHeightsTried;
 };
 
 // The sections of the demo window. The values are stable: a new section is
@@ -1125,6 +1253,8 @@ IMTYPESET_API bool DebugCheckVersionAndDataLayout(const char* version, size_t sz
 IMTYPESET_API bool DebugCheckTableDataLayout(size_t sz_cell, size_t sz_column, size_t sz_table,
                                              size_t sz_column_geometry, size_t sz_row_geometry,
                                              size_t sz_cell_position);
+// The fourth part of IMTYPESET_CHECKVERSION(): the structs of columns. [E]
+IMTYPESET_API bool DebugCheckColumnDataLayout(size_t sz_columns, size_t sz_column_geometry);
 // The second part of IMTYPESET_CHECKVERSION(): the structs of a document. [E]
 IMTYPESET_API bool DebugCheckDocumentDataLayout(size_t sz_block, size_t sz_block_style,
                                                 size_t sz_container, size_t sz_content,
@@ -1617,7 +1747,8 @@ IMTYPESET_API int GetDocumentBlockTextSize(const ImTypesetDocument* document, in
 IMTYPESET_API bool LayoutDocument(ImTypesetDocument* document, float width,
                                   const ImTypesetStyle* style = NULL);
 // Lays out the blocks between two heights, in pixels down from the
-// document's top: what DrawDocument does for what it is about to draw. For a
+// document's top (the UNCUT column's, whatever the columns), and cuts the
+// columns that show them: what DrawDocument does for what it is about to draw. For a
 // host that needs geometry before it draws, or wants the whole document
 // settled (0 and a `bottom` at or past GetDocumentSize().y). False if any
 // block it laid out or found laid out has something wrong with it; the first
@@ -1625,7 +1756,9 @@ IMTYPESET_API bool LayoutDocument(ImTypesetDocument* document, float width,
 IMTYPESET_API bool LayoutDocumentWindow(ImTypesetDocument* document, float top, float bottom);
 // The column's width and the document's height, whole pixels rounded up. The
 // height is an estimate until everything has been laid out at this width:
-// see LAYOUT IS LAZY.
+// see LAYOUT IS LAZY. In columns, the page's: as wide as
+// GetDocumentColumnCount() columns and their gutters, and as tall as a
+// column.
 IMTYPESET_API ImVec2 GetDocumentSize(ImTypesetDocument* document);
 // What was last found wrong with one block when its text was set and it was
 // laid out: what setting it found (a text cut at the limit, a run left out)
@@ -1701,6 +1834,33 @@ IMTYPESET_API ImTypesetPosition GetDocumentTablePosition(const ImTypesetDocument
                                                          int block, int row, int column,
                                                          int offset);
 
+// Says how the document is shown in columns: see "Columns". A copy is taken.
+// Null, or columns that say nothing is cut, shows it uncut again. Lays
+// nothing out, lays nothing out AGAIN (a block's lines do not depend on the
+// columns), and costs nothing when what is said has not changed. Values that
+// are not numbers are zero; a Count past 4,096 is 4,096. False only for no
+// document. [E]
+IMTYPESET_API bool SetDocumentColumns(ImTypesetDocument* document, const ImTypesetColumns* columns);
+// How many columns there are: 1 for a document shown uncut. BALANCED: Count,
+// and everything is laid out to say it. IN ORDER: the columns cut so far and
+// an estimate of the rest, from heights that are themselves estimates until
+// their blocks are laid out (see LAYOUT IS LAZY); exact once the last column
+// has been reached, which LayoutDocumentWindow() with the whole height
+// brings about. Never less than 1.
+IMTYPESET_API int GetDocumentColumnCount(ImTypesetDocument* document);
+// Column `column` on the page. Cuts every column up to it, laying out what
+// they hold. Exists is false, and the rest zero, for a column that is not
+// there; a document shown uncut has column 0, which is all of it.
+IMTYPESET_API ImTypesetColumnGeometry GetDocumentColumn(ImTypesetDocument* document, int column);
+// Where a point of the uncut column is on the page: what takes an answer of
+// GetDocumentBlockGeometry, GetDocumentBlockLine or a table query to where it
+// is drawn. A point belongs to the column whose first line's top is the last
+// at or above it, to within what a float of pixels can say (a top answered by
+// one of those calls is its own line's); the space dropped at a cut goes with
+// the column above. The same point back for a document shown uncut. Cuts the columns up to the one
+// that shows the point.
+IMTYPESET_API ImVec2 GetDocumentColumnPos(ImTypesetDocument* document, const ImVec2& uncut_pos);
+
 // A document in a child window that scrolls it: lays out and draws what is in
 // view, selects with the mouse as SelectableText() does (across blocks), and
 // copies with Ctrl+C. `size` is the child's, as for ImGui::BeginChild(): zero
@@ -1714,7 +1874,11 @@ IMTYPESET_API ImTypesetPosition GetDocumentTablePosition(const ImTypesetDocument
 // number of blocks changes, the part of the selection in the blocks replaced
 // is given up. SetDocumentBlocks() clears it. `draw`'s marks and flags are
 // drawn; its Selection is not read. Returns false when something in view
-// could not be set as asked. [E]
+// could not be set as asked.
+// IN COLUMNS (SetDocumentColumns): the view shows Count columns across its
+// width, each as wide as that leaves after the gutters, and scrolls sideways
+// through the rest; IN ORDER with a Height of 0 a column is as tall as the
+// view. BALANCED columns are scrolled down, like the uncut document. [E]
 IMTYPESET_API bool DocumentView(const char* str_id, ImTypesetDocument* document,
                                 const ImVec2& size = ImVec2(0.0f, 0.0f),
                                 ImTypesetDocumentRange* selection = NULL,

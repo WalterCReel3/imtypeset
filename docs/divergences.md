@@ -956,6 +956,7 @@ two ways of composing together under random combinations of the switches.
 | 13 | A rule is handed the enclosing indent and nothing else: no bar (item 3), and nothing that happens to its container's indent happens to it. | A rule is a block like the others: it moves with its list's widened gutter, gives way to the least measure, and (item 3) stands inside its quote's bar. | A rule inside an item belongs under the item's text. | `rule_in_container` · `a_rule_in_a_list_is_indented_with_its_list` |
 | 14 | Which block of a quote an item belongs to is found by bisecting baselines against block bottoms (`ui/units.py` `_spans`), wrong for a first line of no height. | Carried as data, always: each block is shipped alone with indices of its own, and `Document::flatten` reports each block's command and index range. | Nothing has to be found that was known. | none (no reference mode: on the goldens the two agree, all 799 `span` records) · `which_block_an_item_belongs_to_is_where_it_is_stored` |
 | 15 | Every bullet is "•" and every ordered marker "N." (the markdown front end). | A marker is whatever text and font the block says (`set_marker`); this layer makes none. | Markers are the host's vocabulary. | none (data) · `a_marker_is_whatever_text_the_block_says` |
+| 16 | The space between two blocks is a kern with nothing after it that a column could end at (tex.web §973 breaks at a kern only before glue): a column never ends between two blocks. Read only when a document is cut into columns. | In the list columns are cut from the space is glue, a legal break, between any two blocks; after a block that says `keep_with_next` (a heading) it stays the kern. | A run of one-line blocks could not be cut at all and ran off the foot of its column; added by `columns-core` (D58), after the fifteen. | `break_between_blocks` · `tests/test_columns.cpp` `under_the_products_rules_a_column_can_end_between_two_blocks_but_not_after_a_heading` |
 
 ### Where the port differs from the reference whatever the rules
 
@@ -1170,3 +1171,67 @@ What the Document does with a table that the reference's views (`BareView`, `Str
 | D6 | the widths a live table is held at are the view's (`StreamView._held`, `_kept`, by block number) | they are the block's, under `ImTypesetBlockFlags_TableHeld`, and survive a replace of one held table by another with as many columns | the port's own shape for the reference's rule |
 | D7 | a table in a quote is not barred (only a text block has a quote depth) | under the product's `DocumentRules::quote_any_block` the quote's bar runs past it, as past a code block | deliberate: blocks item 3 |
 | D8 | a hard break in a cell is a forced line end (`_inline`) | a newline in a cell is white space | the port's own: no golden has one (FORMAT-tables.md section 8) |
+
+## columns-core
+
+`src/vsplit.*`: the reference's column cutting (`vert_break`, `_break_badness`,
+`_precedes_break`, `prune_top`, `vsplit`, `split_into_columns` of
+`advtext/columns.py`). The port is the reference: `tests/test_vsplit.cpp`
+replays the 28 `vsplit` and `columns` cases of `tests/golden/tables`
+(`vertbreak`, `documents`, `columns`; 85 splits, 247 columns, 1,850 legal
+breakpoints) record by record, exactly.
+
+### Splitting a vertical list — `src/vsplit.*` (tex.web part 44, §967–§979)
+
+Sections checked by counting modules from the top of `tex.web` and reading
+each: 148, 833, 968 to 979, 1001, 1082. Line numbers are `tex.web`'s.
+
+| # | tex.web | TeX | the port | class |
+|---|---|---|---|---|
+| V1 | §977 l.19047, §978 l.19068 | `vsplit(n, h)` takes a box register, answers void for a void box and an error for an hbox, and leaves what remains in the register, packed again with `vpack(q, natural)` | `vsplit` takes a list and answers the part split off (a `PackResult`: the box and how well it fitted) and where the pruned remainder starts; the remainder is not packed | deliberate: `columns.py:380-403` |
+| V2 | §977 l.19054, §979 l.19084 | `split_first_mark` and `split_bot_mark` are set from the marks before the cut | nothing: there is no mark node | deliberate: `columns.py:109-111` |
+| V3 | §968 l.18877, §973 l.18970, l.18978 | whatsits, marks and insertions are kept at the head of a pruned list and passed over by the scan | no such nodes; a character, a discretionary or a math bracket, where TeX stops with `confusion("pruning")` or `confusion("vertbreak")` and the reference raises `ValueError`, is deleted (pruning) or left out of the heights and never a breakpoint (the scan), and `VsplitError::NOT_VERTICAL` is answered | the port's own (D17): a list reaches the scan from data |
+| V4 | §138, §973 l.18966 | a rule in a vertical list has a height and a depth; a running one would be added as `null_flag` unexamined | a rule whose height or depth is `RUNNING` adds nothing and `VsplitError::RUNNING_RULE` is answered; at the head of a pruned list its glue is the skip whole. The reference raises | the port's own (D17) |
+| V5 | §976 l.19018 | glue with infinite shrink in the list is an error message, after which its shrink is counted as finite | its shrink is counted as finite and nothing is said | deliberate: `columns.py:325-328` ("coerced silently and the citation is the record") |
+| V6 | §974 l.18995, §971 | `best_height_plus_depth` is a global the page builder reads | kept on the scan (`VertBreak::best_height_plus_depth`), where the reference does not keep it at all: the Document reads it for how much of a column its material takes | the port's own; no golden holds it, `the_size_of_the_part_split_off_is_its_boxes_and_glue_with_the_last_depth` does |
+| V7 | §970 l.18926 | `prev_p := p` makes glue at the head of the list not a breakpoint | the same statement as an index: glue at index 0 is not one | none (same behaviour; said because the port, like the reference, has no `prev_p`) |
+| V8 | §1082 l.20994; §1001 l.19509 | `\vsplit` is a primitive and TeX has no columns; the head of a PAGE gets `\topskip` glue by the same computation as §969 | `split_into_columns`: the list pruned once before the first column with `\splittopskip` (one parameter where TeX has two), then `vsplit` `count` times, what is left answered as overflow, columns past the end of the material empty and as tall as the rest. No balancing | deliberate: `columns.py:435-499`, and `:47-60` for balancing |
+| V9 | §969 l.18889 | the head glue is a new glue node linked in front of the box | written into the node before the column's first box, which the cut before it deleted (`ColumnList`, a spare node before the material for the first column): a column's contents are a span of the caller's list and nothing is copied. The reference builds a new list for every column | the port's own (representation); the records are the same |
+| V10 | §970 l.18914 | the scan is one procedure over a whole list | `VertBreak` keeps §970's variables between calls and can be fed a list that is still being made; a kern at the end of an unfinished list waits for the node after it. `vert_break` is the one call over a whole list | the port's own: a document's list is made as far as a column needs (`src/blocks.h`); `a_scan_fed_a_list_in_pieces_ends_where_a_scan_of_the_whole_list_does` holds the two equal |
+
+No disagreement between `tex.web` and the reference was found in what the
+reference implements: §973's breakpoint rule (any kern before glue; glue after
+a node that `precedes_break`), §974's cost and its `<=`, §975, §976's sums and
+§972's depth limit are transcribed there as written, and the goldens hold the
+port to them.
+
+### What the goldens do not hold
+
+- A list with a node that cannot be in it, a running rule, a box of another
+  arena: the reference raises; `a_node_that_cannot_be_in_a_vertical_list_is_left_out_and_named`.
+- `split_into_columns` on no columns or a height not above zero (the reference
+  raises; the port answers false).
+- `best_height_plus_depth` (V6).
+- A document composed by the reference with vertical stretch or a penalty in
+  it: it makes none (FORMAT-tables.md section 6), so in `documents.golden` and
+  `columns.golden` every short column costs `deplorable` and the cut is the
+  last breakpoint that fits. The other arms of §974 and §975 are held by
+  `vertbreak.golden`'s hand-built lists alone.
+
+### Columns of a document — `src/columns.*`, `src/blocks.*`, `src/imtypeset_document.cpp`
+
+What the Document does with columns that the reference (`compose_into_columns`, and the demo's
+`ui/app.py` `ColumnPage` and `column_layout`) does otherwise. "Under reference rules" means with
+`ImTypesetDocument::reference_rules` set, as the replays of `tests/golden/tables/columns.golden`
+set it. Decisions and their reasons are D58.
+
+| # | the reference | the port | class |
+|---|---|---|---|
+| C1 | `compose_into_columns` composes the whole document, cuts its list into `count` columns of one height and returns what did not fit as `overflow` | columns filled in order are as many as the document needs: the reference's `count` columns are the first `count`, and its overflow is the columns after them. A column is cut when first reached, from a list made a unit at a time (`Document::unit_vlist`), and kept until a unit its scan read changes | the port's own: a document is laid out lazily (D37). `tests/test_columns.cpp` holds 2,113 columns of random documents to `split_into_columns` of the same blocks composed at once |
+| C2 | every column is a box packed `exactly` to the height and shipped | no column box is made: a column is the stretch of the uncut document it holds, moved (`DocumentColumns::flatten`, and the draw). The same commands, since a document's list has nothing to stretch or shrink; a list with stretch in it would be spread by the reference and cannot be described here | the port's own (D58); `columns.golden` holds the commands, its two overfull columns included |
+| C3 | a box in the list is a box | a box is a RULE node of its width, height and depth: §969 and §973 read a box and a rule alike, and a rule needs no arena | the port's own (representation) |
+| C4 | no balancing ("Balance: not done, and here is the price") | `ImTypesetColumnFlags_Balance`: the least height at which `Count` columns hold the document, by bisection over §977's cut. Every block is laid out for it | the port's own: no oracle. D58 |
+| C5 | the space between two blocks is a kern with no glue after it, so no column ends between two blocks, and a run of one-line blocks cannot be cut (`columns.py:75-80`, which names the fix) | under the product's rules it is glue in the list a column is cut from, there between any two blocks, and a kern after a heading (`DocumentRules::break_between_blocks`, the block layer's item 16; `Block::keep_with_next`). Under reference rules the reference's | deliberate (D58); no golden holds the product's list |
+| C6 | `\splittopskip` is 10 pt (`SPLIT_TOP_SKIP`) | under the product's rules the height of a line of the document's style above its baseline. Under reference rules 10 pt | deliberate (D58) |
+| C7 | columns are drawn; nothing is hit-tested, selected or copied in them | points, rectangles and carets are taken between the page and the uncut column; a drag across columns selects in reading order and a copy is the uncut document's | the port's own: no oracle (D58) |
+| C8 | pages of `count` columns, a gutter of one leading, a hairline in the gutter (`ui/app.py`) | columns side by side at `k * (width + Gutter)`, a default gutter of one line of the style; no pages and no rule between columns: a page is a clip rectangle and a rule is the host's to draw from `GetDocumentColumn` | the port's own: the reference's are its demo's |

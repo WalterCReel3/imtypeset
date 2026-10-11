@@ -64,6 +64,9 @@ __all__ = [
     "Cell",
     "CellPosition",
     "CodeOverflow",
+    "ColumnFlags",
+    "ColumnGeometry",
+    "Columns",
     "Container",
     "ContainerFlags",
     "ContainerKind",
@@ -227,6 +230,12 @@ class CodeOverflow(_enum.IntEnum):
     Wrap = 0
     Clip = 1
     Grow = 2
+
+
+class ColumnFlags(_enum.IntFlag):
+    None_ = 0
+    # `count` columns of one height, the least that holds the document.
+    Balance = 1 << 0
 
 
 class MarkPlace(_enum.IntEnum):
@@ -434,6 +443,40 @@ class CellPosition(NamedTuple):
     offset: int  # An index into the cell's `str`.
 
 
+class Columns(NamedTuple):
+    """How a document is shown in columns: ImTypesetColumns, and "Columns" in
+    imtypeset.h. All zero is no columns.
+
+    IN ORDER: a `height` above zero and no `ColumnFlags.Balance`. Every column
+    is `height` tall and takes what fits; there are as many as the document
+    needs, and they are cut as they are reached. BALANCED: `ColumnFlags.Balance`
+    and a `count` of two or more: `count` columns of the least height that
+    holds the document, everything laid out to find it. `gutter` is the space
+    between two columns: 0 is one line of the document's style, below zero is
+    none. `Document.view` reads `count` as how many columns to show across its
+    width, and takes its own height for a `height` of 0."""
+
+    count: int = 0
+    height: float = 0.0
+    gutter: float = 0.0
+    flags: int = ColumnFlags.None_
+
+
+class ColumnGeometry(NamedTuple):
+    """One column of a document shown in columns, on the page."""
+
+    min: Tuple[float, float]  # Its own rectangle: the column's width, the columns' height.
+    max: Tuple[float, float]
+    # From the top of its first line to the foot of its last: what it holds.
+    content_min: Tuple[float, float]
+    content_max: Tuple[float, float]
+    start: Position  # It holds [start, end): `end` is the next column's `start`,
+    end: Position  # or the document's end.
+    uncut_top: float  # Where its first line's top is in the uncut column.
+    overfull: bool  # It holds something taller than a column that cannot be cut.
+    exists: bool  # False, with the rest zero, if there is no such column.
+
+
 DocumentStats = NamedTuple(  # type: ignore[misc]
     "DocumentStats", [(_name, int) for _name in _capi.DOCUMENT_STATS_FIELDS]
 )
@@ -583,6 +626,16 @@ def _load():
         lib.ImTypeset_GetLastErrorMessage(message, len(message))
         raise ImportError(
             f"imtypeset: {path!r} refuses this package's table structs (written for "
+            f"{_capi.C_VERSION}): {message.value.decode('utf-8', 'replace')}"
+        )
+    ok = lib.ImTypeset_DebugCheckColumnDataLayout(
+        *(_C.sizeof(struct) for _, struct in _capi.COLUMN_STRUCTS)
+    )
+    if not ok:
+        message = _C.create_string_buffer(1024)
+        lib.ImTypeset_GetLastErrorMessage(message, len(message))
+        raise ImportError(
+            f"imtypeset: {path!r} refuses this package's column structs (written for "
             f"{_capi.C_VERSION}): {message.value.decode('utf-8', 'replace')}"
         )
     return lib, path, info, host, layout_checked, bundle_report
@@ -1355,6 +1408,16 @@ class Document:
     `table_position` go between a position and (row, column, index into the
     cell's `str`). One call into the library each.
 
+    COLUMNS are how a document is shown and no part of what it is:
+    `set_columns` cuts the one column `layout` gives the width of into pieces
+    set side by side, and no position, range or mark changes its meaning.
+    `column_count` and `column` say what there is. In columns, the points
+    `draw`, `hit_test` and `select_range` take, the rectangles `range_rects`
+    and `caret_rect` answer, and `size` speak of the page the columns make;
+    `block_geometry`, `block_line`, the table queries and `layout_window`
+    speak of the uncut column, and `column_pos` takes a point from there to
+    the page.
+
     AN EDIT HAS THREE OUTCOMES. Applied whole: True. Applied in part (the
     library cut what was wrong in the description, a style that is not there
     for one, and set the rest): False, and `edit_error` holds what it said, with
@@ -1913,8 +1976,9 @@ class Document:
     # --- Layout ---
 
     def layout(self, width: float, style: Optional[Style] = None) -> bool:
-        """Says how wide the column is. Lays nothing out: a block is broken into
-        lines when a draw, a hit test or a question first reaches it."""
+        """Says how wide the column is: ONE column's width when the document
+        is shown in columns. Lays nothing out: a block is broken into lines
+        when a draw, a hit test or a question first reaches it."""
         ok = _lib.ImTypeset_LayoutDocument(self._h(), width, _style_arg(style))
         return _outcome(ok, "Document.layout")
 
@@ -1926,7 +1990,9 @@ class Document:
 
     def size(self) -> Tuple[float, float]:
         """The column's width and the document's height; the height is an
-        estimate until everything has been laid out at this width."""
+        estimate until everything has been laid out at this width. In columns,
+        the page's: as wide as `column_count()` columns and their gutters, and
+        as tall as a column."""
         out = _capi.Vec2()
         _must(_lib.ImTypeset_GetDocumentSize(self._h(), _C.byref(out)), "Document.size")
         return out.x, out.y
@@ -2270,6 +2336,64 @@ class Document:
             "Document.table_row",
         )
         return TableRowGeometry(raw.Min, raw.Max, raw.CellStart, raw.CellCount, bool(raw.Wrapped))
+
+    # --- Columns ---
+
+    def set_columns(self, columns: Optional[Columns] = None) -> None:
+        """Says how the document is shown in columns (a `Columns`, or its
+        four values in order). None, or columns that say nothing is cut, shows
+        it uncut again. Lays nothing out, and nothing out again: a block's
+        lines do not depend on the columns."""
+        if columns is None:
+            raw = None
+        else:
+            count, height, gutter, flags = Columns(*columns)
+            raw = _C.byref(_capi.Columns(int(count), height, gutter, int(flags)))
+        _must(_lib.ImTypeset_SetDocumentColumns(self._h(), raw), "Document.set_columns")
+
+    def column_count(self) -> int:
+        """How many columns there are: 1 for a document shown uncut. Balanced:
+        `Columns.count`, and everything is laid out to say it. In order: the
+        columns cut so far and an estimate of the rest, exact once the last
+        column has been reached (`layout_window` over the whole height does
+        that)."""
+        return _count(_lib.ImTypeset_GetDocumentColumnCount(self._h()), "Document.column_count")
+
+    def column(self, index: int) -> ColumnGeometry:
+        """Column `index` on the page, relative to the corner `draw` is given.
+        Cuts every column up to it, laying out what they hold. `exists` is
+        False, and the rest zero, for a column that is not there; a document
+        shown uncut has column 0, which is all of it."""
+        raw = _capi.ColumnGeometry()
+        _must(
+            _lib.ImTypeset_GetDocumentColumn(self._h(), int(index), _C.byref(raw)),
+            "Document.column",
+        )
+        return ColumnGeometry(
+            (raw.Min.x, raw.Min.y),
+            (raw.Max.x, raw.Max.y),
+            (raw.ContentMin.x, raw.ContentMin.y),
+            (raw.ContentMax.x, raw.ContentMax.y),
+            Position(raw.Start.Block, self._char(raw.Start.Block, raw.Start.Offset)),
+            Position(raw.End.Block, self._char(raw.End.Block, raw.End.Offset)),
+            raw.UncutTop,
+            bool(raw.Overfull),
+            bool(raw.Exists),
+        )
+
+    def column_pos(self, uncut_pos: Tuple[float, float]) -> Tuple[float, float]:
+        """Where a point of the uncut column is on the page: what takes an
+        answer of `block_geometry`, `block_line` or a table query to where it
+        is drawn. The same point back for a document shown uncut. Cuts the
+        columns up to the one that shows the point."""
+        out = _capi.Vec2()
+        _must(
+            _lib.ImTypeset_GetDocumentColumnPos(
+                self._h(), _C.byref(_capi.Vec2(*uncut_pos)), _C.byref(out)
+            ),
+            "Document.column_pos",
+        )
+        return out.x, out.y
 
     def table_cell(self, position) -> CellPosition:
         """The cell a position is in: its row, its column, its number among

@@ -8,7 +8,7 @@ States: **done**, **in progress**, **queued**, **declined** (with the reason),
 user is the only one who moves the border.
 
 Last updated: 2026-10-11, after commit `be40444`: items 2, 3, 5, 6, 7 and 8's assessment are
-committed. Item 4 (columns) is next.
+committed. Item 4 (columns) is written and tested in the working tree and waits for its commit.
 
 ## Build from
 
@@ -84,6 +84,34 @@ Read "Tables" in `include/imtypeset.h` first: it is the specification. In Python
 Limits: 1,024 columns and 262,144 cells a table (more is cut and said). A table is laid out
 whole the first time any of it is looked at, and costs nothing while out of view.
 
+**Columns (item 4; task `columns-core`; D58). In the working tree, not yet in a commit: the
+"Build from" table names the commit when there is one.** A document is SHOWN in columns; nothing
+of its description changes and every position, range and mark means what it meant. Read
+"Columns" in `include/imtypeset.h` first: it is the specification. Nothing was renamed or
+removed. Two things a caller can notice: `DocumentStats` is two fields longer, and a library and
+a package (or a C++ host) from either side of this change refuse each other, because the sizes
+of the two new structs and of `ImTypesetDocumentStats` are part of the version check.
+
+| what | C++ | C | Python | note |
+|---|---|---|---|---|
+| say how a document is shown in columns | `SetDocumentColumns(document, const ImTypesetColumns*)`; `ImTypesetColumns {Count, Height, Gutter, Flags}`; `ImTypesetColumnFlags_Balance` | `ImTypeset_SetDocumentColumns`, `ImTypeset_Columns`, `ImTypeset_ColumnFlags_Balance` | `Document.set_columns(Columns(count=, height=, gutter=, flags=))`, `set_columns(None)`; `ColumnFlags.Balance` | new. `LayoutDocument`'s width stays the width of ONE column: for a page `W` wide in `n` columns lay out at `(W - gutter * (n - 1)) / n`, which is your `ColumnPage.column_width`. Null (`None`) shows the document uncut again. Changing columns lays out no block again |
+| filled in order | `Height` above 0 | | `Columns(height=h)` | **the reference's fill**, and the lazy one: every column `Height` tall, as many as the document needs, to the right. Your `split_into_columns(height=, count=)` is the first `count` columns; its `overflow` is the columns after them (`column(count).exists`). Pages of `n` columns are yours: page `p` is the page moved left by `p * n * (width + gutter)` under a clip |
+| balanced | `ImTypesetColumnFlags_Balance`, `Count` of 2 or more | | `Columns(count=n, flags=ColumnFlags.Balance)` | **new, and not the reference's** (it never balanced): `Count` columns of one height, the least that holds the document. Lays out EVERY block, and searches again after any edit: do not use it on a document that streams |
+| how many columns | `GetDocumentColumnCount(document)` | `ImTypeset_GetDocumentColumnCount` | `Document.column_count()` | 1 when uncut. In order it is an estimate until the last column has been reached (`layout_window(0, 1e9)` brings that about and lays everything out) |
+| one column | `GetDocumentColumn(document, k)` → `ImTypesetColumnGeometry {Min, Max, ContentMin, ContentMax, Start, End, UncutTop, Overfull, Exists}` | `ImTypeset_GetDocumentColumn(document, k, out)`, `ImTypeset_ColumnGeometry` | `Document.column(k)` → `ColumnGeometry(min, max, content_min, content_max, start, end, uncut_top, overfull, exists)` | new. Its rectangle on the page, what its lines occupy, and the positions it holds, `[start, end)`. `overfull`: it holds something taller than a column that cannot be cut (a host block, a quote, a wrapped table row), which reaches past its foot |
+| a point of the uncut document, on the page | `GetDocumentColumnPos(document, uncut_pos)` | `ImTypeset_GetDocumentColumnPos(document, uncut_pos, out)` | `Document.column_pos((x, y))` | new. **`block_geometry`, `block_line`, `table_geometry`, `table_column`, `table_row` and `layout_window` go on answering for the UNCUT column in a document shown in columns**; this takes a point of theirs to where it is drawn (a hosted widget's corner, a table row's top) |
+| draw, hit test, selection, rectangles, caret, size | `DrawDocument`, `HitTestDocument`, `SelectDocumentRange`, `GetDocumentRangeRects`, `GetDocumentCaretRect`, `GetDocumentSize` | the same | `draw`, `hit_test`, `select_range`, `range_rects`, `caret_rect`, `size` | **changed only for a document shown in columns**: these speak of the PAGE (column `k` at `x = k * (width + gutter)`). A drag across columns selects in reading order; a point in a gutter is the column's on its left; a point below a column's last line is that line. `range_text` is unchanged and is the uncut document's to the byte |
+| the view | `DocumentView` | | `Document.view` | in columns: `Count` columns across its width; filled in order with `Height` 0 a column is as tall as the view and the view scrolls sideways; balanced columns scroll down |
+| counters | `ImTypesetDocumentStats::ColumnsCut`, `BalanceHeightsTried` | the same | `DocumentStats` | appended |
+| layout check | `DebugCheckColumnDataLayout` (inside `IMTYPESET_CHECKVERSION()`) | `ImTypeset_DebugCheckColumnDataLayout`; `ImTypeset_BuildInfo` gained `SizeofColumns`, `SizeofColumnGeometry` | the import check | a library and a package from either side of this change refuse each other |
+
+Where a column ends: between two lines of a paragraph or a code block, between two rows of a
+table, and between two blocks; not after a heading (`BlockKind.Heading` stays with what follows
+it). **That is not the reference's in one place**: there a column never ends between two blocks,
+so a list of one-line items is one piece however long; here it does. A default gutter is one
+line of the style; `\splittopskip` is the body line's height above its baseline, so a column
+headed by body text is flush with the top.
+
 (Between the first library advtext built and `5654eee`:
 `ImTypeset_GetContextSerial` / `imtypeset.get_context_serial()` were added —
 the package refuses a library without it, so rebuild; run trouble in
@@ -101,7 +129,7 @@ in this section naming the commit.
 | 1 | a committed, reproducible state | **done**: `5654eee` |
 | 2 | freeze the oracle at `advtext-reference` (32e3953); goldens for tables, columns, cross-block copy | **done** (task `oracle-freeze`). See "The oracle" below |
 | 3 | tables in the core | **done** in `be40444` (task `tables-core`): a table is a block of the Document in C++, C and Python. Names and behaviour under "API changes", "Tables"; decisions in `docs/decisions.md` D57; what is not the reference's in `docs/divergences.md`. RQ-T1 to T10 of `FS-S2` are each answered there. Not built: a table laid out in pieces (it is one block, laid out whole when first seen; an appended row costs that row plus about 0.2 microseconds for each row the table has, measured), cell borders or fills, column spans, hard breaks in a cell |
-| 4 | columns in the core | **queued** behind 3 (task `columns-core`) |
+| 4 | columns in the core | **done in the working tree** (task `columns-core`; commit to be named under "Build from"): a document is shown in columns through C++, C and Python. Names and behaviour under "API changes", "Columns"; decisions in `docs/decisions.md` D58; what is not the reference's in `docs/divergences.md`, "columns-core". RQ-C1 and RQ-C2 of `FS-S2` are answered by `set_columns` with a height (the cut is the reference's, held by `tests/golden/tables` exactly, at the core and through the public calls: 28 cases, 247 columns); RQ-C3 by `ColumnFlags.Balance`. **What stands on a golden:** where a column is cut and why, the glue at its head, what is dropped at a cut, an overfull column, what `count` columns leave over, and every command a column draws, under the reference's rules. **What stands on a decision alone, with its own tests and no oracle** (the reference draws columns and never selects in them, and does not balance): hit testing, selection, rectangles and copy across columns in reading order; balanced columns; a column ending between two blocks and not after a heading; the top skip; the gutter and where a column is on the page; per-column geometry. **Lazy layout:** filled in order, a frame of three columns of a 10,000-paragraph document lays out 14 blocks; the last column costs all 10,000 (where a column starts is where the ones before it ended). Balanced lays out all 10,000 at the first question, by necessity. Not built: pages, a rule between columns, widow and orphan control, cutting a quote, keeping a table's header with its first row |
 | 5 | what DiffView needs | **done** in `be40444` (stage 0 of task `tables-core`): **R1** is `BlockFlags.FixedLineHeight`, **R1b** is `face_has_glyph`; names and behaviour under "API changes", reasons in `docs/decisions.md` D56, tests in `tests/test_api_requests.cpp` and `tests/python/test_binding.py` (`Requests`). *Agent decisions (the builder's): a flag and not a style field; the line's box is the pitch and taller ink overhangs it.* One thing to know: ink that overhangs its line by more than 2 px can go undrawn in the strip where its line is just outside the clip rectangle. The reproduction here used U+2320, U+27E8 and U+0416: the Inconsolata bundled in this tree has U+2502 and U+1EB2, so FS-S1's 22.4 px was not re-measured. **Declined**, as the request itself asks: anything exposing nodes, packing or draw commands — FS-S1 asks for none |
 | 6 | specimen and formula galleries | **done** in `12d77ac` (task `galleries`): see "Galleries (item 6)" |
 | 7 | open API questions, and C1–C8 | **done** for (a)–(g), in `12d77ac`: see "Answers (item 7)". Of C1–C8: C1 done, C3 in part, C8 answered in the header; C5 is item 3; C2, C4, C6, C7 queued, each with its reason |

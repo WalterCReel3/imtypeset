@@ -4,7 +4,8 @@ the loading of the library. Nothing here is for a program to call; the package's
 
 The structs mirror the header field for field. Their sizes are handed to the
 library when the package is imported (ImTypeset_DebugCheckVersionAndDataLayout,
-ImTypeset_DebugCheckDocumentDataLayout and ImTypeset_DebugCheckTableDataLayout),
+ImTypeset_DebugCheckDocumentDataLayout, ImTypeset_DebugCheckTableDataLayout and
+ImTypeset_DebugCheckColumnDataLayout),
 so a header that moved under this file is an ImportError and not a wrong answer.
 """
 
@@ -297,6 +298,31 @@ class CellPosition(C.Structure):
     _fields_ = [("Row", C.c_int), ("Column", C.c_int), ("Cell", C.c_int), ("Offset", C.c_int)]
 
 
+class Columns(C.Structure):
+    """ImTypesetColumns. All zero is no columns."""
+
+    _fields_ = [
+        ("Count", C.c_int),
+        ("Height", C.c_float),
+        ("Gutter", C.c_float),
+        ("Flags", C.c_int),
+    ]
+
+
+class ColumnGeometry(C.Structure):
+    _fields_ = [
+        ("Min", Vec2),
+        ("Max", Vec2),
+        ("ContentMin", Vec2),
+        ("ContentMax", Vec2),
+        ("Start", Position),
+        ("End", Position),
+        ("UncutTop", C.c_float),
+        ("Overfull", C.c_bool),
+        ("Exists", C.c_bool),
+    ]
+
+
 DOCUMENT_STATS_FIELDS = (
     "MaterialBuilds",
     "BlocksLaidOut",
@@ -307,6 +333,8 @@ DOCUMENT_STATS_FIELDS = (
     "BlocksDeferred",
     "TableCellsMeasured",
     "TableRowsSet",
+    "ColumnsCut",
+    "BalanceHeightsTried",
 )
 
 
@@ -345,6 +373,12 @@ TABLE_STRUCTS = (
     ("CellPosition", CellPosition),
 )
 
+# The same for ImTypeset_DebugCheckColumnDataLayout().
+COLUMN_STRUCTS = (
+    ("Columns", Columns),
+    ("ColumnGeometry", ColumnGeometry),
+)
+
 
 class BuildInfo(C.Structure):
     _fields_ = [
@@ -372,7 +406,10 @@ class BuildInfo(C.Structure):
         ("SizeofErrorInfo", C.c_int),
         ("Version", C.c_char * 16),
         ("ImGuiVersion", C.c_char * 32),
-    ] + [("Sizeof" + name, C.c_int) for name, _ in DOCUMENT_STRUCTS + TABLE_STRUCTS]
+    ] + [
+        ("Sizeof" + name, C.c_int)
+        for name, _ in DOCUMENT_STRUCTS + TABLE_STRUCTS + COLUMN_STRUCTS
+    ]
 
 
 _P = C.c_void_p  # A handle, an ImDrawList*, an ImFont*: an address and nothing more.
@@ -445,6 +482,7 @@ PROTOTYPES = {
     "ImTypeset_AppendParagraphRangeText": (_INT, [_P, _ptr(TextRange), _INT, C.c_char_p, _INT]),
     "ImTypeset_DebugCheckDocumentDataLayout": (_INT, [C.c_size_t] * 12),
     "ImTypeset_DebugCheckTableDataLayout": (_INT, [C.c_size_t] * 6),
+    "ImTypeset_DebugCheckColumnDataLayout": (_INT, [C.c_size_t] * 2),
     "ImTypeset_CreateDocument": (_P, []),
     "ImTypeset_DestroyDocument": (_INT, [_P]),
     "ImTypeset_SetDocumentBlocks": (_INT, [_P, _ptr(DocumentContent)]),
@@ -485,6 +523,10 @@ PROTOTYPES = {
     "ImTypeset_GetDocumentTableGeometry": (_INT, [_P, _INT, _ptr(TableGeometry)]),
     "ImTypeset_GetDocumentTableColumn": (_INT, [_P, _INT, _INT, _ptr(TableColumnGeometry)]),
     "ImTypeset_GetDocumentTableRow": (_INT, [_P, _INT, _INT, _ptr(TableRowGeometry)]),
+    "ImTypeset_SetDocumentColumns": (_INT, [_P, _ptr(Columns)]),
+    "ImTypeset_GetDocumentColumnCount": (_INT, [_P]),
+    "ImTypeset_GetDocumentColumn": (_INT, [_P, _INT, _ptr(ColumnGeometry)]),
+    "ImTypeset_GetDocumentColumnPos": (_INT, [_P, _ptr(Vec2), _ptr(Vec2)]),
     "ImTypeset_GetDocumentTableCell": (_INT, [_P, _ptr(Position), _ptr(CellPosition)]),
     "ImTypeset_GetDocumentTablePosition": (_INT, [_P, _INT, _INT, _INT, _INT, _ptr(Position)]),
     "ImTypeset_DocumentView": (

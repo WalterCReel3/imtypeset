@@ -168,6 +168,7 @@ DocumentRules DocumentRules::product(Scaled em)
     rules.marker_on_any_block = true;
     rules.widen_marker_gutter = true;
     rules.rule_in_container = true;
+    rules.break_between_blocks = true;
     return rules;
 }
 
@@ -1502,6 +1503,7 @@ void Document::clear()
     _tree.clear();
     _inexact = 0;
     _prepared = false;
+    _changed = 0;
     ++_epoch;
 }
 
@@ -1537,6 +1539,7 @@ void Document::reset_block(size_t index)
     block.thickness = 0;
     block.ink = 0;
     block.length_hint = 0;
+    block.keep_with_next = false;
     _slots[index] = Slot();
 }
 
@@ -1596,6 +1599,7 @@ Block& Document::edit_text(size_t i)
             unit.exact = false;
             ++_inexact;
         }
+        note_changed(_unit_of[i]);
     }
     return _blocks[i];
 }
@@ -1773,6 +1777,7 @@ void Document::prepare(DocumentComposer& composer)
 
     // The units and the gaps between them: Stacker::stacked's loop at level 0,
     // with what each run would add to the list taken from what its blocks say.
+    _units_before.swap(_units);
     _units.clear();
     _bars.clear();
     _unit_of.resize(count);
@@ -1818,9 +1823,23 @@ void Document::prepare(DocumentComposer& composer)
         }
         if (!unit.exact)
             ++_inexact;
+        // Whether it is the unit that stood here: the same blocks at the
+        // same height under the same gap, laid out then and now.
+        const size_t index = _units.size();
+        if (index >= _units_before.size()) {
+            note_changed(index);
+        } else {
+            const DocumentUnit& was = _units_before[index];
+            if (!(was.exact && unit.exact && was.first_block == unit.first_block &&
+                  was.block_count == unit.block_count && was.barred == unit.barred &&
+                  was.gap == unit.gap && was.extent == unit.extent))
+                note_changed(index);
+        }
         _units.push_back(unit);
         i = next;
     }
+    if (_units.size() != _units_before.size())
+        note_changed(std::min(_units.size(), _units_before.size()));
 
     const size_t units = _units.size();
     _tree.assign(units + 1, 0);
@@ -2047,6 +2066,94 @@ void Document::layout_all(DocumentComposer& composer)
         prepare(composer);
     for (size_t u = 0; u < _units.size(); ++u)
         ensure_unit(composer, u);
+}
+
+size_t Document::take_changed()
+{
+    const size_t changed = _changed;
+    _changed = UNCHANGED;
+    return changed;
+}
+
+namespace
+{
+
+// A block's boxes as they stand in the list: `each(line, top)` for every box,
+// with the interline glue above it (if any) through `glue(node, top)`.
+// tex.web section 679, from a fresh prev_depth, with the prev_depth a table
+// row whose cells wrapped carries (LineDims::resumed): what layout_block and
+// the stack do with the boxes themselves.
+template<typename Glue, typename Line>
+void walk_lines(const Block& block, const BlockLayout& layout, Glue&& glue_at, Line&& line_at)
+{
+    const InterlineSkip skip = blocks_clamped(block.style.interline);
+    Scaled prev_depth = IGNORE_DEPTH;
+    Scaled pen = 0;
+    for (size_t l = 0; l < layout.lines.size(); ++l) {
+        const LineDims& dims = layout.lines[l];
+        Box box;
+        box.height = dims.height;
+        box.depth = dims.depth;
+        Node above;
+        if (interline_glue(prev_depth, box, skip, above)) {
+            glue_at(above, pen);
+            pen = add_saturating(pen, above.width());
+        }
+        line_at(l, dims, pen);
+        pen = add_saturating(pen, add_saturating(dims.height, dims.depth));
+        prev_depth = dims.resumed;
+    }
+}
+
+} // namespace
+
+void Document::block_line_tops(size_t block, std::vector<Scaled>& tops) const
+{
+    tops.clear();
+    if (block >= _count)
+        return;
+    walk_lines(
+        _blocks[block], _layouts[block], [](const Node&, Scaled) {},
+        [&](size_t, const LineDims&, Scaled top) { tops.push_back(top); });
+}
+
+void Document::unit_vlist(size_t u, std::vector<Node>& out) const
+{
+    if (!IMTYPESET_CONTRACT(u < _units.size(), "Document::unit_vlist: no such unit"))
+        return;
+    const DocumentUnit& unit = _units[u];
+    const size_t first = unit.first_block;
+    const bool boxes = unit.barred || (unit.block_count != 0 && !_layouts[first].lines.empty());
+
+    // The gap. In the stack it is a kern, there when it is not zero.
+    const bool breakable = _rules.break_between_blocks && u > 0 && boxes && first > 0 &&
+                           !_blocks[first - 1].keep_with_next;
+    if (breakable)
+        out.push_back(glue(GlueSpec{unit.gap, 0, GlueOrder::NORMAL, 0, GlueOrder::NORMAL}));
+    else if (unit.gap != 0)
+        out.push_back(kern(unit.gap));
+
+    // A box is a rule of its height and depth: a height that is the rule's
+    // own sentinel is no height.
+    const auto box = [&](Scaled width, Scaled height, Scaled depth) {
+        out.push_back(rule(width == RUNNING ? 0 : width, height == RUNNING ? 0 : height,
+                           depth == RUNNING ? 0 : depth));
+    };
+    if (unit.barred) {
+        // A quoted run is one box: its outermost bar's.
+        if (unit.bar_count != 0 && unit.first_bar < _bars.size()) {
+            const Bar& bar = _bars[unit.first_bar];
+            box(bar.box_width, bar.box_height, bar.box_depth);
+        } else {
+            box(_width, unit.extent, 0);
+        }
+        return;
+    }
+    if (unit.block_count == 0)
+        return;
+    walk_lines(
+        _blocks[first], _layouts[first], [&](const Node& above, Scaled) { out.push_back(above); },
+        [&](size_t, const LineDims& dims, Scaled) { box(dims.width, dims.height, dims.depth); });
 }
 
 bool Document::flatten(std::vector<DrawCmd>& out, std::vector<BlockSpan>* spans) const

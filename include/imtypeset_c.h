@@ -56,7 +56,7 @@
  *     appears only inside the structs that mirror a C++ one holding it
  *     (ImTypeset_Hit, ImTypeset_Formula, ImTypeset_DocumentHit,
  *     ImTypeset_BlockGeometry, ImTypeset_TableGeometry,
- *     ImTypeset_TableRowGeometry).
+ *     ImTypeset_TableRowGeometry, ImTypeset_ColumnGeometry).
  *   - A STRUCT THAT HOLDS POINTERS (ImTypeset_DocumentContent,
  *     ImTypeset_DocumentDraw) points at arrays of the caller's, which are read
  *     during the call and never kept.
@@ -171,6 +171,7 @@ typedef int ImTypeset_MarkPlace;         /* ImTypeset_MarkPlace_ */
 typedef int ImTypeset_DocumentDrawFlags; /* ImTypeset_DocumentDrawFlags_ */
 typedef int ImTypeset_DemoSection;       /* ImTypeset_DemoSection_ */
 typedef int ImTypeset_CellFlags;         /* ImTypeset_CellFlags_ */
+typedef int ImTypeset_ColumnFlags;       /* ImTypeset_ColumnFlags_ */
 
 /* Every value below is the value of the C++ enumerator of the same name. */
 
@@ -270,6 +271,11 @@ enum ImTypeset_BlockFlags_ {
 };
 
 enum ImTypeset_CellFlags_ { ImTypeset_CellFlags_None = 0, ImTypeset_CellFlags_RowStart = 1 << 0 };
+
+enum ImTypeset_ColumnFlags_ {
+    ImTypeset_ColumnFlags_None = 0,
+    ImTypeset_ColumnFlags_Balance = 1 << 0
+};
 
 enum ImTypeset_ContainerKind_ {
     ImTypeset_ContainerKind_Quote = 0,
@@ -560,6 +566,26 @@ typedef struct ImTypeset_CellPosition { /* ImTypesetCellPosition */
     int Offset;
 } ImTypeset_CellPosition;
 
+/* How a document is shown in columns: see "Columns" in imtypeset.h. */
+typedef struct ImTypeset_Columns { /* ImTypesetColumns */
+    int Count;
+    float Height;
+    float Gutter;
+    ImTypeset_ColumnFlags Flags;
+} ImTypeset_Columns;
+
+typedef struct ImTypeset_ColumnGeometry { /* ImTypesetColumnGeometry */
+    ImTypeset_Vec2 Min;
+    ImTypeset_Vec2 Max;
+    ImTypeset_Vec2 ContentMin;
+    ImTypeset_Vec2 ContentMax;
+    ImTypeset_Position Start;
+    ImTypeset_Position End;
+    float UncutTop;
+    bool Overfull;
+    bool Exists;
+} ImTypeset_ColumnGeometry;
+
 typedef struct ImTypeset_DocumentStats { /* ImTypesetDocumentStats */
     ImTypeset_U64 MaterialBuilds;
     ImTypeset_U64 BlocksLaidOut;
@@ -570,6 +596,8 @@ typedef struct ImTypeset_DocumentStats { /* ImTypesetDocumentStats */
     int BlocksDeferred;
     ImTypeset_U64 TableCellsMeasured;
     ImTypeset_U64 TableRowsSet;
+    ImTypeset_U64 ColumnsCut;
+    ImTypeset_U64 BalanceHeightsTried;
 } ImTypeset_DocumentStats;
 
 /* What the library was compiled as. Only `int` and `char`, so that it reads
@@ -633,6 +661,9 @@ typedef struct ImTypeset_BuildInfo {
     int SizeofTableColumnGeometry;
     int SizeofTableRowGeometry;
     int SizeofCellPosition;
+    /* Appended with columns. */
+    int SizeofColumns;
+    int SizeofColumnGeometry;
 } ImTypeset_BuildInfo;
 
 /* --- The build -------------------------------------------------------------------- */
@@ -673,7 +704,9 @@ IMTYPESET_C_API int ImTypeset_DebugCheckVersionAndDataLayout(
      ImTypeset_DebugCheckTableDataLayout(                                                        \
          sizeof(ImTypeset_Cell), sizeof(ImTypeset_TableColumn), sizeof(ImTypeset_TableGeometry), \
          sizeof(ImTypeset_TableColumnGeometry), sizeof(ImTypeset_TableRowGeometry),              \
-         sizeof(ImTypeset_CellPosition)))
+         sizeof(ImTypeset_CellPosition)) &&                                                      \
+     ImTypeset_DebugCheckColumnDataLayout(sizeof(ImTypeset_Columns),                             \
+                                          sizeof(ImTypeset_ColumnGeometry)))
 
 /* --- Context ---------------------------------------------------------------------- */
 
@@ -863,6 +896,9 @@ IMTYPESET_C_API int ImTypeset_DebugCheckTableDataLayout(size_t sz_cell, size_t s
                                                         size_t sz_table, size_t sz_column_geometry,
                                                         size_t sz_row_geometry,
                                                         size_t sz_cell_position);
+/* The fourth part of IMTYPESET_C_CHECKVERSION(): the structs of columns. [E] */
+IMTYPESET_C_API int ImTypeset_DebugCheckColumnDataLayout(size_t sz_columns,
+                                                         size_t sz_column_geometry);
 
 IMTYPESET_C_API ImTypeset_Document* ImTypeset_CreateDocument(void); /* [E] */
 IMTYPESET_C_API int ImTypeset_DestroyDocument(ImTypeset_Document* document);
@@ -963,6 +999,19 @@ IMTYPESET_C_API int ImTypeset_GetDocumentTableColumn(ImTypeset_Document* documen
                                                      ImTypeset_TableColumnGeometry* out);
 IMTYPESET_C_API int ImTypeset_GetDocumentTableRow(ImTypeset_Document* document, int block, int row,
                                                   ImTypeset_TableRowGeometry* out);
+/* Columns: see "Columns" in imtypeset.h. `columns` may be null: no columns. [E] */
+IMTYPESET_C_API int ImTypeset_SetDocumentColumns(ImTypeset_Document* document,
+                                                 const ImTypeset_Columns* columns);
+/* A count: 1 for a document shown uncut and for a null document. */
+IMTYPESET_C_API int ImTypeset_GetDocumentColumnCount(ImTypeset_Document* document);
+/* 1 unless `out` is null; a column that is not there has Exists false and the
+ * rest zero. */
+IMTYPESET_C_API int ImTypeset_GetDocumentColumn(ImTypeset_Document* document, int column,
+                                                ImTypeset_ColumnGeometry* out);
+/* `uncut_pos` and `out` may be the same struct. */
+IMTYPESET_C_API int ImTypeset_GetDocumentColumnPos(ImTypeset_Document* document,
+                                                   const ImTypeset_Vec2* uncut_pos,
+                                                   ImTypeset_Vec2* out);
 IMTYPESET_C_API int ImTypeset_GetDocumentTableCell(const ImTypeset_Document* document,
                                                    const ImTypeset_Position* position,
                                                    ImTypeset_CellPosition* out);

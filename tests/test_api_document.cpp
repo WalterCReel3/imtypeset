@@ -25,6 +25,7 @@
 
 #include "context.h"
 #include "imtypeset_document.h"
+#include "vsplit.h"
 
 #include <chrono>
 #include <cmath>
@@ -930,18 +931,13 @@ struct Replay {
 
 using document_reference::px_float;
 
-// One `blocks` case. Returns why it cannot be described, or null.
-const char* replay_blocks_case(Stage& stage, const golden::File& file, const core_golden::Case& c,
-                               Replay& tally)
+// The blocks of a golden case as a host hands them over: `content`, and the
+// style a layout is asked for with. Returns why they cannot be said through
+// the header, or null.
+const char* describe_blocks(const std::vector<blocks_golden::BlockIn>& inputs,
+                            const blocks_golden::ThemeIn& theme, Content& content,
+                            ImTypesetStyle& style)
 {
-    core_golden::Context context;
-    core_golden::Reader reader(file, c);
-    reader.take("source");
-    const blocks_golden::ThemeIn theme = blocks_golden::read_theme(reader);
-    blocks_golden::Recorded recorded;
-    recorded.read(reader, context);
-    core_golden::read_measure(reader, context);
-    const std::vector<blocks_golden::BlockIn> inputs = blocks_golden::read_blocks(reader, context);
     if (theme.composition.regular != Face::PROSE || theme.composition.code != Face::CODE)
         return "a theme whose stand-in faces are not the defaults";
 
@@ -956,7 +952,6 @@ const char* replay_blocks_case(Stage& stage, const golden::File& file, const cor
     if (base == 0)
         base = 12 * UNITY;
 
-    ImTypesetStyle style;
     style.PixelsPerInch = static_cast<float>(ppi);
     style.EmSize = px_float(base, ppi);
     style.Spacing =
@@ -965,7 +960,6 @@ const char* replay_blocks_case(Stage& stage, const golden::File& file, const cor
             : (theme.composition.spacing == Spacing::NONFRENCH ? ImTypesetSpacing_TeX
                                                                : ImTypesetSpacing_Sentence);
 
-    Content content;
     for (size_t i = 0; i < inputs.size(); ++i) {
         const blocks_golden::BlockIn& in = inputs[i];
         if (in.space_above < 0 || in.space_below < 0)
@@ -1066,6 +1060,26 @@ const char* replay_blocks_case(Stage& stage, const golden::File& file, const cor
         if (in.has_marker)
             content.marker(in.marker_text);
     }
+    return nullptr;
+}
+
+// One `blocks` case. Returns why it cannot be described, or null.
+const char* replay_blocks_case(Stage& stage, const golden::File& file, const core_golden::Case& c,
+                               Replay& tally)
+{
+    core_golden::Context context;
+    core_golden::Reader reader(file, c);
+    reader.take("source");
+    const blocks_golden::ThemeIn theme = blocks_golden::read_theme(reader);
+    blocks_golden::Recorded recorded;
+    recorded.read(reader, context);
+    core_golden::read_measure(reader, context);
+    const std::vector<blocks_golden::BlockIn> inputs = blocks_golden::read_blocks(reader, context);
+    const double ppi = theme.px_per_inch;
+    ImTypesetStyle style;
+    Content content;
+    if (const char* why = describe_blocks(inputs, theme, content, style))
+        return why;
 
     ImTypesetDocument* document = ImTypeset::CreateDocument();
     if (document == nullptr)
@@ -1178,6 +1192,193 @@ TEST(the_block_goldens_described_through_the_public_header_compose_to_the_refere
     CHECK(tally.compositions >= 200);
     CHECK(tally.cmds > 34000);
     CHECK(tally.lengths > 2000);
+}
+
+// --- Columns through the public header ------------------------------------------------------
+
+namespace
+{
+
+// One `columns` case: the document described through the header, laid out at
+// the case's width, shown in columns of each split's height, and every column
+// held to the reference's: where it starts, where the cut fell and why, and
+// the commands it ships. Returns why it cannot be described, or null.
+const char* replay_columns_case(Stage& stage, const golden::File& file, const core_golden::Case& c,
+                                Replay& tally, int& columns_held)
+{
+    core_golden::Context context;
+    core_golden::Reader reader(file, c);
+    reader.take("source");
+    const blocks_golden::ThemeIn theme = blocks_golden::read_theme(reader);
+    blocks_golden::Recorded recorded;
+    recorded.read(reader, context);
+    core_golden::read_measure(reader, context);
+    const std::vector<blocks_golden::BlockIn> inputs = blocks_golden::read_blocks(reader, context);
+    const double ppi = theme.px_per_inch;
+    ImTypesetStyle style;
+    Content content;
+    if (const char* why = describe_blocks(inputs, theme, content, style))
+        return why;
+
+    ImTypesetDocument* document = ImTypeset::CreateDocument();
+    if (document == nullptr)
+        return "no document";
+    struct Owned {
+        ImTypesetDocument* document;
+        ~Owned() { ImTypeset::DestroyDocument(document); }
+    } owned{document};
+    if (const char* why = document_reference::use_reference(document, theme))
+        return why;
+    const ImTypesetDocumentContent view = content.view();
+    CHECK(ImTypeset::SetDocumentBlocks(document, &view));
+    const ResolvedStyle resolved = resolve_style(*stage.ctx, style);
+
+    if (!CHECK(reader.next_is("compose")))
+        return nullptr;
+    const Scaled width = reader.peek().i64(1);
+    {
+        const size_t end = blocks_golden::group_end(file, reader.position(), reader.end(),
+                                                    "compose", "endcompose");
+        while (reader.position() < end)
+            reader.take();
+    }
+    const float width_px = px_float(width, ppi);
+    if (resolve_width(width_px, resolved) != width)
+        return "a width that is not a float number of pixels";
+    {
+        const uint32_t count = reader.take("vlist").u32(0);
+        for (uint32_t i = 0; i < count && !reader.done(); ++i)
+            reader.take("v");
+        reader.take("endvlist");
+    }
+
+    std::vector<DrawCmd> cmds;
+    bool any = false;
+    while (reader.next_is("split")) {
+        const size_t first = reader.position();
+        const size_t end = blocks_golden::group_end(file, first, reader.end(), "split", "endsplit");
+        golden::Cursor open(reader.take("split"));
+        const std::string name = open.str();
+        const Scaled height = open.i64();
+        const size_t count = static_cast<size_t>(open.u32());
+        const Scaled split_max_depth = open.i64();
+        const GlueSpec split_top_skip = core_golden::read_spec(reader, "split_top_skip");
+        CHECK_CONTEXT("split %s (line %d)", name.c_str(), file.records()[first].line);
+        // What the header cannot say is the reference's own default.
+        CHECK(split_top_skip == SPLIT_TOP_SKIP);
+        CHECK_EQ(split_max_depth, MAX_DIMEN);
+
+        ImTypesetColumns columns;
+        columns.Height = px_float(height, ppi);
+        CHECK(ImTypeset::LayoutDocument(document, width_px, &style));
+        CHECK(ImTypeset::SetDocumentColumns(document, &columns));
+        DocumentColumns& cut = block_columns(*document);
+        if (cut.rules().height != height) {
+            ++tally.skipped["a column height that is not a float number of pixels"];
+            while (reader.position() < end)
+                reader.take();
+            continue;
+        }
+        Document& inner = block_document(*document);
+        for (size_t k = 0; k < count; ++k) {
+            CHECK_CONTEXT("column %zu", k);
+            golden::Cursor header(reader.take("column"));
+            header.u32();
+            const bool head = header.boolean();
+            const uint64_t start = header.u32();
+            const size_t place = header.u32();
+            Scaled glue_width = 0;
+            if (head)
+                glue_width = reader.take("glue").i64(0);
+            const uint32_t candidates = reader.take("scan").u32(0);
+            for (uint32_t i = 0; i < candidates; ++i)
+                reader.take("cand");
+            golden::Cursor placed(reader.take("place"));
+            placed.u32();
+            const int64_t least_cost = placed.i64();
+            const std::string fitness(golden::Cursor(reader.take("packed")).raw());
+            reader.take("colbox");
+            reader.take("origin");
+            const size_t cmds_first = reader.position();
+            core_golden::read_cmds(reader, context);
+            const std::vector<std::string> expected = reader.lines(cmds_first, reader.position());
+            reader.take("endcolumn");
+
+            // The public answer first: it is what cuts the column.
+            const ImTypesetColumnGeometry geometry =
+                ImTypeset::GetDocumentColumn(document, static_cast<int>(k));
+            CHECK_EQ(geometry.Exists, head);
+            if (!head)
+                continue;
+            if (!CHECK(k < cut.count()))
+                continue;
+            const DocumentColumn& column = cut.column(k);
+            CHECK_EQ(column.first_node, start);
+            CHECK_EQ(column.place, place);
+            CHECK_EQ(column.head, glue_width);
+            CHECK_EQ(column.least_cost, least_cost);
+            CHECK_EQ(geometry.Overfull, fitness == "overfull");
+            CHECK_EQ(geometry.ContentMin.y, px_float(glue_width, ppi));
+            CHECK_EQ(geometry.Max.y, px_float(height, ppi));
+            cmds.clear();
+            if (!CHECK(cut.flatten(inner, k, cmds)))
+                continue;
+            CHECK_LINES_EQ(expected, blocks_golden::written(context, cmds),
+                           "the column, described through the public header and flattened");
+            tally.cmds += cmds.size();
+            ++columns_held;
+            any = true;
+        }
+        // What the reference's `count` columns did not hold is the columns
+        // the document has after them.
+        const bool left = golden::Cursor(reader.take("overflow")).boolean();
+        CHECK_EQ(ImTypeset::GetDocumentColumn(document, static_cast<int>(count)).Exists, left);
+        if (!left) {
+            CHECK(ImTypeset::LayoutDocumentWindow(document, 0.0f, 1.0e9f));
+            CHECK(cut.finished());
+            CHECK(static_cast<size_t>(ImTypeset::GetDocumentColumnCount(document)) <= count);
+        }
+        while (reader.position() < end)
+            reader.take();
+        ++tally.compositions;
+    }
+    for (size_t i = 0; i < inputs.size(); ++i)
+        document_reference::hold_block(*document, i, inputs[i], false, theme, tally.lengths);
+    if (any) {
+        ++tally.cases;
+        tally.blocks += static_cast<int>(inputs.size());
+    }
+    return nullptr;
+}
+
+} // namespace
+
+TEST(the_column_goldens_described_through_the_public_header_are_cut_and_shipped_as_the_reference)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    stage.ctx->tex_rules = TexRules::reference();
+    Frame frame;
+    golden::File file;
+    REQUIRE(file.load(golden::path("tables/columns.golden")));
+    Replay tally;
+    int total = 0;
+    int columns_held = 0;
+    for (const core_golden::Case& c : core_golden::cases(file)) {
+        CHECK_CONTEXT("case %s (line %d)", c.name.c_str(), c.line);
+        ++total;
+        if (const char* why = replay_columns_case(stage, file, c, tally, columns_held))
+            ++tally.skipped[why];
+    }
+    std::printf("document: %d of %d column cases through the public header: %d splits, %d "
+                "columns, %zu commands; %d lengths held by ==\n",
+                tally.cases, total, tally.compositions, columns_held, tally.cmds, tally.lengths);
+    for (const auto& entry : tally.skipped)
+        std::printf("document:   not expressible (%d): %s\n", entry.second, entry.first.c_str());
+    CHECK_EQ(total, 4);
+    CHECK(tally.cases >= 3);
+    CHECK(columns_held >= 12);
+    CHECK(tally.cmds > 1500);
 }
 
 namespace

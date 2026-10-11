@@ -7,6 +7,7 @@
 #pragma once
 
 #include "blocks.h"
+#include "columns.h"
 #include "context.h"
 
 #include <cstddef>
@@ -28,6 +29,14 @@
 // same way: in an ImTypesetParagraph filled from the block's layout
 // (`DocView`). Views are few and reused: the blocks a selection or the mouse
 // touches, not the document.
+//
+// COLUMNS. The block layer lays a document out as one column and src/columns
+// cuts that column; here the two are put on a page. Everything a block is
+// asked (its lines, a hit, the rectangles of a range) is asked in the uncut
+// column, as it always was, and a point is taken between the page and that
+// column on the way in (`uncut_of`) and on the way out (`shown_at`). A draw
+// goes column by column and, where a cut falls inside a block, draws the
+// lines of the block that are the column's.
 //
 // REFERENCE RULES. A document lays out under DocumentRules::product() and the
 // context's TexRules. `ImTypesetDocument::reference_rules` selects the
@@ -207,6 +216,18 @@ struct ImTypesetDocument {
     ImTypesetDocumentStats stats = {};
     ImTypeset::detail::ErrorState no_error;
 
+    // --- Columns (see "Columns" in include/imtypeset.h)
+    // What the host said, with every number finite.
+    ImTypesetColumns columns_given;
+    // DocumentView's own height, for columns filled in order that state none;
+    // zero outside a view.
+    float view_height = 0.0f;
+    // As of the last question: whether the document is shown in columns, the
+    // cuts, and the space between two columns.
+    bool columned = false;
+    ImTypeset::detail::DocumentColumns columns;
+    ImTypeset::detail::Scaled gutter = 0;
+
     // --- DocumentView's state
     ImTypesetDocumentRange selection = {{0, 0}, {0, 0}};
     ImVec2 anchor = ImVec2(0.0f, 0.0f);
@@ -219,5 +240,7 @@ namespace ImTypeset::detail
 // The block layer under a document, for a test to compare: flatten() it.
 Document& block_document(ImTypesetDocument& document);
 DocumentComposer& block_composer(ImTypesetDocument& document);
+// Its columns, brought up to date with what SetDocumentColumns said.
+DocumentColumns& block_columns(ImTypesetDocument& document);
 
 } // namespace ImTypeset::detail

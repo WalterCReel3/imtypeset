@@ -2958,3 +2958,178 @@ says nothing.
 **Decided: the rule under a header is the options' colour, a formula's rule in a cell is ink.**
 `DrawArgs::rule_between` colours a rule that is no formula's, which under the product's draw
 rules is the head rule alone.
+
+## D58. Columns are a way a Document is shown: TeX's `\vsplit` under them, cut lazily from the front or balanced (task `columns-core`, 2026-10-11)
+
+*Agent decisions, taken unattended for the swap of advtext onto the library (the user's ruling:
+"splitting a vertical list into COLUMNS" is TeX's and belongs in the core). The user may overrule
+any. Names are in `include/imtypeset.h` under "Columns" and, for the other session, in
+`docs/advtext-swap-status.md`. What stands on a golden and what on a decision alone is said at the
+end.*
+
+**Decided: the cut is `src/vsplit.*`, named and commented against tex.web part 44 (sections 967
+to 979), and it does what the reference does.** `prune_page_top` is 968 and 969, `VertBreak` the
+scan of 970 to 976 with 971's `best_height_plus_depth`, `vsplit` 977, and `split_into_columns`
+the reference's loop over them. The departures are V1 to V10 of `docs/divergences.md`; no
+disagreement between tex.web and the reference was found in what the reference implements.
+*Checked:* 148, 833, 968 to 979, 1001 and 1082 by counting modules from the top of `tex.web` and
+reading each. (FS-S2 gives 1071 for the `\vsplit` primitive; 1071 is `\hbox`'s, and `\vsplit` is
+dealt with at 1082.)
+
+**Decided: columns are a property of how a document is SHOWN, not of its description.**
+`SetDocumentColumns(document, columns)` beside `LayoutDocument(document, width)`, whose width
+stays the width of ONE column. Weighed against a property of the description (a container kind,
+or fields of `ImTypesetDocumentContent`): the description would have to be handed over again to
+change the count, the same document could not be shown uncut in one pane and in columns in
+another frame, and every binding's `set_blocks` would grow for something no block knows.
+Weighed against a parameter of each draw and query call (a "slice" a host draws under a clip, as
+FS-S2's E2 does it): that leaves the cut, the reading order of a drag and the lazy bookkeeping to
+every host, which is the code the ruling moves here. As a property of the shown document it costs
+four functions and two structs, no call changes shape, and **no block is laid out again when
+columns change**: a block's lines depend on the column's width and on nothing else.
+
+**Decided: the document is not cut; a column is a stretch of the one uncut column, moved.** The
+block layer goes on laying a document out as one column (`src/blocks`), and `src/columns` keeps,
+per column, where its stretch begins in that column and how far down the column's box it is put.
+This is exact, not an approximation of the reference: a document's list has no stretch or shrink,
+so the box section 977 packs `exactly` sets every glue at its natural width (`columns.golden`
+packs its overfull columns `shrinking` at ratio 1 against no shrink: nothing moves), and
+`DocumentColumns::flatten` equals the reference's shipped columns command for command. What it
+buys: layouts, positions, the index maps, selection models and marks are the uncut document's,
+untouched, and a point is taken between the page and the uncut column on the way in and out
+(`uncut_of`, `shown_at`). What it cannot show is a list WITH stretch spread to a column's height;
+no block makes one.
+
+**Decided: two ways of filling, and which is lazy.**
+- *In order* (`Height` above zero): the reference's. Every column is that tall and takes what
+  `vert_break` gives it; as many columns as it takes, to the right. Lazy from the front: the
+  document's list is made a unit at a time (`Document::unit_vlist`, a box as a RULE node of its
+  dimensions, so no arena and no node outlives a cut) and the scan is fed it as it grows
+  (`VertBreak::scan` with `complete` false). A column costs the units it holds and the one after,
+  where the scan finds the page too full. Column k costs every column before it, once: where it
+  starts is where they ended, and no estimate can stand in for that.
+- *Balanced* (`ImTypesetColumnFlags_Balance`, `Count` of two or more): not the reference's, which
+  does not balance (`columns.py`: "Balance: not done, and here is the price"). `Count` columns of
+  one height, the LEAST at which that many hold the document, found by bisection over the height
+  with one pass over the list a trial (TeX's own way to balance is the same cut tried at one
+  height after another; *The TeXbook*'s `\balancecolumns` steps the height up by a point at a
+  time). **It needs every height, so it lays out every block, and any edit searches again**; that
+  is said in the header, and in order is the lazy mode offered instead. Why the least height that
+  holds it and not, say, the height that makes the columns most nearly equal: it is one number
+  with a definition a host can state, it is monotone (more height never holds less of a rigid
+  list, so the bisection is exact: one scaled point less and the columns do not hold the
+  document, which `tests/test_columns.cpp` checks), and the columns before the last then differ by
+  no more than what cannot be cut. The page's height is the tallest column's material, so a block
+  that cannot be cut and is taller than the balanced height makes the page as tall as it is.
+
+**Decided: what is kept, and what an edit costs.** A cut column is kept with the first unit its
+scan did not read. `Document::take_changed` answers the first unit that is not what it was
+(found in `prepare` by comparing each unit with the one that stood there; `edit_text` names its
+unit); the columns whose scans read that far are dropped and cut again when next reached, and
+the ones before stand. Text appended to the last block cuts the last column or two again. A scan
+that came to the end of the document also "read" what is not there yet, so a block appended
+after the last cuts the last column again. Balanced columns are all dropped by any change. Not
+refined: after an edit that adds, removes or re-describes blocks, a quoted run is stacked again
+when next shown (D37), so the columns from the document's FIRST QUOTE on are cut again, whatever
+the edit was.
+
+**Decided: under the product's rules a column may end between two blocks, but not after a
+heading** (`DocumentRules::break_between_blocks`, item 16 of the block layer's switches;
+`Block::keep_with_next`, set for `ImTypesetBlockKind_Heading`). In the reference the space
+between two blocks is a kern with no glue after it, which section 973 does not break at: a run
+of one-line blocks (a list of short items, twenty short paragraphs) is one piece however long
+and runs off the foot of its column. `columns.py` names the fix itself ("`_stacked` emitting
+`Glue(GlueSpec(width=gap))` instead of `Kern(width=gap)` would make every block boundary legal").
+The product does that in the list a column is cut from, and there only: the gap is glue, there
+between any two blocks (of no width where they have none), and stays a kern after a heading —
+TeX's `\nobreak` after a heading, said in the terms section 973 already has. The uncut document
+does not read the switch, and under reference rules the list is the reference's, which the
+goldens hold. *Not done:* widows and orphans. Section 974 cannot weigh a penalty in a list that
+does not stretch (every short page costs `deplorable` whatever its penalty), so `\clubpenalty`
+and `\widowpenalty` would change nothing; keeping two lines together needs another mechanism and
+none was built.
+
+**Decided: the product's `\splittopskip` is the height of a line of the document's style above
+its baseline** (`Strut::filling(baselineskip).height`), where the reference's is ten points
+whatever the type. A column headed by a line of body text, or by anything taller, is then flush
+with the top; one headed by something shorter (a thematic rule, the rule under a table's header,
+small type) has it where a line's baseline would be, which is what section 969 is for. Ten points
+stays under reference rules.
+
+**Decided: what cannot be cut and is taller than a column** — a host block, a quote, a table row
+whose cells wrapped, a single line — is put in a column alone and reaches past its foot
+(`ImTypesetColumnGeometry::Overfull`, `ContentMax.y` past `Max.y`). That is the reference's
+(`vert_break` takes the one break there is; `columns.golden`, `a-quote-taller-than-the-column`).
+The library does not clip it, shrink it or refuse: what to do with it is the host's, which has
+the geometry. A code block and a table are cut between their lines and their rows; nothing keeps
+a table's header with its rule or its first row, as in the reference (FORMAT-tables.md section
+6). *Not built:* cutting a quote; a quote taller than a column is overfull.
+
+**Decided: the page, and which calls speak of it.** Column k is at `x = k * (width + Gutter)`,
+`y = 0`; a default gutter is one line of the document's style (the reference demo's
+`GUTTER_LEADINGS = 1.0`). The calls a view makes speak of the page: `DrawDocument`,
+`HitTestDocument`, `SelectDocumentRange`, `GetDocumentRangeRects`, `GetDocumentCaretRect`,
+`GetDocumentSize`. The calls that describe a block speak of the UNCUT column, as if there were
+no columns: `GetDocumentBlockGeometry`, `GetDocumentBlockLine`, the three table queries,
+`LayoutDocumentWindow`; and `GetDocumentColumnPos` takes a point from there to the page. Why not
+answer block geometry on the page: a block cut by a column is not a rectangle, and a line's
+rectangle "relative to its block's corner" has no meaning when the block has two corners. One
+function that moves a point is smaller than a second form of five answers. A top handed back to
+`GetDocumentColumnPos` is its own line's to within what a float of pixels holds (the column is
+chosen by the next height a float can say): a float does not carry a scaled point.
+
+**Decided: reading order, selection and copy across columns** (no oracle: the reference draws
+columns and never selects in them). Positions are the document's, so order is the document's:
+down a column, then the next. A point is taken to the uncut column by the column it is over —
+a point in a gutter is the column's on its left, one past the last column the last column's —
+and, within that column, by its height, held between the column's first line and its last: a
+point below a column's last line is at that line, not at the head of the next column. So a drag
+from a point in one column to a point in a later one selects from the first point to the foot of
+its column, every column between, and the later column from its head to the second point; and
+dragged the other way, the same range. Rectangles of a range are each in the column their line
+is in. A copy is the uncut document's, to the byte: a cut adds nothing to the text, since it is
+not in the text.
+
+**Decided: `DocumentView` in columns.** `Count` columns across the view's width, each what the
+gutters leave; in order, a column is as tall as the view when `Height` is 0, and the view
+scrolls sideways through the rest; balanced columns are scrolled down. `LayoutDocument` with a
+`Height` of 0 and no balance shows the document uncut: outside a view there is no height to cut
+at.
+
+**Decided: limits.** A column's height is at least one scaled point; at most 4,096 balanced
+columns; values that are not numbers are zero.
+
+**Measured** (GCC 12.2, debug, private build directories; `tests/test_vsplit.cpp`,
+`tests/test_columns.cpp`, `tests/test_api_document.cpp`, `tests/test_api_columns.cpp`):
+- *Goldens.* At the core, the 28 `vsplit` and `columns` cases of `tests/golden/tables` replay
+  record by record: 85 splits, 247 columns, 1,850 legal breakpoints with their totals, badness,
+  cost and taken flag, 4,450 shipped commands. Through a `Document`, and again through the public
+  header with every length a float of pixels held to the golden's scaled points by `==`, the 4
+  `columns` cases: 8 splits, 18 columns (and the 3 the reference leaves empty), 2,634 commands.
+- *A property, for what no golden holds.* 2,113 columns of 40 random documents (quotes, code,
+  rules, random heights, `\splittopskip` and `\splitmaxdepth`) are the columns
+  `split_into_columns` cuts from the same blocks composed at once, shipped; 1,993 of them start
+  inside a block.
+- *Lazy layout, N = 10,000 paragraphs, by the counters.* In order: a frame that shows three
+  columns lays out 14 blocks (the columns hold 14) and cuts 3 columns; the next frame, a hit
+  test, the size and the count cost nothing; a frame of columns 10 to 12 brings it to 62 blocks
+  (they end at block 57) and 14 columns; the whole document is 2,308 columns and 10,000 blocks,
+  against an estimate of 2,653 made after three columns; text appended to the last block then
+  lays out 1 block and cuts at most 2 columns. Balanced into six: the first question lays out
+  10,000 blocks, tries 36 heights and cuts 6 columns; an appended word lays out 1 block and
+  searches again.
+
+**Not measured.** Any time in a release build before the numbers in `docs/performance.md`,
+"Columns". Memory: the working list of a balanced document is one node of 32 bytes, a height and
+a unit number for each line and gap (84,000 nodes at 10,000 paragraphs), kept while the columns
+stand. The estimate of the column count on real text. Columns under a real mouse. A document
+with vertical stretch (none can be described).
+
+**What stands on a golden and what on a decision alone.** On a golden, exactly: where a column
+is cut and why (every candidate), the glue at its head, what is dropped at a cut, an overfull
+column, what the reference's `count` columns leave over, and the commands each column ships —
+under reference rules. On a decision and its own tests alone: that columns are set beside the
+layout; balanced columns; a break between blocks and none after a heading; the product's
+`\splittopskip`; the page (gutter, x of a column); hit testing, selection, rectangles and copy
+across columns; per-column geometry and `GetDocumentColumnPos`; `DocumentView` in columns; what
+is kept across an edit; the estimate of the count.

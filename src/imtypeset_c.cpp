@@ -345,6 +345,23 @@ IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, Blocks);
 IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, BlocksDeferred);
 IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, TableCellsMeasured);
 IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, TableRowsSet);
+IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, ColumnsCut);
+IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, BalanceHeightsTried);
+IMTYPESET_C_MIRROR(ImTypeset_Columns, ImTypesetColumns);
+IMTYPESET_C_FIELD(ImTypeset_Columns, ImTypesetColumns, Count);
+IMTYPESET_C_FIELD(ImTypeset_Columns, ImTypesetColumns, Height);
+IMTYPESET_C_FIELD(ImTypeset_Columns, ImTypesetColumns, Gutter);
+IMTYPESET_C_FIELD(ImTypeset_Columns, ImTypesetColumns, Flags);
+IMTYPESET_C_MIRROR(ImTypeset_ColumnGeometry, ImTypesetColumnGeometry);
+IMTYPESET_C_FIELD(ImTypeset_ColumnGeometry, ImTypesetColumnGeometry, Min);
+IMTYPESET_C_FIELD(ImTypeset_ColumnGeometry, ImTypesetColumnGeometry, Max);
+IMTYPESET_C_FIELD(ImTypeset_ColumnGeometry, ImTypesetColumnGeometry, ContentMin);
+IMTYPESET_C_FIELD(ImTypeset_ColumnGeometry, ImTypesetColumnGeometry, ContentMax);
+IMTYPESET_C_FIELD(ImTypeset_ColumnGeometry, ImTypesetColumnGeometry, Start);
+IMTYPESET_C_FIELD(ImTypeset_ColumnGeometry, ImTypesetColumnGeometry, End);
+IMTYPESET_C_FIELD(ImTypeset_ColumnGeometry, ImTypesetColumnGeometry, UncutTop);
+IMTYPESET_C_FIELD(ImTypeset_ColumnGeometry, ImTypesetColumnGeometry, Overfull);
+IMTYPESET_C_FIELD(ImTypeset_ColumnGeometry, ImTypesetColumnGeometry, Exists);
 IMTYPESET_C_ENUM(RunFlags, Formula);
 IMTYPESET_C_ENUM(RunFlags, DisplayFormula);
 IMTYPESET_C_ENUM(BlockKind, Paragraph);
@@ -362,6 +379,8 @@ IMTYPESET_C_ENUM(BlockFlags, TableHeader);
 IMTYPESET_C_ENUM(BlockFlags, TableHeld);
 IMTYPESET_C_ENUM(CellFlags, None);
 IMTYPESET_C_ENUM(CellFlags, RowStart);
+IMTYPESET_C_ENUM(ColumnFlags, None);
+IMTYPESET_C_ENUM(ColumnFlags, Balance);
 IMTYPESET_C_ENUM(ContainerKind, Quote);
 IMTYPESET_C_ENUM(ContainerKind, List);
 IMTYPESET_C_ENUM(ContainerFlags, None);
@@ -616,6 +635,8 @@ int ImTypeset_GetBuildInfo(ImTypeset_BuildInfo* out, int out_size)
     info.SizeofTableColumnGeometry = static_cast<int>(sizeof(ImTypesetTableColumnGeometry));
     info.SizeofTableRowGeometry = static_cast<int>(sizeof(ImTypesetTableRowGeometry));
     info.SizeofCellPosition = static_cast<int>(sizeof(ImTypesetCellPosition));
+    info.SizeofColumns = static_cast<int>(sizeof(ImTypesetColumns));
+    info.SizeofColumnGeometry = static_cast<int>(sizeof(ImTypesetColumnGeometry));
     if (out != nullptr && out_size > 0) {
         const size_t n = static_cast<size_t>(out_size) < sizeof(info)
                              ? static_cast<size_t>(out_size)
@@ -1199,6 +1220,13 @@ int ImTypeset_DebugCheckTableDataLayout(size_t sz_cell, size_t sz_column, size_t
     });
 }
 
+int ImTypeset_DebugCheckColumnDataLayout(size_t sz_columns, size_t sz_column_geometry)
+{
+    return guarded(0, [&]() -> int {
+        return status(ImTypeset::DebugCheckColumnDataLayout(sz_columns, sz_column_geometry));
+    });
+}
+
 ImTypeset_Document* ImTypeset_CreateDocument(void)
 {
     return guarded<ImTypeset_Document*>(nullptr, []() { return ImTypeset::CreateDocument(); });
@@ -1558,6 +1586,56 @@ int ImTypeset_GetDocumentTableRow(ImTypeset_Document* document, int block, int r
         out->CellStart = g.CellStart;
         out->CellCount = g.CellCount;
         out->Wrapped = g.Wrapped;
+        return 1;
+    });
+}
+
+int ImTypeset_SetDocumentColumns(ImTypeset_Document* document, const ImTypeset_Columns* columns)
+{
+    return guarded(0, [&]() -> int {
+        if (columns == nullptr)
+            return status(ImTypeset::SetDocumentColumns(document, nullptr));
+        const ImTypesetColumns given = mirror<ImTypesetColumns>(*columns);
+        return status(ImTypeset::SetDocumentColumns(document, &given));
+    });
+}
+
+int ImTypeset_GetDocumentColumnCount(ImTypeset_Document* document)
+{
+    return guarded(-1, [&]() -> int { return ImTypeset::GetDocumentColumnCount(document); });
+}
+
+int ImTypeset_GetDocumentColumn(ImTypeset_Document* document, int column,
+                                ImTypeset_ColumnGeometry* out)
+{
+    return guarded(0, [&]() -> int {
+        if (missing(out, "ImTypeset_GetDocumentColumn: out is null"))
+            return 0;
+        // Field by field into zeroed memory: the struct has padding.
+        std::memset(out, 0, sizeof(*out));
+        const ImTypesetColumnGeometry g = ImTypeset::GetDocumentColumn(document, column);
+        out->Min = mirror<ImTypeset_Vec2>(g.Min);
+        out->Max = mirror<ImTypeset_Vec2>(g.Max);
+        out->ContentMin = mirror<ImTypeset_Vec2>(g.ContentMin);
+        out->ContentMax = mirror<ImTypeset_Vec2>(g.ContentMax);
+        out->Start = mirror<ImTypeset_Position>(g.Start);
+        out->End = mirror<ImTypeset_Position>(g.End);
+        out->UncutTop = g.UncutTop;
+        out->Overfull = g.Overfull;
+        out->Exists = g.Exists;
+        return 1;
+    });
+}
+
+int ImTypeset_GetDocumentColumnPos(ImTypeset_Document* document, const ImTypeset_Vec2* uncut_pos,
+                                   ImTypeset_Vec2* out)
+{
+    return guarded(0, [&]() -> int {
+        if (missing(uncut_pos, "ImTypeset_GetDocumentColumnPos: uncut_pos is null") ||
+            missing(out, "ImTypeset_GetDocumentColumnPos: out is null"))
+            return 0;
+        *out = mirror<ImTypeset_Vec2>(
+            ImTypeset::GetDocumentColumnPos(document, mirror<ImVec2>(*uncut_pos)));
         return 1;
     });
 }

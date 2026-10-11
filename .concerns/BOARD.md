@@ -450,3 +450,16 @@ QUEUED: columns-core -> swap-fixes. Then a gate: all eleven presets from clean, 
 NEEDS THE USER: item 8 (SVG litmus output), the mathtext page, plus the open decisions listed above.
 Backups: build/advtext-reference (the pin — never delete), .deps/advtext-docs (tex.web and four
 reference documents, untracked in the sibling).
+
+## Swap state (lead, 2026-10-11 midday)
+
+Commits: be40444 = tables + DiffView stage 0 (build-from, named in the status file by 061d25f);
+then a docs commit listing known table defects. DONE: tables-core, oracle-fixes, review-6-tables
+(`.concerns/review-6-tables--reviewer--findings.md`: a click in a cell's blank reports the next
+cell; caret rectangles; FixedLineHeight on wrapped table rows; held widths; quadratic appends).
+RUNNING: columns-core (told to stop-and-tell at a whole tree; the lead exports the index to
+build/lead-verify, builds debug, runs ctest, commits by explicit file list, then names the commit in
+docs/advtext-swap-status.md). QUEUED in this order (the board chained them by shared files):
+swap-fixes -> tables-fixes. Then a gate: eleven presets from clean, and a commit.
+NEEDS THE USER: item 8 (SVG litmus), the mathtext page, the product copy rules for tables
+(divergences D2/D3), sharp-s case folding in find, plus the earlier open decisions.
