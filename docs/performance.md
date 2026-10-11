@@ -626,7 +626,8 @@ The same section, before the task and at its end, us:
 | sample: Drawer into buffers | 68.8 | 68.1 | -1 % |
 | full draw, x1 (the public path) | 102 to 107 | 112 | one run each, hours apart: not a comparison |
 
-Placement now asks of every glyph whether it is a formula's (`DrawRules::rule_joins_span`). The
+Placement asked of every glyph whether it is a formula's (`DrawRules::rule_joins_span`, which
+`d7-fix` has since replaced: next section but one). The
 emit loop now also writes the overlay's outlines and sends rectangles through `PrimRect`; with that
 in it GCC's code for the glyph path into a list is about 0.9 ns a glyph slower however the rest
 was arranged (a cursor held by value, the test for a glyph first, a guard object or none: 67.9 to
@@ -671,6 +672,158 @@ x10, about 20 ns a call at 600 bytes. The comparison of the text is paid by both
 the difference from a pointer-keyed call is that comparison and the cache misses above; see D39
 for what was not done about them.
 
+## After `d7-fix`: a formula placed whole (D47)
+
+Placement asks of every glyph whether a formula placed whole is open (one test of a flag that is
+never set under the reference's rules; `DrawRules::formula_placed_whole`). Release, GNU 12.2.0
+`-O3`, FreeType, `bench_draw` built from the sources before and after d7-fix and run alternately,
+three rounds, load average 1.6 to 1.9; medians in us for 3,918 glyphs:
+
+| row | before (`rule_joins_span`) | after |
+|---|---|---|
+| sample: placement alone, no vertices | 42.96 / 43.83 / 43.56 | 43.62 / 44.16 / 44.33 |
+| sample: Drawer into a draw list | 72.25 / 73.55 / 73.01 | 72.73 / 73.66 / 73.75 |
+| sample: Drawer into buffers | 68.45 / 70.16 / 69.36 | 69.03 / 69.97 / 70.18 |
+| mixed: placement alone, no vertices | 47.72 / 48.52 / 48.13 | 49.04 / 49.34 / 49.79 |
+| mixed: Drawer into a draw list | 78.93 / 80.77 / 80.08 | 80.65 / 81.20 / 81.98 |
+| full draw, x1 | 109.5 / 110.9 / 110.1 | 110.1 / 110.7 / 112.9 |
+
+So within about 1 % on the sample and 2 % slower on the mixed page, which is at the edge of the
+run-to-run spread. With the test compiled out placement alone is 42.4 to 42.6 us (two runs): the
+question costs about 0.4 ns a glyph, and the rest of what harden-2 measured (71.7 against 66.6 us)
+is not in it. The benchmark draws under the reference's rules and holds no formula, so the cost of
+placing a formula whole is not in these rows; per glyph it is the same arithmetic as a glyph of a
+word, and the look-back and the second pass over a formula's rules are gone. Command:
+`( ulimit -v 6000000; timeout 300 build/<dir>/bench/bench_draw )`, rows as named.
+
+Two shapes of the same rule that were measured and not kept, because they are worth knowing:
+choosing between two rounded expressions per glyph (a formula's or a word's) cost 4 % on the sample
+and 8 % on the mixed page; the kept shape swaps the anchor a formula's glyph is placed from and
+leaves one expression.
+
+## After `word-gaps`: words held and spaces led (D48)
+
+Holding words and leading spaces (`DrawRules::word_width_held`, `word_spaces_led`) cost the
+public draw about a tenth. Release, GNU 12.2.0 `-O3 -DNDEBUG -ffp-contract=off -fno-exceptions
+-fno-rtti`, FreeType 2.12.1, AMD Ryzen 7 PRO 4750U; two builds of one snapshot of the tree that
+differ only in `src/draw.cpp` and `src/draw.h`, run alternately eight times with the load average
+between 1.7 and 3.5, `( ulimit -v 6000000; timeout 300 build/<dir>/bench/bench_draw )`; the
+figure is the median of the eight medians, in us unless marked:
+
+| row | before | after | |
+|---|---|---|---|
+| full draw, x1 (product rules) | 110.8 | 122.4 | +10.5 % |
+| full draw, x10 | 1342.6 | 1452.5 | +8.2 % |
+| full draw, x100, ms | 13.54 | 14.67 | +8.3 % |
+| culled, host skips, x1, scroll 0.25 | 48.06 | 51.93 | +8.1 % |
+| widget frame, x1, scroll 0.25 | 56.25 | 61.55 | +9.4 % |
+| draw the paragraph (498 glyphs) | 10.51 | 11.75 | +11.8 % |
+| sample: Drawer into a draw list (reference rules) | 73.2 | 74.7 | +2.0 % |
+| sample: placement alone (reference rules) | 43.85 | 45.5 | +3.7 % |
+| mixed: Drawer into a draw list (reference rules) | 81.0 | 83.3 | +2.9 % |
+| mixed: placement alone (reference rules) | 49.2 | 51.6 | +4.9 % |
+
+That is about 3 ns a glyph under the product's rules, of which the hold is about two thirds
+(measured on "placement alone" with each rule switched on by itself: +6.5 us and +3.3 us of
+47.1). The rows through `detail::Drawer` run under the reference's rules and pay only for the
+state the two rules keep. Three shapes of the hold were measured before this one: finding the gap
+to give by walking the word's commands again (+12 us on the same row), keeping the largest
+rounding up and down as each glyph is placed (+12 us, with or without branches), and the one
+kept, which stores each gap's rounding with its op (`DrawOp::x1`) and looks only at the ops of a
+word that is out. A word out by more than a pixel has its gaps selected, not found one pass at a
+time: a megabyte with no space in it is placed in one pass (`test_stress_text`, 2.0 s for the
+whole test in debug, where a pass a pixel took 362 s).
+
+`bench_draw` had no row that draws through `detail::Drawer` under `DrawRules::product()` when
+this was measured; the per-rule figures above came from a private copy of the benchmark with the
+rules set from an environment variable. Task `draw-seams` added the rows (next section).
+
+## After `draw-seams`: one leader along a line (D50)
+
+Two rows were added to `bench_page`: "Drawer into a draw list, DrawRules::product()" and
+"placement alone, DrawRules::product()" (the other Drawer rows place under the reference's rules,
+which is what a `DrawArgs` is made with).
+
+Before and after this task: two release builds (GNU 12.2.0, `-O3 -DNDEBUG -ffp-contract=off
+-fno-exceptions -fno-rtti`, FreeType 2.12.1, Ryzen 7 PRO 4750U) of one snapshot of the tree
+differing only in `src/draw.cpp` and `src/draw.h`, run alternately 8 times each,
+`( ulimit -v 6000000; timeout 300 build/draw-seams-rel{A,B}/bench/bench_draw )`, load average 3.6
+to 4.0 (other builders were compiling; word-gaps measured at 1.7 to 3.5 and its absolute figures
+are some 25 % lower for the same code). Rows this task cannot have touched moved by -4 % to
++8 % between the two builds (copy -4.0 %, a culled row +8.1 %): that is the floor. Median of the
+8 medians, us:
+
+| row | before | after | |
+|---|---|---|---|
+| full draw, x1 (public API: product rules) | 161.6 | 158.4 | -2.0 % |
+| full draw, x10 | 1814.7 | 1815.8 | +0.1 % |
+| full draw, x100 (ms) | 18.00 | 17.99 | -0.1 % |
+| widget frame, x1, scroll 0.25 | 78.7 | 77.9 | -1.0 % |
+| draw the paragraph (498 glyphs) | 14.46 | 14.13 | -2.3 % |
+| sample: Drawer into a draw list (reference rules) | 92.9 | 90.7 | -2.4 % |
+| sample: placement alone (reference rules) | 56.6 | 53.0 | -6.4 % |
+| sample: Drawer into a draw list, product rules | 105.9 | 104.6 | -1.3 % |
+| sample: placement alone, product rules | 68.0 | 67.3 | -1.1 % |
+| mixed: Drawer into a draw list, product rules | 112.7 | 112.9 | +0.1 % |
+| mixed: placement alone, product rules | 74.4 | 73.6 | -1.1 % |
+
+**No change that the measurement can see.** An earlier series of the same 16 runs at load 8 to 9
+put the same rows between -1 % and +5 % with untouched rows between -7 % and +5 %; it says the
+same thing with less authority. What the product's rules cost over the reference's in one build,
+same run: placement alone 53.0 -> 67.3 us on the sample (3.6 ns a glyph), 61.5 -> 73.6 on the
+mixed page; a draw into a list 90.7 -> 104.6 (+15 %). The per-glyph path inside a word is the
+code it was; what was added runs once per word, per formula and per formula glyph.
+
+## A benchmark started cold reads high (found by the `docs` task, 2026-10-10)
+
+Measured while checking the README's draw figure, and it qualifies every table in this file
+that was taken from a single run.
+
+`bench_draw` prints "full draw, x1" first. One binary (release preset, GNU 12.2.0 `-O3`,
+FreeType 2.12.1, the tree of 2026-10-10 after `draw-seams`), run as
+`( ulimit -v 6000000; timeout 300 build/<dir>/bench/bench_draw --only x1 )`, median of 3,000
+samples each time, us:
+
+| how it was started | "full draw, x1" |
+|---|---|
+| after 12 s with nothing running | 210.8 |
+| after 12 s with nothing running and then 3 s of one busy loop | 211.2 |
+| sixteen times back to back, no pause | 210.4, 213.6, 211.5, 188.6, then twelve between 125.5 and 128.3 |
+| six times, 4 s apart | 209.4 to 211.9 |
+| four at once | 210.0 to 211.9 |
+| after 10 s of eight busy loops | 126.1 |
+| a second, byte-identical binary from another build directory (same md5) | 127.9 and 127.4 straight after the build that made it; 210.0 to 210.8 a minute later; and the first binary 125.6 to 128.4 at the end of a loop of runs where it had read 210.6 and 211.5 cold |
+
+The whole first part of a cold run is slow by about the same factor (culled 88 us, widget frame
+106 us, full draw x10 2.47 ms, where `word-gaps` recorded 52, 62 and 1.45 warm), and the rows
+printed later in the same run are not: "sample: Drawer into a draw list" read 74.0 us in a run whose full draw
+read 210.6. So it is the first six to eight seconds of work after an idle spell, not the code
+and not the load. `scaling_governor` is `schedutil`, and `/proc/cpuinfo` showed cores between
+1,397 and 4,047 MHz just after a run: the processor's frequency coming up is the likely cause,
+which is an inference; nothing here measured the frequency during a run. Not the cause: compile
+flags (the two binaries are the same file) or the load average (0.4 for one of the cold runs).
+Six warm runs under `setarch -R` read 125.6 to 128.7, the same as without it.
+
+What it means for the figures above:
+
+- The headline table was five runs in a loop and the `word-gaps` and `draw-seams` comparisons
+  were eight alternations on a machine that was compiling, so they were taken warm, and their
+  ratios stand. Their "before" and "after" would both have been inflated alike had they been
+  taken cold.
+- "full draw, x1" on today's tree, warm: 125.5 to 128.3 us (the twelve runs above), against
+  122.4 us recorded after `word-gaps`. That is the figure the README quotes.
+- A single run on an idle machine overstates the public-API rows of `bench_draw` by about 1.7
+  times and understates nothing. `bench_reflow` and `bench_font` were not examined for the same
+  effect.
+- Since task `final-touches` every benchmark keeps its thread busy before its first row
+  (`warm_up()` in `bench/bench_common.h`, called from `header()`; 8 s unless
+  `IMTYPESET_BENCH_WARMUP_S` says otherwise) and prints a line saying so. Eight because the table
+  above has three seconds of one busy loop not enough and six to eight seconds of back-to-back
+  runs enough. **Not measured:** that it removes the effect. The load average was 5.3 to 5.7
+  from other work when it was added, so nothing could be started cold; `bench_draw --only x1`
+  read 161.4 us with the warm-up off and 148.4 us with it on, one run each, which on a machine
+  that busy is not a result either way. What the rows measure is unchanged.
+
 ## `easy_line` (task `tex-fixes`, D41)
 
 `TexRules::easy_line` gives the optimiser `tex.web`'s classes of line numbers (§835, §848, §850):
@@ -689,7 +842,7 @@ the rule. "work" is `LineBreaker::work_done()`, the unit the budget is counted i
 | justified, a class per line count | 0.092 ms (work 792) | 0.90 ms (9,881) | 9.9 ms (115,938) | 133 ms (1,704,259) | 9.8x, 11.0x, 13.4x |
 | justified, `easy_line` | 0.089 ms (792) | 0.53 ms (5,468) | 2.3 ms (24,404) | 10.0 ms (97,218) | 5.9x, 4.4x, 4.3x |
 | ragged right by total fit, a class per line count | 5.8 ms (74,607) | 105 ms (1,363,730) | 1.73 s (22,380,790) | 21.5 s, then over the maximum budget (268,442,463): first fit | 18.2x, 16.5x: quadratic |
-| ragged right by total fit, `easy_line` | 0.143 ms (1,613) | 0.63 ms (7,286) | 2.58 ms (29,978) | 10.9 ms (120,746) | 4.4x, 4.1x, 4.2x: linear |
+| ragged right by total fit, `easy_line` | 0.143 ms (1,613) | 0.63 ms (7,286) | 2.58 ms (29,978) | 10.9 ms (120,746) | 4.4x, 4.1x, 4.2x: linear at this measure |
 
 As a host gets it (product rules, the default budget of 1,048,576 units), same run:
 
@@ -709,6 +862,14 @@ two alternating widths was laid out last.)
 
 - No row falls back to first fit. In "After the API revision" above, justified x64 and ragged
   total fit from x4 up did.
+- "Linear" is at a fixed measure. `easy_line` costs about (breakpoints) x (breakpoints that fit
+  on a line), so the growth above is in the paragraph's length with the column held at the
+  reference's measure. Ragged text by total fit in a column wide enough to hold much of the
+  paragraph on one line is quadratic again, and the work budget is the only bound on it: past
+  the default 1,048,576 units (roughly words x words-a-line) the paragraph is broken by first
+  fit instead, silently, and correctly. Read, by review
+  (`.concerns/review-round-3--reviewer--findings.md`, item 2); no row here measures a column
+  that wide.
 - At x64 the optimiser uses a tenth of the default budget. The budget is unchanged and is now a
   bound on hostile material and not on long paragraphs.
 - Ragged right by total fit is 40 times cheaper at eight lines and about 2,000 times at 512.

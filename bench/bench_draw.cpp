@@ -470,6 +470,20 @@ void bench_page(const char* title, const char* tag, const std::vector<DrawCmd>& 
     bench::row(named("Drawer into buffers").c_str(), buffered,
                note_of(glyphs, buffered.median()).c_str());
 
+    // The rows above place under the reference's rules, which is what a
+    // DrawArgs is made with. The public API draws under the product's.
+    DrawArgs as_product = args;
+    as_product.rules = DrawRules::product();
+    bench::Samples direct_product = bench::sample_frames(frames, 5, [&](ImDrawList* list) {
+        drawer.draw_runs(list, &run, 1, as_product, ctx.fonts, ctx.resolve);
+    });
+    bench::row(named("Drawer into a draw list, DrawRules::product()").c_str(), direct_product,
+               note_of(glyphs, direct_product.median()).c_str());
+    bench::Samples placed_product = bench::sample_frames(
+        frames, 5, [&](ImDrawList*) { drawer.place(&run, 1, as_product, fixed); });
+    bench::row(named("placement alone, DrawRules::product()").c_str(), placed_product,
+               note_of(glyphs, placed_product.median()).c_str());
+
     // A window 768 px tall a third of the way down the page.
     const float top = MARGIN_PX + static_cast<float>(px_from_sp(page.back().y)) / 3.0f;
     const ImVec2 clip_min(0.0f, top);

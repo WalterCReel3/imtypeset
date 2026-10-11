@@ -179,6 +179,7 @@ static void test_without_a_context(void)
     SECTION("no context");
 
     CHECK(ImTypeset_GetCurrentContext() == NULL);
+    CHECK(ImTypeset_GetContextSerial() == 0);
     CHECK(ImTypeset_CreateParagraph() == NULL);
     CHECK(last_error_code() == ImTypeset_Error_NoContext);
     length = ImTypeset_GetLastErrorMessage(NULL, 0);
@@ -1121,6 +1122,25 @@ static void test_document(struct ImDrawList* draw_list)
     CHECK(ImTypeset_DocumentView("doc", NULL, document, NULL, NULL, NULL, NULL) == 1);
     CHECK(ImTypeset_DocumentView("doc", NULL, NULL, NULL, NULL, NULL, NULL) == 0);
 
+    /* An append that is applied says so, whatever an earlier one found: a run
+     * that is not after the block's runs is left out and said by the call that
+     * handed it over, as something done differently, and by no later call. */
+    more.Start = 9;
+    more.End = 10;
+    CHECK(ImTypeset_AppendDocumentText(document, "x", NULL, &more, 1) == 1);
+    more.Start = 2;
+    more.End = 4;
+    CHECK(ImTypeset_AppendDocumentText(document, "y", NULL, &more, 1) == 0);
+    CHECK(ImTypeset_GetLastError(&error) == 1);
+    CHECK(error.Code == ImTypeset_Error_DescriptionCut);
+    CHECK(ImTypeset_GetDocumentBlockTextSize(document, 4) == 11);
+    CHECK(ImTypeset_AppendDocumentText(document, "z", NULL, NULL, 0) == 1);
+    CHECK(ImTypeset_GetLastError(&error) == 1);
+    CHECK(error.Code == ImTypeset_Error_None);
+    CHECK(ImTypeset_GetDocumentBlockTextSize(document, 4) == 12);
+    CHECK(ImTypeset_GetDocumentBlockError(document, 4, &error) == 1);
+    CHECK(error.Code == ImTypeset_Error_DescriptionCut);
+
     CHECK(ImTypeset_DestroyDocument(document) == 1);
     CHECK(ImTypeset_DestroyDocument(NULL) == 1);
 }
@@ -1141,7 +1161,31 @@ static void test_with_a_context(void)
     CHECK(ImTypeset_GetCurrentContext() == context);
     CHECK(ImTypeset_SetCurrentContext(NULL) == 1);
     CHECK(ImTypeset_GetCurrentContext() == NULL);
+    CHECK(ImTypeset_GetContextSerial() == 0);
     CHECK(ImTypeset_SetCurrentContext(context) == 1);
+    /* A context's serial: its own, never zero, and not one a later context
+     * has, wherever that one is made. */
+    {
+        const ImTypeset_U64 serial = ImTypeset_GetContextSerial();
+        ImTypeset_Context* other = ImTypeset_CreateContext();
+        ImTypeset_U64 others;
+        CHECK(serial != 0);
+        REQUIRE(other != NULL);
+        CHECK(ImTypeset_GetContextSerial() == serial);
+        CHECK(ImTypeset_SetCurrentContext(other) == 1);
+        others = ImTypeset_GetContextSerial();
+        CHECK(others != 0 && others != serial);
+        CHECK(ImTypeset_DestroyContext(other) == 1);
+        CHECK(ImTypeset_GetContextSerial() == 0);
+        other = ImTypeset_CreateContext();
+        REQUIRE(other != NULL);
+        CHECK(ImTypeset_GetContextSerial() != serial);
+        CHECK(ImTypeset_GetContextSerial() != others);
+        CHECK(ImTypeset_GetContextSerial() != 0);
+        CHECK(ImTypeset_DestroyContext(other) == 1);
+        CHECK(ImTypeset_SetCurrentContext(context) == 1);
+        CHECK(ImTypeset_GetContextSerial() == serial);
+    }
 
     test_style();
     test_fonts();

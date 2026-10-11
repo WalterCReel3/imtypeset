@@ -6,6 +6,14 @@ a prototype to discard and becomes the Python library that wraps it, keeping
 markdown, streaming, diff, find, the embeddable views and themes, with its own
 layout core replaced by calls into imtypeset.
 
+**Read with what came after it (note added 2026-10-10).** This is the map as
+it was drawn on 2026-10-09. Since then the shape was decided (D34), the
+Document of section 3 was built (D43; which of R1 to R11 are met, and by which
+test, is the table in `.concerns/api-document--builder--result.md`: R1 to R5,
+R7 and R10 met, R6 tables reserved and not built, R8, R9 and R11 not part of
+it), and the plan that replaces section 7's recommendation, measured in both
+applications, is `docs/advtext-rework-plan.md`. The text below is unchanged.
+
 Nothing here is implemented, and nothing here changes `docs/decisions.md`. D32
 still stands as written: imtypeset is not designed as an accelerator under
 advtext. Section 3 is therefore stated in host-neutral terms, and the

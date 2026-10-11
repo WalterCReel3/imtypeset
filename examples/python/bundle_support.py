@@ -88,9 +88,9 @@ def run(gui, title: str, size=(960, 560), frames: int = 0, screenshot: str = "",
     runner.fps_idling.enable_idling = not frames
 
     def load_fonts() -> None:
-        # hello_imgui empties the atlas and calls this after post_init, and
-        # again when the DPI changes; a font added anywhere earlier is gone by
-        # the first frame. The application's own fonts first, then imtypeset's.
+        # hello_imgui empties the atlas and calls this once, after post_init;
+        # a font added anywhere earlier is gone by the first frame. The
+        # application's own fonts first, then imtypeset's.
         hello_imgui.imgui_default_settings.load_default_font_with_font_awesome_icons()
         if ts.current_context() is None:
             ts.create_context()

@@ -3,7 +3,7 @@ on real transcripts, measured.
 
     IMTYPESET_LIBRARY=$PWD/build/advtext-rework-plan-pptmstr/libimtypeset_bundle.so \
     sh tools/shot.sh --screen 1600x1000x24 -- ../pptmstr/.venv/bin/python -P -B \
-        python/spike_bundle/pptmstr_real_panes.py --pane document --pick median --scenario steady
+        python/spike_bundle/pptmstr_real_panes.py --pane document --scenario steady
 
 What runs is `pptmstr.ui.transcript_pane.draw(snap, state, node)`, pptmstr's own
 function (read-only from ../pptmstr), in a hello_imgui application with
@@ -112,7 +112,10 @@ def main() -> None:
     parser.add_argument("--mode", default="rich", choices=("rich", "wrap"))
     parser.add_argument("--scenario", default="steady",
                         choices=("steady", "scroll", "stream", "resize", "find", "select"))
-    parser.add_argument("--source", default="sessions", choices=("sessions", "repo"))
+    parser.add_argument("--source", default="", choices=("", "sessions", "repo"),
+                        help="repo (default): the reports in this repository. sessions needs --sessions")
+    parser.add_argument("--sessions", default="", metavar="DIR",
+                        help="opt in: read the Claude Code session logs in DIR (nothing is read by default)")
     parser.add_argument("--pick", default="median", choices=("median", "p90", "max"))
     parser.add_argument("--repeat", type=int, default=1, help="the transcript this many times over")
     parser.add_argument("--reports", type=int, default=0, help="--source repo: only the first N reports")
@@ -126,6 +129,7 @@ def main() -> None:
                         help="the 'copy' button's text is not built every frame (a proposed step)")
     parser.add_argument("--screenshot", default="")
     args = parser.parse_args()
+    args.source = args.source or ("sessions" if args.sessions else "repo")
 
     # The overlay's sitecustomize.py by path: Debian has a module of that name already.
     spec = importlib.util.spec_from_file_location(
@@ -150,7 +154,7 @@ def main() -> None:
     typeset = sys.modules.get("pptmstr.ui.typeset")
 
     if args.source == "sessions":
-        path, ops = corpus.pick_session(args.pick)
+        path, ops = corpus.pick_session(args.pick, args.sessions)
         label = f"session {args.pick}"
     else:
         ops = corpus.ops_from_reports(limit_files=args.reports)

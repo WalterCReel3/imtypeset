@@ -6,8 +6,8 @@ reference (`../imgui-adv-text/advtext/fontlib.py`). Regenerate with
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
         ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_font_wild.py
 
-`--jobs N` (default: every core), `--limit SECONDS` per face (default 900),
-`--only SUBSTRING` writes the faces whose path contains it to
+`--jobs N` (default: 4, or the number of cores where that is fewer), `--limit SECONDS`
+per face (default 900), `--only SUBSTRING` writes the faces whose path contains it to
 `$TMPDIR/font-wild-only/` and leaves the golden directory alone.
 
 **These goldens describe one machine.** The corpus is whatever `fc-list : file`

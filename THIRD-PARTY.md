@@ -23,7 +23,7 @@ below are checked against.
 | Unicode Character Database 14.0.0 | Unicode licence | generated range tables | derived data, yes |
 | `tex.web` (D. E. Knuth) | its own notice | cited by section; not copied | no |
 | Test fonts | Apache-2.0, OFL 1.1, GUST Font License | test inputs | yes, `tests/data/fonts` |
-| SDL2 | zlib | linked by the optional demo host `examples/demo_sdl2` only; found on the machine | no |
+| SDL2 | zlib | linked by the optional demo host `examples/demo_sdl2` and the self-hosted Python library only; found on the machine or in `.deps/sdl2` | no (`.deps/`, untracked) |
 | `advtext`, the Python reference | none stated | the oracle; data derived from it | derived data, yes |
 
 ## Dear ImGui
@@ -334,12 +334,19 @@ their paths, hashes and measured values.
 ## SDL2
 
 zlib licence (`/usr/share/doc/libsdl2-2.0-0/copyright`, SDL 2 as Debian
-packages it: "zlib/libpng" for the library's own files). Used by one program,
-`examples/demo_sdl2`, the windowed host of the demo window: a build-time
-dependency of that host only, found on the machine (`find_package(SDL2)` or
-`IMTYPESET_SDL2_DIR`) and never copied in. The library does not depend on it,
-and no SDL2 source or header is in this repository. The host is built only when
-asked for (its own project, or `-DIMTYPESET_BUILD_DEMO_SDL2=ON`).
+packages it: "zlib/libpng" for the library's own files). Used by two things,
+`examples/demo_sdl2`, the windowed host of the demo window, and the self-hosted
+Python library of `python/`: a build-time dependency of those only. The library
+does not depend on it. Both are built only when asked for.
+
+**SDL2 is not in this repository.** It is found on the machine (its CMake
+package, then pkg-config), or in `.deps/sdl2`, or where `IMTYPESET_SDL2_DIR`
+says (`cmake/sdl2.cmake`). `.deps/` is untracked and ignored, as `.deps/imgui`
+is: no SDL2 source, header or binary is committed. `tools/vendor_sdl2.sh` fills
+`.deps/sdl2` from an SDL2 somebody has already built (its libraries, its
+headers), and copies SDL2's licence text to `.deps/sdl2/LICENSE.txt` beside
+them, with a `PROVENANCE.txt` saying where each came from. If that directory is
+ever passed on with the tree, the licence text goes with it.
 
 `examples/demo_sdl2/main.cpp` is derived from Dear ImGui's
 `examples/example_sdl2_sdlrenderer2/main.cpp` and

@@ -10,7 +10,10 @@ Run from the repository root, with the reference's interpreter:
 
 Writes tests/golden/font-wild/*.golden. tools/oracle/FORMAT-font-wild.md
 documents every record. Reads the reference and the system fonts and writes to
-neither. Options: `--jobs N` (default: all cores), `--limit SECONDS` per face
+neither. Options: `--jobs N` worker processes (default: 4, or the number of
+cores where that is fewer: each worker holds a font and the reference's tables
+for it, and one per core can take all the memory of a machine that is doing
+anything else), `--limit SECONDS` per face
 (default 900), `--only SUBSTRING` to dump the faces whose path contains it into
 `$TMPDIR` instead of the golden directory, for looking at one font.
 
@@ -57,8 +60,11 @@ from advtext.fontmetrics import Face
 
 # The conventions of the bundled-font oracle: `s` percent-encodes a string
 # token, `f` writes a float as `float.hex()`, `Lcg` is the generator behind
-# every "deterministic sample".
-from dump_font import Lcg, f, s
+# every "deterministic sample". Found beside this file whether or not the
+# interpreter was started with -P.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from dump_font import Lcg, f, s  # noqa: E402
 
 OUT = Path(__file__).resolve().parents[2] / "tests" / "golden" / "font-wild"
 
@@ -1230,7 +1236,7 @@ def header(title: str) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    jobs = os.cpu_count() or 1
+    jobs = min(4, os.cpu_count() or 1)
     limit = 900.0
     only = None
     args = list(argv)
@@ -1238,6 +1244,9 @@ def main(argv: list[str]) -> int:
         arg = args.pop(0)
         if arg == "--jobs":
             jobs = int(args.pop(0))
+            if jobs < 1:
+                print("--jobs takes a count of 1 or more", file=sys.stderr)
+                return 2
         elif arg == "--limit":
             limit = float(args.pop(0))
         elif arg == "--only":

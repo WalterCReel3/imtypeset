@@ -239,6 +239,36 @@ class Errors(unittest.TestCase):
             ts.set_current_context(held)
         self.assertEqual(ts.current_context(), held)
 
+    def test_a_contexts_serial_is_its_own_and_is_never_used_again(self):
+        held = ts.current_context()
+        serial = ts.get_context_serial()
+        self.assertGreater(serial, 0)
+        seen = {serial}
+        try:
+            ts.set_current_context(None)
+            self.assertEqual(ts.get_context_serial(), 0)
+            # A second context is not the current one until it is made so.
+            ts.set_current_context(held)
+            other = ts.create_context()
+            self.assertEqual(ts.get_context_serial(), serial)
+            ts.set_current_context(other)
+            seen.add(ts.get_context_serial())
+            self.assertEqual(len(seen), 2)
+            self.assertNotIn(0, seen)
+            ts.destroy_context(other)
+            self.assertEqual(ts.get_context_serial(), 0)
+            # Made and destroyed in turn, whatever address each comes back at.
+            for _ in range(16):
+                again = ts.create_context()
+                ts.set_current_context(again)
+                number = ts.get_context_serial()
+                self.assertNotIn(number, seen)
+                seen.add(number)
+                ts.destroy_context(again)
+        finally:
+            ts.set_current_context(held)
+        self.assertEqual(ts.get_context_serial(), serial)
+
     def test_a_refused_formula_is_false_and_not_an_exception(self):
         text = "Ünïcode before $\\begin{matrix} a \\end{matrix}$ after"
         outcome = []
@@ -605,6 +635,33 @@ class Documents(unittest.TestCase):
         document.layout(300.0)
         self.assertEqual(document.range_text(((0, 0), (2, 5)), separator="|"), "before|après")
 
+    def test_from_blocks_keeps_what_the_library_cut(self):
+        document = ts.Document.from_blocks([ts.Block(text="before"), ts.Block(ts.BlockKind.Table)])
+        self.addCleanup(document.close)
+        self.assertEqual(document.edit_error.code, ts.ErrorCode.DescriptionCut)
+        self.assertEqual((len(document), document.block_count), (2, 2))
+        self.assertTrue(document.set_blocks([ts.Block(text="x")]))
+        self.assertEqual(document.edit_error.code, ts.ErrorCode.None_)
+
+    def test_a_refused_edit_leaves_what_python_keeps_of_the_document(self):
+        document = ts.Document.from_blocks([ts.Block(text="héllo"), ts.Block(text="wörld")])
+        self.addCleanup(document.close)
+        document.layout(400.0)
+        # One more block than a document holds: refused whole.
+        too_many = [ts.Block()] * 4194305
+        with self.assertRaises(ts.Error) as raised:
+            document.replace_blocks(1, 1, too_many)
+        self.assertEqual(raised.exception.code, ts.ErrorCode.InvalidArgument)
+        self.assertEqual((len(document), document.block_count), (2, 2))
+        self.assertEqual(document.range_text(((0, 1), (1, 3)), separator="|"), "éllo|wör")
+        with self.assertRaises(ts.Error):
+            document.set_blocks(too_many)
+        # Whatever the library holds after refusing, Python counts the same.
+        self.assertEqual(len(document), document.block_count)
+        self.assertTrue(document.set_blocks([ts.Block(text="naïve"), ts.Block(text="façade")]))
+        document.layout(400.0)
+        self.assertEqual(document.range_text(((0, 2), (1, 3)), separator="|"), "ïve|faç")
+
     def test_layout_is_lazy_and_a_draw_lays_out_what_is_in_view(self):
         document = ts.Document.from_blocks(long_blocks(2000))
         self.addCleanup(document.close)
@@ -642,8 +699,10 @@ class Documents(unittest.TestCase):
         ruled = ts.Document.from_blocks([ts.Block(ts.BlockKind.Rule)])
         self.addCleanup(ruled.close)
         with self.assertRaises(ts.Error):
-            ruled.append_text("a rule holds no text")
+            ruled.append_text("a rule holds no text, né")
         self.assertEqual(ruled.range_text(((0, 0), (0, 9))), "")
+        # Refused, so nothing of the text is kept on this side either.
+        self.assertEqual((ruled._texts, ruled._last_size), ([None], 0))
 
     def test_a_copy_across_blocks_is_the_source(self):
         document = self.document()

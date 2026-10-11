@@ -621,6 +621,12 @@ int ImTypeset_SetCurrentContext(ImTypeset_Context* ctx)
     });
 }
 
+ImTypeset_U64 ImTypeset_GetContextSerial(void)
+{
+    return guarded<ImTypeset_U64>(0,
+                                  []() -> ImTypeset_U64 { return ImTypeset::GetContextSerial(); });
+}
+
 int ImTypeset_GetLastError(ImTypeset_ErrorInfo* out)
 {
     if (out == nullptr)

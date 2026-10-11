@@ -11,6 +11,13 @@
 // Fonts section can add more. A host with no fonts yet still gets a window,
 // which says so.
 //
+// More than one context: the window can be shown in each of them. What it
+// remembers from one frame to the next (where its controls stand, the
+// paragraphs and the document it keeps) it remembers for the context it was
+// shown in, so two contexts have two demos that know nothing of each other,
+// and a context made later starts from the defaults, whatever its address. See [SECTION] One state
+// per context.
+//
 // Leaving it out: define IMTYPESET_DISABLE_DEMO for this file and the function
 // is still there to link against and draws nothing.
 //
@@ -25,6 +32,7 @@
 //   [SECTION] Fonts
 //   [SECTION] Known limits
 //   [SECTION] Document
+//   [SECTION] One state per context
 //   [SECTION] ShowDemoWindow()
 
 #include "imgui.h"
@@ -55,47 +63,23 @@ const char* const FACE_NAMES[ImTypesetFace_COUNT] = {
     "Default", "Regular", "Bold", "Italic", "BoldItalic", "Code", "CodeBold", "Math",
 };
 
+// What every section reads. Set at the top of each ShowDemoWindow() for that
+// call; nothing is carried in these from one call to the next.
+//
 // The style every section starts from: the context's, at the size chosen at
 // the top of the window. FontSize is in pixels as ImGui::GetFontSize() answers
 // them, after ImGui's own DPI and global scale.
 ImTypesetStyle g_style;
 // The same size as ImGui::PushFont() wants it: before those scales.
-float g_font_size = 19.0f;
+float g_font_size;
 // What the library did during the frame before this one.
 ImTypesetStats g_frame;
 
-// The demo's own paragraphs. A host keeps an ImTypesetParagraph* wherever it
-// keeps the text it belongs to, and destroys it with DestroyParagraph() or
-// lets it die with its context.
-//
-// A demo window does not own the context it is shown in, and a handle that
-// outlives its context dangles, so these are dropped (not destroyed: they are
-// already gone) when the current context is another one than last frame's, or
-// one that has done less work than the last frame saw, which is a new context
-// at the old address.
-enum DemoSlot {
-    DemoSlot_Faces,
-    DemoSlot_MathDisplay,
-    DemoSlot_Selection,
-    DemoSlot_Inspector,
-    DemoSlot_COUNT
-};
-ImTypesetContext* g_demo_context;
-ImU64 g_context_text_builds;
-// Goes up when the context is another one or the demo adds a font: whatever
-// the demo has measured for itself is measured again.
-int g_epoch;
-ImTypesetParagraph* g_paragraphs[DemoSlot_COUNT];
-
-// The paragraph of a slot, made on first use. `fresh` is set when it was just
-// made and so has no text yet.
-ImTypesetParagraph* DemoParagraph(DemoSlot slot, bool* fresh)
-{
-    *fresh = g_paragraphs[slot] == NULL;
-    if (*fresh)
-        g_paragraphs[slot] = ImTypeset::CreateParagraph();
-    return g_paragraphs[slot];
-}
+// ABOUT THE STRUCTS NAMED DemoXxxState. Each section has one, just above it:
+// what the section remembers between frames. ImGui's own demo keeps such
+// things in statics beside their use, and a host would keep them there too, or
+// in the object the text belongs to. Here they are structs because the demo
+// keeps one of each per context.
 
 void HelpMarker(const char* text)
 {
@@ -174,13 +158,20 @@ ImVec2 ParagraphItem(ImTypesetParagraph* paragraph, float width, const ImTypeset
 // context between frames and redone when the text, the width, the style or
 // the fonts change.
 
-void ShowDemoParagraph()
+struct DemoParagraphState {
+    float ColumnWidth = 250.0f;
+    ImTypesetStyle Custom; // All zero: the defaults.
+    bool FillWindow = true;
+    bool HardBreaks = false;
+    float Width = 420.0f;
+};
+
+void ShowDemoParagraph(DemoParagraphState* state)
 {
-    static float column_width = 250.0f;
-    ImGui::SliderFloat("Column width", &column_width, 120.0f, 400.0f, "%.0f px");
+    ImGui::SliderFloat("Column width", &state->ColumnWidth, 120.0f, 400.0f, "%.0f px");
 
     // ImGui's own wrapping, in the same font at the same size...
-    ImGui::BeginChild("wrapped", ImVec2(column_width, 0.0f), ImGuiChildFlags_AutoResizeY);
+    ImGui::BeginChild("wrapped", ImVec2(state->ColumnWidth, 0.0f), ImGuiChildFlags_AutoResizeY);
     ImGui::TextDisabled("ImGui::TextWrapped");
     ImGui::PushFont(ImTypeset::GetFont(ImTypesetFace_Regular), g_font_size);
     ImGui::TextWrapped("%s", PROSE);
@@ -189,49 +180,45 @@ void ShowDemoParagraph()
 
     // ...beside the same words typeset ragged...
     ImGui::SameLine(0.0f, 24.0f);
-    ImGui::BeginChild("ragged", ImVec2(column_width, 0.0f), ImGuiChildFlags_AutoResizeY);
+    ImGui::BeginChild("ragged", ImVec2(state->ColumnWidth, 0.0f), ImGuiChildFlags_AutoResizeY);
     ImGui::TextDisabled("ImTypeset, ragged");
     ImTypesetStyle ragged = g_style; // A copy with one thing changed, for this call only.
     ragged.Align = ImTypesetAlign_Left;
     ImTypeset::TextUnformatted(PROSE, NULL, 0, 0.0f, &ragged);
     ImGui::EndChild();
-    MarginGuides(column_width);
+    MarginGuides(state->ColumnWidth);
 
     // ...and justified, which is the default.
     ImGui::SameLine(0.0f, 24.0f);
-    ImGui::BeginChild("justified", ImVec2(column_width, 0.0f), ImGuiChildFlags_AutoResizeY);
+    ImGui::BeginChild("justified", ImVec2(state->ColumnWidth, 0.0f), ImGuiChildFlags_AutoResizeY);
     ImGui::TextDisabled("ImTypeset, justified");
     ImTypeset::TextUnformatted(PROSE, NULL, 0, 0.0f, &g_style);
     ImGui::EndChild();
-    MarginGuides(column_width);
+    MarginGuides(state->ColumnWidth);
 
     // Everything an ImTypesetStyle says about a paragraph.
     ImGui::SeparatorText("ImTypesetStyle");
-    static ImTypesetStyle custom; // All zero: the defaults.
-    static bool fill_window = true;
-    static bool hard_breaks = false;
-    static float width = 420.0f;
     ImGui::PushItemWidth(ImGui::GetFontSize() * 12.0f);
-    ImGui::Combo("Align", &custom.Align, "Justify\0Left\0Center\0Right\0");
+    ImGui::Combo("Align", &state->Custom.Align, "Justify\0Left\0Center\0Right\0");
     ImGui::SameLine();
-    ImGui::Combo("LineBreak", &custom.LineBreak, "Auto\0FirstFit\0TotalFit\0");
+    ImGui::Combo("LineBreak", &state->Custom.LineBreak, "Auto\0FirstFit\0TotalFit\0");
     ImGui::SameLine();
     HelpMarker("Auto is total fit for justified text and first fit for the rest. Total fit "
                "chooses every line of the paragraph at once, as TeX does; first fit fills each "
                "line in turn.");
-    ImGui::Combo("Spacing", &custom.Spacing, "Sentence\0French\0TeX\0");
+    ImGui::Combo("Spacing", &state->Custom.Spacing, "Sentence\0French\0TeX\0");
     ImGui::SameLine();
-    ImGui::SliderFloat("LineHeight", &custom.LineHeight, 0.0f, 2.5f,
-                       custom.LineHeight > 0.0f ? "%.2f em" : "0 (1.35 em)");
-    ImGui::SliderFloat("FirstLineIndent", &custom.FirstLineIndent, 0.0f, 60.0f, "%.0f px");
+    ImGui::SliderFloat("LineHeight", &state->Custom.LineHeight, 0.0f, 2.5f,
+                       state->Custom.LineHeight > 0.0f ? "%.2f em" : "0 (1.35 em)");
+    ImGui::SliderFloat("FirstLineIndent", &state->Custom.FirstLineIndent, 0.0f, 60.0f, "%.0f px");
     ImGui::SameLine();
-    ImGui::SliderFloat("LeftIndent", &custom.LeftIndent, 0.0f, 80.0f, "%.0f px");
-    ImGui::Checkbox("Fill the window", &fill_window);
+    ImGui::SliderFloat("LeftIndent", &state->Custom.LeftIndent, 0.0f, 80.0f, "%.0f px");
+    ImGui::Checkbox("Fill the window", &state->FillWindow);
     ImGui::SameLine();
-    ImGui::BeginDisabled(fill_window);
-    ImGui::SliderFloat("Width", &width, 100.0f, 800.0f, "%.0f px");
+    ImGui::BeginDisabled(state->FillWindow);
+    ImGui::SliderFloat("Width", &state->Width, 100.0f, 800.0f, "%.0f px");
     ImGui::EndDisabled();
-    ImGui::Checkbox("ImTypesetTextFlags_HardBreaks", &hard_breaks);
+    ImGui::Checkbox("ImTypesetTextFlags_HardBreaks", &state->HardBreaks);
     ImGui::PopItemWidth();
 
     static const char TEXT[] =
@@ -240,15 +227,15 @@ void ShowDemoParagraph()
         "way of breaking the paragraph and keeps the one whose worst line is least bad.\n"
         "Drag the window's edge, or the width above, and watch the paragraph being set again. "
         "Mr. Knuth's rule for the space after a sentence is one of the three under Spacing.";
-    ImTypesetStyle style = custom;
+    ImTypesetStyle style = state->Custom;
     style.FontSize = g_style.FontSize;
-    // A wrap width of zero is the width available, as for ImGui::TextWrapped().
-    const float wrap_width = fill_window ? 0.0f : width;
-    const ImTypesetTextFlags flags = hard_breaks ? ImTypesetTextFlags_HardBreaks : 0;
+    // A wrap state->Width of zero is the state->Width available, as for ImGui::TextWrapped().
+    const float wrap_width = state->FillWindow ? 0.0f : state->Width;
+    const ImTypesetTextFlags flags = state->HardBreaks ? ImTypesetTextFlags_HardBreaks : 0;
     if (!ImTypeset::TextUnformatted(TEXT, NULL, flags, wrap_width, &style))
         ShowLastError();
-    else if (!fill_window)
-        MarginGuides(width);
+    else if (!state->FillWindow)
+        MarginGuides(state->Width);
 }
 
 //-----------------------------------------------------------------------------
@@ -258,7 +245,17 @@ void ShowDemoParagraph()
 // a draw list. Runs are how a host that has parsed its own markup says "this
 // stretch is bold": byte ranges of the text with a face, a size and an ink.
 
-void ShowDemoFaces()
+struct DemoFacesState {
+    // A host keeps an ImTypesetParagraph* wherever it keeps the text it
+    // belongs to, and destroys it with DestroyParagraph() or lets it die with
+    // its context.
+    ImTypesetParagraph* Paragraph = NULL;
+    float Width = 460.0f;
+    ImVec4 Color = ImVec4(0.90f, 0.35f, 0.30f, 1.0f);
+    float Large = 1.5f;
+};
+
+void ShowDemoFaces(DemoFacesState* state)
 {
     struct Piece {
         const char* Text;
@@ -288,20 +285,20 @@ void ShowDemoFaces()
         {" before it ends, AV To WA.", ImTypesetFace_Default, 0.0f, false, 0},
     };
 
-    static float width = 460.0f;
-    static ImVec4 color = ImVec4(0.90f, 0.35f, 0.30f, 1.0f);
-    static float large = 1.5f;
     bool changed = false;
-    ImGui::SliderFloat("Width##faces", &width, 160.0f, 800.0f, "%.0f px");
-    changed |= ImGui::ColorEdit4("ImTypesetRun::Color", &color.x, ImGuiColorEditFlags_NoInputs);
+    ImGui::SliderFloat("Width##faces", &state->Width, 160.0f, 800.0f, "%.0f px");
+    changed |=
+        ImGui::ColorEdit4("ImTypesetRun::Color", &state->Color.x, ImGuiColorEditFlags_NoInputs);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-    changed |= ImGui::SliderFloat("ImTypesetRun::Scale", &large, 0.5f, 3.0f, "%.2f");
+    changed |= ImGui::SliderFloat("ImTypesetRun::Scale", &state->Large, 0.5f, 3.0f, "%.2f");
 
     // The text is given once, and again only when it or its runs change;
     // LayoutParagraph() and DrawParagraph() are what a frame costs.
-    bool fresh = false;
-    ImTypesetParagraph* paragraph = DemoParagraph(DemoSlot_Faces, &fresh);
+    const bool fresh = state->Paragraph == NULL;
+    if (fresh)
+        state->Paragraph = ImTypeset::CreateParagraph();
+    ImTypesetParagraph* paragraph = state->Paragraph;
     if (fresh || changed) {
         ImGuiTextBuffer text;
         ImVector<ImTypesetRun> runs;
@@ -312,15 +309,15 @@ void ShowDemoFaces()
             text.append(piece.Text);
             run.End = text.size();
             run.Face = piece.Face;
-            run.Scale = piece.Scale == 1.5f ? large : piece.Scale;
-            run.Color = piece.Colored ? ImGui::ColorConvertFloat4ToU32(color) : 0;
+            run.Scale = piece.Scale == 1.5f ? state->Large : piece.Scale;
+            run.Color = piece.Colored ? ImGui::ColorConvertFloat4ToU32(state->Color) : 0;
             run.Flags = piece.Flags;
             runs.push_back(run);
         }
         ImTypeset::SetParagraphText(paragraph, text.begin(), text.end(), runs.Data, runs.Size);
     }
-    ParagraphItem(paragraph, width, &g_style);
-    MarginGuides(width);
+    ParagraphItem(paragraph, state->Width, &g_style);
+    MarginGuides(state->Width);
     // A run that names a face nothing was added for is set in the paragraph's
     // own face, and the paragraph says so.
     const ImTypesetErrorInfo* error = ImTypeset::GetParagraphError(paragraph);
@@ -392,34 +389,39 @@ const char* const FORMULAS[] = {
     "\\hat{x}",
 };
 
-void ShowDemoMath()
+struct DemoMathState {
+    char Source[512] = "x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}";
+    float Width = 460.0f;
+    bool Replaced = false; // A row of the table was clicked last frame.
+    ImTypesetParagraph* Display = NULL;
+};
+
+void ShowDemoMath(DemoMathState* state)
 {
     if (ImTypeset::GetFont(ImTypesetFace_Math) == NULL)
         ImGui::TextWrapped("No font has been added for ImTypesetFace_Math, so every formula is "
                            "refused with that reason. Add one that carries an OpenType MATH table "
                            "(see Fonts below).");
 
-    static char source[512] = "x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}";
-    static float width = 460.0f;
-    static bool replaced = false; // A row of the table below was clicked last frame.
-    bool edited = ImGui::InputTextMultiline("Source", source, sizeof(source),
+    char* source = state->Source;
+    bool edited = ImGui::InputTextMultiline("Source", source, sizeof(state->Source),
                                             ImVec2(0.0f, ImGui::GetTextLineHeight() * 3.5f));
-    edited |= replaced;
-    replaced = false;
-    ImGui::SliderFloat("Width##math", &width, 100.0f, 800.0f, "%.0f px");
+    edited |= state->Replaced;
+    state->Replaced = false;
+    ImGui::SliderFloat("Width##math", &state->Width, 100.0f, 800.0f, "%.0f px");
 
     // Inline, through the widget. The text changes at every keystroke, so it
     // is found again by an ID and not by its content: TextWithID().
     ImGui::SeparatorText("$...$ in a sentence");
-    static ImGuiTextBuffer text;
+    static ImGuiTextBuffer text; // Scratch: emptied before each use.
     static const char BEFORE[] = "Set in text style, $";
     text.resize(0);
     text.append(BEFORE);
     text.append(source);
     text.append("$ is a box on the baseline among the words of its sentence, and the line "
                 "breaker moves it whole.");
-    if (!ImTypeset::TextWithID("inline", text.begin(), text.end(), ImTypesetTextFlags_Math, width,
-                               &g_style)) {
+    if (!ImTypeset::TextWithID("inline", text.begin(), text.end(), ImTypesetTextFlags_Math,
+                               state->Width, &g_style)) {
         // False, and the text is still drawn: the formula as its source. The
         // place is a byte offset into the text that was handed in.
         const ImTypesetErrorInfo* error = ImTypeset::GetLastError();
@@ -431,10 +433,12 @@ void ShowDemoMath()
 
     // Displayed, through a paragraph object, which can be asked about each of
     // its formulas. A text that is nothing but a $$ block is centred on the
-    // width whatever the style's alignment.
+    // state->Width whatever the style's alignment.
     ImGui::SeparatorText("$$...$$ on its own");
-    bool fresh = false;
-    ImTypesetParagraph* display = DemoParagraph(DemoSlot_MathDisplay, &fresh);
+    const bool fresh = state->Display == NULL;
+    if (fresh)
+        state->Display = ImTypeset::CreateParagraph();
+    ImTypesetParagraph* display = state->Display;
     if (fresh || edited) {
         text.resize(0);
         text.append("$$");
@@ -443,8 +447,8 @@ void ShowDemoMath()
         ImTypeset::SetParagraphText(display, text.begin(), text.end(), NULL, 0,
                                     ImTypesetTextFlags_Math);
     }
-    ParagraphItem(display, width, &g_style);
-    MarginGuides(width);
+    ParagraphItem(display, state->Width, &g_style);
+    MarginGuides(state->Width);
     for (int i = 0; i < ImTypeset::GetParagraphFormulaCount(display); ++i) {
         const ImTypesetFormula formula = ImTypeset::GetParagraphFormula(display, i);
         if (formula.Refused)
@@ -475,9 +479,9 @@ void ShowDemoMath()
             ImGui::PushID(i);
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            if (ImGui::Selectable(FORMULAS[i]) && strlen(FORMULAS[i]) < sizeof(source)) {
+            if (ImGui::Selectable(FORMULAS[i]) && strlen(FORMULAS[i]) < sizeof(state->Source)) {
                 memcpy(source, FORMULAS[i], strlen(FORMULAS[i]) + 1);
-                replaced = true;
+                state->Replaced = true;
             }
             ImGui::TableNextColumn();
             text.resize(0);
@@ -501,7 +505,7 @@ void ShowDemoMath()
         "It cost $5 and $10, and neither is a formula: an opening dollar must be followed at "
         "once by the formula and a closing one must follow it at once. An escaped dollar, \\$ "
         "like this, is a dollar too. Without ImTypesetTextFlags_Math, a dollar is a dollar.",
-        NULL, ImTypesetTextFlags_Math, width, &g_style);
+        NULL, ImTypesetTextFlags_Math, state->Width, &g_style);
 }
 
 //-----------------------------------------------------------------------------
@@ -515,16 +519,26 @@ const char SELECTABLE[] =
     "source between its dollars. A selection is a range of bytes of the text the host handed "
     "in, so it survives being laid out again at another width.";
 
-void ShowDemoSelection()
+struct DemoSelectionState {
+    float Width = 460.0f;
+    ImTypesetTextRange Selection = {0, 0}; // The widget's.
+    // By hand.
+    ImTypesetParagraph* Paragraph = NULL;
+    ImTypesetGranularity Granularity = ImTypesetGranularity_Word;
+    ImTypesetTextRange Range = {0, 0};
+    ImVec2 Anchor;
+    ImGuiTextBuffer Copied;
+};
+
+void ShowDemoSelection(DemoSelectionState* state)
 {
-    static float width = 460.0f;
-    ImGui::SliderFloat("Width##selection", &width, 160.0f, 800.0f, "%.0f px");
+    ImGui::SliderFloat("Width##selection", &state->Width, 160.0f, 800.0f, "%.0f px");
 
     // The widget does the mouse, the keyboard and the clipboard. The range is
     // the host's to read and to set, as a bool is a checkbox's.
     ImGui::SeparatorText("ImTypeset::SelectableText");
-    static ImTypesetTextRange selection = {0, 0};
-    ImTypeset::SelectableText("selectable", SELECTABLE, NULL, ImTypesetTextFlags_Math, width,
+    ImTypesetTextRange& selection = state->Selection;
+    ImTypeset::SelectableText("selectable", SELECTABLE, NULL, ImTypesetTextFlags_Math, state->Width,
                               &g_style, &selection);
     if (selection.Start < selection.End) {
         ImGui::Text("Selection: bytes [%d, %d)", selection.Start, selection.End);
@@ -545,31 +559,31 @@ void ShowDemoSelection()
 
     // The same from its parts, for a host that has its own idea of what a
     // click does: a paragraph object, a drag turned into a range at a chosen
-    // granularity, and the range turned into text.
+    // state->Granularity, and the range turned into text.
     ImGui::SeparatorText("By hand: SelectParagraphRange, AppendParagraphRangeText");
-    static ImTypesetGranularity granularity = ImTypesetGranularity_Word;
-    static ImTypesetTextRange range = {0, 0};
-    static ImVec2 anchor;
-    static ImGuiTextBuffer copied;
+    ImTypesetTextRange& range = state->Range;
+    ImGuiTextBuffer& copied = state->Copied;
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-    ImGui::Combo("Granularity", &granularity, "Character\0Word\0Line\0");
+    ImGui::Combo("Granularity", &state->Granularity, "Character\0Word\0Line\0");
 
-    bool fresh = false;
-    ImTypesetParagraph* paragraph = DemoParagraph(DemoSlot_Selection, &fresh);
+    const bool fresh = state->Paragraph == NULL;
+    if (fresh)
+        state->Paragraph = ImTypeset::CreateParagraph();
+    ImTypesetParagraph* paragraph = state->Paragraph;
     if (fresh) {
         ImTypeset::SetParagraphText(paragraph, SELECTABLE, NULL, NULL, 0, ImTypesetTextFlags_Math);
         range.Start = range.End = 0;
         copied.resize(0);
     }
-    const ImVec2 pos = ParagraphItem(paragraph, width, &g_style, &range, "by-hand");
+    const ImVec2 pos = ParagraphItem(paragraph, state->Width, &g_style, &range, "by-hand");
     if (ImGui::IsItemActive()) {
         // Points are relative to the paragraph's top-left corner.
         const ImVec2 mouse = ImGui::GetMousePos();
         const ImVec2 active = ImVec2(mouse.x - pos.x, mouse.y - pos.y);
         if (ImGui::IsItemActivated())
-            anchor = active;
+            state->Anchor = active;
         const ImTypesetTextRange dragged =
-            ImTypeset::SelectParagraphRange(paragraph, anchor, active, granularity);
+            ImTypeset::SelectParagraphRange(paragraph, state->Anchor, active, state->Granularity);
         if (dragged.Start != range.Start || dragged.End != range.End) {
             range = dragged;
             // A copy allocates: when the range changes, not every frame.
@@ -591,29 +605,34 @@ void ShowDemoSelection()
 // What a laid-out paragraph can be asked: its lines, where a point falls in
 // it, where a caret stands. The overlay here is drawn with those answers.
 
-void ShowDemoInspector()
+struct DemoInspectorState {
+    ImTypesetParagraph* Paragraph = NULL;
+    float Width = 460.0f;
+    bool ShowBoxes = true;
+    bool ShowBaselines = true;
+    bool ShowLineText = false;
+};
+
+void ShowDemoInspector(DemoInspectorState* state)
 {
     static const char TEXT[] =
         "Every line has a box, a baseline and the bytes of the text that are on it. A line "
         "that holds a tall formula, such as $\\frac{\\frac{a}{b}}{\\frac{c}{d}}$, is taller "
         "than its neighbours. Move the mouse over the paragraph: the caret goes to the "
         "position nearest the pointer.";
-    static float width = 460.0f;
-    static bool show_boxes = true;
-    static bool show_baselines = true;
-    static bool show_line_text = false;
-    ImGui::SliderFloat("Width##inspector", &width, 160.0f, 800.0f, "%.0f px");
-    ImGui::Checkbox("Line boxes", &show_boxes);
+    ImGui::SliderFloat("Width##inspector", &state->Width, 160.0f, 800.0f, "%.0f px");
+    ImGui::Checkbox("Line boxes", &state->ShowBoxes);
     ImGui::SameLine();
-    ImGui::Checkbox("Baselines", &show_baselines);
+    ImGui::Checkbox("Baselines", &state->ShowBaselines);
     ImGui::SameLine();
-    ImGui::Checkbox("Highlight the hovered line's text", &show_line_text);
+    ImGui::Checkbox("Highlight the hovered line's text", &state->ShowLineText);
 
-    bool fresh = false;
-    ImTypesetParagraph* paragraph = DemoParagraph(DemoSlot_Inspector, &fresh);
-    if (fresh)
-        ImTypeset::SetParagraphText(paragraph, TEXT, NULL, NULL, 0, ImTypesetTextFlags_Math);
-    const ImVec2 pos = ParagraphItem(paragraph, width, &g_style, NULL, "inspected");
+    if (state->Paragraph == NULL) {
+        state->Paragraph = ImTypeset::CreateParagraph();
+        ImTypeset::SetParagraphText(state->Paragraph, TEXT, NULL, NULL, 0, ImTypesetTextFlags_Math);
+    }
+    ImTypesetParagraph* paragraph = state->Paragraph;
+    const ImVec2 pos = ParagraphItem(paragraph, state->Width, &g_style, NULL, "inspected");
     const bool hovered = ImGui::IsItemHovered();
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
@@ -622,11 +641,11 @@ void ShowDemoInspector()
         // Relative to the paragraph's corner, and layout's own: drawing snaps
         // each baseline to a whole pixel, so ink sits within a pixel of these.
         const ImTypesetLine line = ImTypeset::GetParagraphLine(paragraph, n);
-        if (show_boxes)
+        if (state->ShowBoxes)
             draw_list->AddRect(ImVec2(pos.x + line.Min.x, pos.y + line.Min.y),
                                ImVec2(pos.x + line.Max.x, pos.y + line.Max.y),
                                IM_COL32(80, 160, 255, 140));
-        if (show_baselines)
+        if (state->ShowBaselines)
             draw_list->AddLine(ImVec2(pos.x + line.Min.x, pos.y + line.Baseline),
                                ImVec2(pos.x + line.Max.x, pos.y + line.Baseline),
                                IM_COL32(255, 96, 96, 160));
@@ -640,7 +659,7 @@ void ShowDemoInspector()
         draw_list->AddLine(ImVec2(pos.x + caret.x, pos.y + caret.y),
                            ImVec2(pos.x + caret.z, pos.y + caret.w), IM_COL32(255, 220, 64, 255),
                            2.0f);
-        if (show_line_text && hit.Line >= 0) {
+        if (state->ShowLineText && hit.Line >= 0) {
             const ImTypesetLine line = ImTypeset::GetParagraphLine(paragraph, hit.Line);
             const ImTypesetTextRange on_line = {line.TextStart, line.TextEnd};
             static ImVector<ImVec4>
@@ -715,20 +734,30 @@ const char* const DOCUMENT[] = {
     "The end of one copy. The next begins below.",
 };
 
-void ShowDemoStress()
+struct DemoStressState {
+    int Copies = 100;
+    bool SubmitEverything = false;
+    // How tall one copy is, and what it was measured at.
+    float CopyHeight = 0.0f;
+    float MeasuredWidth = -1.0f;
+    float MeasuredFontSize = -1.0f;
+    int MeasuredFonts = -1;
+};
+
+// `fonts_added` is how many fonts the demo has added to the context: what the
+// section has measured, it measures again when that changes.
+void ShowDemoStress(DemoStressState* state, int fonts_added)
 {
-    static int copies = 100;
-    static bool submit_everything = false;
-    ImGui::SliderInt("Copies of the document", &copies, 1, 1000, "x%d",
+    ImGui::SliderInt("Copies of the document", &state->Copies, 1, 1000, "x%d",
                      ImGuiSliderFlags_AlwaysClamp);
-    ImGui::Checkbox("Submit every paragraph and let the library cull", &submit_everything);
+    ImGui::Checkbox("Submit every paragraph and let the library cull", &state->SubmitEverything);
     ImGui::SameLine();
     HelpMarker("The simple way to show a document: call TextUnformatted() for every paragraph "
                "and rely on a clipped one drawing nothing. Each call still reads its text to "
                "find its layout (BytesHashed), and every paragraph is laid out once, so the "
                "demo holds this mode to 20 copies. Unticked, only the copies in view are "
                "submitted.");
-    const int shown_copies = submit_everything && copies > 20 ? 20 : copies;
+    const int shown_copies = state->SubmitEverything && state->Copies > 20 ? 20 : state->Copies;
 
     const ImTypesetStats stats = ImTypeset::GetStats();
     ImGui::Text("Last frame: %llu layouts, %llu text builds, %llu paragraphs drawn, %llu culled, "
@@ -753,38 +782,35 @@ void ShowDemoStress()
 
     // How tall one copy is at this width and size: measured when either
     // changes, not every frame. CalcTextSize() lays the text out to answer.
-    static float measured_width = -1.0f;
-    static float measured_font_size = -1.0f;
-    static int measured_epoch = -1;
-    static float copy_height = 0.0f;
-    if (measured_width != width || measured_font_size != style.FontSize ||
-        measured_epoch != g_epoch) {
-        copy_height = 0.0f;
+    if (state->MeasuredWidth != width || state->MeasuredFontSize != style.FontSize ||
+        state->MeasuredFonts != fonts_added) {
+        state->CopyHeight = 0.0f;
         for (int k = 0; k < IM_ARRAYSIZE(DOCUMENT); ++k)
-            copy_height += ImTypeset::CalcTextSize(DOCUMENT[k], NULL, width, flags, &style).y + gap;
-        measured_width = width;
-        measured_font_size = style.FontSize;
-        measured_epoch = g_epoch;
+            state->CopyHeight +=
+                ImTypeset::CalcTextSize(DOCUMENT[k], NULL, width, flags, &style).y + gap;
+        state->MeasuredWidth = width;
+        state->MeasuredFontSize = style.FontSize;
+        state->MeasuredFonts = fonts_added;
     }
 
     int first = 0;
     int last = shown_copies - 1;
-    if (!submit_everything && copy_height > 0.0f) {
-        first = (int)(ImGui::GetScrollY() / copy_height);
-        last = (int)((ImGui::GetScrollY() + ImGui::GetWindowHeight()) / copy_height);
+    if (!state->SubmitEverything && state->CopyHeight > 0.0f) {
+        first = (int)(ImGui::GetScrollY() / state->CopyHeight);
+        last = (int)((ImGui::GetScrollY() + ImGui::GetWindowHeight()) / state->CopyHeight);
         if (last > shown_copies - 1)
             last = shown_copies - 1;
     }
     const float top = ImGui::GetCursorPosY();
     for (int copy = first; copy <= last; ++copy) {
-        ImGui::SetCursorPosY(top + (float)copy * copy_height);
+        ImGui::SetCursorPosY(top + (float)copy * state->CopyHeight);
         ImGui::PushID(copy);
         for (int k = 0; k < IM_ARRAYSIZE(DOCUMENT); ++k)
             ImTypeset::TextUnformatted(DOCUMENT[k], NULL, flags, width, &style);
         ImGui::PopID();
     }
     // The extent of the whole document, for the scroll bar.
-    ImGui::SetCursorPosY(top + (float)shown_copies * copy_height);
+    ImGui::SetCursorPosY(top + (float)shown_copies * state->CopyHeight);
     ImGui::Dummy(ImVec2(0.0f, 0.0f));
     ImGui::EndChild();
     ImGui::TextDisabled("%d paragraphs in the document, copies %d to %d submitted",
@@ -797,7 +823,16 @@ void ShowDemoStress()
 // A host says which font file plays each role; text names roles. A font that
 // cannot be used is refused with a reason and nothing changes.
 
-void ShowDemoFonts()
+struct DemoFontsState {
+    char Path[512] = "";
+    int Face = ImTypesetFace_Regular;
+    int FaceIndex = 0;
+    ImGuiTextBuffer Outcome;
+    bool Refused = false;
+    int Added = 0; // How many fonts the demo has added to the context.
+};
+
+void ShowDemoFonts(DemoFontsState* state)
 {
     if (ImGui::BeginTable("faces", 3,
                           ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders |
@@ -836,40 +871,37 @@ void ShowDemoFonts()
     ImGui::TextDisabled("CodeBold answers Bold's font until it has its own.");
 
     ImGui::SeparatorText("ImTypeset::AddFontFromFileTTF");
-    static char path[512] = "";
-    static int face = ImTypesetFace_Regular;
-    static int face_index = 0;
-    static ImGuiTextBuffer outcome;
-    static bool refused = false;
-    ImGui::InputTextWithHint("File", "a .ttf, .otf or .ttc, UTF-8 path", path, sizeof(path));
+    char* path = state->Path;
+    ImGuiTextBuffer& outcome = state->Outcome;
+    ImGui::InputTextWithHint("File", "a .ttf, .otf or .ttc, UTF-8 path", path, sizeof(state->Path));
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-    if (ImGui::BeginCombo("Role", FACE_NAMES[face])) {
+    if (ImGui::BeginCombo("Role", FACE_NAMES[state->Face])) {
         for (int n = ImTypesetFace_Regular; n < ImTypesetFace_COUNT; ++n)
-            if (ImGui::Selectable(FACE_NAMES[n], n == face))
-                face = n;
+            if (ImGui::Selectable(FACE_NAMES[n], n == state->Face))
+                state->Face = n;
         ImGui::EndCombo();
     }
     ImGui::SameLine();
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
-    ImGui::InputInt("Face index", &face_index);
+    ImGui::InputInt("Face index", &state->FaceIndex);
     ImGui::SameLine();
     HelpMarker("Which face of a collection (.ttc). 0 for a single font.");
     if (ImGui::Button("Add font")) {
         // Null with nothing changed when the file cannot be used, and
         // GetLastError() says what is wrong with it. A role that had a font is
         // given the new one, and every layout is redone.
-        ImFont* font = ImTypeset::AddFontFromFileTTF(face, path, face_index);
-        refused = font == NULL;
+        ImFont* font = ImTypeset::AddFontFromFileTTF(state->Face, path, state->FaceIndex);
+        state->Refused = font == NULL;
         outcome.resize(0);
-        if (refused)
+        if (state->Refused)
             outcome.append(ImTypeset::GetLastError()->Message);
         else
-            outcome.appendf("%s is now %s", FACE_NAMES[face], FileName(path));
-        if (!refused)
-            ++g_epoch;
+            outcome.appendf("%s is now %s", FACE_NAMES[state->Face], FileName(path));
+        if (!state->Refused)
+            ++state->Added;
     }
     if (!outcome.empty()) {
-        if (refused)
+        if (state->Refused)
             ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "Refused: %s", outcome.c_str());
         else
             ImGui::TextUnformatted(outcome.c_str());
@@ -887,9 +919,13 @@ void ShowDemoKnownLimits()
     style.Align = ImTypesetAlign_Left;
     static const char* const LIMITS[] = {
         "Word gaps. Every glyph is drawn on a whole pixel, so that type is as sharp as ImGui's "
-        "own. The price is paid between the words: the gaps of a line can differ from one "
-        "another by a pixel or two, because the letters of each word advance in whole pixels "
-        "and the remainder falls into the gap after it.",
+        "own, and the rounding has to go somewhere. A word is held to the width layout gave it "
+        "and placed from the word before it, so a space between two words is drawn within a "
+        "pixel and a half of the width it was laid out with. The price is paid inside the "
+        "words: about one pair of neighbouring letters in eleven stands more than half a pixel "
+        "from its laid-out distance. A justified line whose spaces are nearly closed was laid "
+        "out that way: the line breaker shrinks the spaces of a line to make it fit, and how "
+        "far it may on a screen has not been tuned.",
         "No fallback fonts. A character its face has no glyph for is looked for in the "
         "Regular, Math and Code faces and nowhere else: \xE6\xBC\xA2\xE5\xAD\x97 and "
         "\xF0\x9F\x99\x82 are drawn as replacement characters unless one of those has them. "
@@ -920,10 +956,6 @@ void ShowDemoKnownLimits()
 // Many blocks, described once and handed over in ONE call; after that a frame
 // costs what is in view, whatever the document's length. A host keeps an
 // ImTypesetDocument* beside the text it shows, as this section does.
-
-ImTypesetDocument* g_document;
-int g_document_blocks = -1;
-int g_document_epoch = -1;
 
 // The blocks the document is built from, ten at a time: a heading, six
 // paragraphs with a formula in them, two items of a tight list, some code.
@@ -994,44 +1026,51 @@ void BuildDemoDocument(ImTypesetDocument* document, int count)
     ImTypeset::SetDocumentBlocks(document, &content);
 }
 
-void ShowDemoDocument()
+struct DemoDocumentState {
+    ImTypesetDocument* Document = NULL;
+    int Blocks = -1;     // How many it was built with.
+    int BuiltFonts = -1; // And with how many fonts added by the demo.
+    int Wanted = 2000;
+    bool Stream = false;
+    bool MarksOn = true;
+    ImTypesetDocumentStats Last = ImTypesetDocumentStats();
+};
+
+// `fonts_added`: as for ShowDemoStress().
+void ShowDemoDocument(DemoDocumentState* state, int fonts_added)
 {
-    static int wanted = 2000;
-    static bool stream = false;
-    static bool marks_on = true;
-    static ImTypesetDocumentStats last;
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
-    ImGui::SliderInt("Blocks", &wanted, 10, 10000);
+    ImGui::SliderInt("Blocks", &state->Wanted, 10, 10000);
     ImGui::SameLine();
-    ImGui::Checkbox("Stream", &stream);
+    ImGui::Checkbox("Stream", &state->Stream);
     ImGui::SameLine();
     HelpMarker("AppendDocumentText() on the last block, every frame: what a pane does while "
                "text arrives. One block is laid out again; no other is visited.");
     ImGui::SameLine();
-    ImGui::Checkbox("Marks", &marks_on);
+    ImGui::Checkbox("Marks", &state->MarksOn);
     ImGui::SameLine();
     HelpMarker("Every \"formula\" of the first paragraphs, given to the draw as (block, byte) "
                "ranges: a filled mark behind one, an underline and another ink for the next. "
                "Marks are no part of the layout and cost nothing when they change.");
 
-    if (g_document == NULL || g_document_epoch != g_epoch) {
-        if (g_document == NULL)
-            g_document = ImTypeset::CreateDocument();
-        g_document_blocks = -1;
-        g_document_epoch = g_epoch;
+    if (state->Document == NULL || state->BuiltFonts != fonts_added) {
+        if (state->Document == NULL)
+            state->Document = ImTypeset::CreateDocument();
+        state->Blocks = -1;
+        state->BuiltFonts = fonts_added;
     }
-    if (g_document == NULL) {
+    if (state->Document == NULL) {
         ShowLastError();
         return;
     }
-    if (g_document_blocks != wanted) {
-        BuildDemoDocument(g_document, wanted);
-        g_document_blocks = wanted;
-        last = ImTypeset::GetDocumentStats(g_document);
+    if (state->Blocks != state->Wanted) {
+        BuildDemoDocument(state->Document, state->Wanted);
+        state->Blocks = state->Wanted;
+        state->Last = ImTypeset::GetDocumentStats(state->Document);
     }
     // The last block is whatever the pattern ends on; text arrives in one that holds text.
-    if (stream && !ImTypeset::AppendDocumentText(g_document, " more"))
-        stream = false;
+    if (state->Stream && !ImTypeset::AppendDocumentText(state->Document, " more"))
+        state->Stream = false;
 
     // Where "formula" is in PROSE, found once: a host that searches has the text.
     static int hits[4];
@@ -1043,8 +1082,8 @@ void ShowDemoDocument()
             hits[hit_count++] = (int)(at - PROSE);
     }
     ImVector<ImTypesetMark> marks;
-    if (marks_on) {
-        for (int block = 0; block < g_document_blocks && block < 60; ++block) {
+    if (state->MarksOn) {
+        for (int block = 0; block < state->Blocks && block < 60; ++block) {
             if (block % 10 != 1 && block % 10 != 2)
                 continue;
             for (int i = 0; i < hit_count; ++i) {
@@ -1068,18 +1107,97 @@ void ShowDemoDocument()
 
     // The whole document in a child window that scrolls it. Drag to select
     // across blocks; Ctrl+C copies.
-    ImTypeset::DocumentView("##document", g_document, ImVec2(0.0f, ImGui::GetFontSize() * 18.0f),
-                            NULL, &draw, &g_style);
+    ImTypeset::DocumentView("##document", state->Document,
+                            ImVec2(0.0f, ImGui::GetFontSize() * 18.0f), NULL, &draw, &g_style);
     ShowLastError();
 
-    const ImTypesetDocumentStats now = ImTypeset::GetDocumentStats(g_document);
+    const ImTypesetDocumentStats now = ImTypeset::GetDocumentStats(state->Document);
     ImGui::Text("%d blocks, %d of them never laid out at this width.", now.Blocks,
                 now.BlocksDeferred);
     ImGui::Text("This frame: %d laid out, %d texts built, %d blocks visited by a pass over all.",
-                (int)(now.BlocksLaidOut - last.BlocksLaidOut),
-                (int)(now.MaterialBuilds - last.MaterialBuilds),
-                (int)(now.StructureVisits - last.StructureVisits));
-    last = now;
+                (int)(now.BlocksLaidOut - state->Last.BlocksLaidOut),
+                (int)(now.MaterialBuilds - state->Last.MaterialBuilds),
+                (int)(now.StructureVisits - state->Last.StructureVisits));
+    state->Last = now;
+}
+
+//-----------------------------------------------------------------------------
+// [SECTION] One state per context
+//-----------------------------------------------------------------------------
+// A host owns its context and knows when it destroys it, so it knows when the
+// paragraphs and documents it keeps are gone. A demo window does not: it is
+// shown in whatever context is current, by a host that may have several and
+// may destroy one between two frames without saying so. A handle that outlives
+// its context dangles, and a context made later can stand at the address of a
+// dead one, so an address does not say which context a handle belongs to.
+// ImTypeset::GetContextSerial() does: a number no other context has had.
+//
+// So everything the demo remembers is in a DemoState, found by the serial of
+// the context the window is shown in. A handle is used only in the context it
+// was made in, and the demo never destroys one: it dies with its context. Code
+// of a host's that keeps handles without owning the context does the same.
+
+struct DemoState {
+    ImU64 Serial = 0;   // ImTypeset::GetContextSerial() of its context.
+    ImU64 LastCall = 0; // Which call of ShowDemoWindow() last used it.
+
+    float FontSize = 19.0f;                           // Chosen at the top of the window.
+    ImTypesetStats LastFrameStats = ImTypesetStats(); // What the library did in its last frame.
+    DemoParagraphState Paragraph;
+    DemoFacesState Faces;
+    DemoMathState Math;
+    DemoSelectionState Selection;
+    DemoInspectorState Inspector;
+    DemoStressState Stress;
+    DemoFontsState Fonts;
+    DemoDocumentState Document;
+};
+
+// The states of the contexts the window was last shown in, DEMO_STATES_MAX at
+// the most, so that a host making contexts one after another does not make
+// the demo grow. A context that comes back after that many others starts from
+// the defaults; what the demo made in it before is still its own and dies
+// with it. The states themselves are freed with the program.
+const int DEMO_STATES_MAX = 8;
+struct DemoStates {
+    ImVector<DemoState*> All;
+    ImU64 Calls = 0;
+    ~DemoStates()
+    {
+        for (int i = 0; i < All.Size; ++i)
+            IM_DELETE(All[i]);
+    }
+};
+DemoStates g_states;
+
+// The state of the current context, made if there is none. Null with no
+// current context.
+DemoState* DemoStateOfCurrentContext()
+{
+    const ImU64 serial = ImTypeset::GetContextSerial();
+    if (serial == 0)
+        return NULL;
+    int found = -1;
+    int oldest = 0;
+    for (int i = 0; i < g_states.All.Size; ++i) {
+        if (g_states.All[i]->Serial == serial)
+            found = i;
+        if (g_states.All[i]->LastCall < g_states.All[oldest]->LastCall)
+            oldest = i;
+    }
+    if (found < 0) {
+        if (g_states.All.Size < DEMO_STATES_MAX) {
+            found = g_states.All.Size;
+            g_states.All.push_back(NULL);
+        } else {
+            found = oldest;
+            IM_DELETE(g_states.All[found]);
+        }
+        g_states.All[found] = IM_NEW(DemoState)();
+        g_states.All[found]->Serial = serial;
+    }
+    g_states.All[found]->LastCall = ++g_states.Calls;
+    return g_states.All[found];
 }
 
 } // namespace
@@ -1103,22 +1221,15 @@ void ImTypeset::ShowDemoWindow(bool* p_open)
 
     // Without a context there is nothing to show, and every call would only
     // answer ImTypesetError_NoContext.
-    ImTypesetContext* context = ImTypeset::GetCurrentContext();
-    if (context == NULL) {
+    DemoState* demo = DemoStateOfCurrentContext();
+    if (demo == NULL) {
         ImGui::TextWrapped("There is no current ImTypeset context. Call "
                            "ImTypeset::CreateContext() after ImGui::CreateContext().");
         ImGui::End();
         return;
     }
     const ImTypesetStats stats = ImTypeset::GetStats();
-    if (context != g_demo_context || stats.TextBuilds < g_context_text_builds) {
-        for (int i = 0; i < DemoSlot_COUNT; ++i)
-            g_paragraphs[i] = NULL;
-        g_document = NULL;
-        g_demo_context = context;
-        g_frame = ImTypesetStats();
-        ++g_epoch;
-    }
+    g_frame = demo->LastFrameStats;
 
     if ((ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasTextures) == 0)
         ImGui::TextWrapped("The renderer backend does not announce "
@@ -1132,43 +1243,43 @@ void ImTypeset::ShowDemoWindow(bool* p_open)
     // when a style's FontSize is zero, so pushing a size is all it takes; the
     // demo keeps ImGui's own text at the UI's size and says the size outright.
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
-    ImGui::SliderFloat("Font size", &g_font_size, 10.0f, 40.0f, "%.0f px");
+    ImGui::SliderFloat("Font size", &demo->FontSize, 10.0f, 40.0f, "%.0f px");
     ImGui::SameLine();
     HelpMarker("ImTypesetStyle::FontSize for every section below: the height of a line, as "
                "ImGui means a font size. In Roboto, 19 px is about 16 px type.");
+    g_font_size = demo->FontSize;
     ImGui::PushFont(NULL, g_font_size);
     g_style = ImTypeset::GetStyle();
     g_style.FontSize = ImGui::GetFontSize();
     ImGui::PopFont();
 
     if (ImGui::CollapsingHeader("Paragraph"))
-        ShowDemoParagraph();
+        ShowDemoParagraph(&demo->Paragraph);
     if (ImGui::CollapsingHeader("Faces and sizes"))
-        ShowDemoFaces();
+        ShowDemoFaces(&demo->Faces);
     if (ImGui::CollapsingHeader("Math"))
-        ShowDemoMath();
+        ShowDemoMath(&demo->Math);
     if (ImGui::CollapsingHeader("Selection"))
-        ShowDemoSelection();
+        ShowDemoSelection(&demo->Selection);
     if (ImGui::CollapsingHeader("Inspector"))
-        ShowDemoInspector();
+        ShowDemoInspector(&demo->Inspector);
     if (ImGui::CollapsingHeader("Stress"))
-        ShowDemoStress();
+        ShowDemoStress(&demo->Stress, demo->Fonts.Added);
     if (ImGui::CollapsingHeader("Fonts"))
-        ShowDemoFonts();
+        ShowDemoFonts(&demo->Fonts);
     if (ImGui::CollapsingHeader("Known limits"))
         ShowDemoKnownLimits();
     if (ImGui::CollapsingHeader("Document"))
-        ShowDemoDocument();
+        ShowDemoDocument(&demo->Document, demo->Fonts.Added);
 
     // What this frame did, for the next one to show.
     const ImTypesetStats now = ImTypeset::GetStats();
-    g_frame.Layouts = now.Layouts - stats.Layouts;
-    g_frame.TextBuilds = now.TextBuilds - stats.TextBuilds;
-    g_frame.DrawCalls = now.DrawCalls - stats.DrawCalls;
-    g_frame.CulledCalls = now.CulledCalls - stats.CulledCalls;
-    g_frame.VerticesEmitted = now.VerticesEmitted - stats.VerticesEmitted;
-    g_frame.BytesHashed = now.BytesHashed - stats.BytesHashed;
-    g_context_text_builds = now.TextBuilds;
+    demo->LastFrameStats.Layouts = now.Layouts - stats.Layouts;
+    demo->LastFrameStats.TextBuilds = now.TextBuilds - stats.TextBuilds;
+    demo->LastFrameStats.DrawCalls = now.DrawCalls - stats.DrawCalls;
+    demo->LastFrameStats.CulledCalls = now.CulledCalls - stats.CulledCalls;
+    demo->LastFrameStats.VerticesEmitted = now.VerticesEmitted - stats.VerticesEmitted;
+    demo->LastFrameStats.BytesHashed = now.BytesHashed - stats.BytesHashed;
     ImGui::End();
 }
 

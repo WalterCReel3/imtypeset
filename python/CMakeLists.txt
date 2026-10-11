@@ -5,8 +5,7 @@
 #
 # On its own:
 #
-#   cmake -S python -B build/py-host -G Ninja -DCMAKE_BUILD_TYPE=Release \
-#       -DIMTYPESET_SDL2_DIR=../example-project/build/desktop-debug
+#   cmake -S python -B build/py-host -G Ninja -DCMAKE_BUILD_TYPE=Release
 #   cmake --build build/py-host -j4
 #   ctest --test-dir build/py-host --output-on-failure
 #
@@ -60,59 +59,21 @@ else()
 endif()
 
 set(IMTYPESET_SDL2_DIR "" CACHE PATH
-    "An SDL2 to use when find_package(SDL2 CONFIG) finds none: an install prefix, or a build tree laid out as example-project's (lib/libSDL2[d].a, _deps/sdl2-build/include*)")
+    "The SDL2 to use, over an installed one and over .deps/sdl2: an install prefix (lib/, include/SDL2/), or a CMake build tree of SDL2 fetched as a dependency (lib/libSDL2[d].a, _deps/sdl2-build/include*)")
 set(IMTYPESET_PYTHON "" CACHE FILEPATH
     "The interpreter the python_binding test runs under (3.11 or later). Empty: ../imgui-adv-text/.venv/bin/python if it exists, else python3 on the PATH.")
 
 # --- SDL2 -----------------------------------------------------------------------
-# As examples/demo_sdl2 finds it: an installed SDL2 first, then
-# IMTYPESET_SDL2_DIR read as an install prefix and then as a build tree that
-# was never installed and so has no SDL2Config.cmake.
+# As examples/demo_sdl2 finds it (cmake/sdl2.cmake): IMTYPESET_SDL2_DIR when it
+# is given; else an installed SDL2, by its CMake package and then by
+# pkg-config; else this tree's untracked .deps/sdl2 (tools/vendor_sdl2.sh fills
+# it).
 if(IMTYPESET_SDL2_DIR AND NOT IS_ABSOLUTE "${IMTYPESET_SDL2_DIR}")
     get_filename_component(_py_abs "${IMTYPESET_SDL2_DIR}" ABSOLUTE BASE_DIR "${_py_repo}")
     set(IMTYPESET_SDL2_DIR "${_py_abs}")
 endif()
-add_library(imtypeset_pyhost_sdl INTERFACE)
-set(_py_sdl_found "")
-if(NOT IMTYPESET_SDL2_DIR)
-    find_package(SDL2 CONFIG QUIET)
-    if(TARGET SDL2::SDL2)
-        target_link_libraries(imtypeset_pyhost_sdl INTERFACE SDL2::SDL2)
-        set(_py_sdl_found "find_package(SDL2 CONFIG): SDL2::SDL2")
-    elseif(TARGET SDL2::SDL2-static)
-        target_link_libraries(imtypeset_pyhost_sdl INTERFACE SDL2::SDL2-static)
-        set(_py_sdl_found "find_package(SDL2 CONFIG): SDL2::SDL2-static")
-    endif()
-else()
-    find_library(_py_sdl_lib NAMES SDL2 SDL2d SDL2-static
-        PATHS "${IMTYPESET_SDL2_DIR}/lib" NO_DEFAULT_PATH)
-    find_path(_py_sdl_inc SDL.h PATHS
-        "${IMTYPESET_SDL2_DIR}/include/SDL2"
-        "${IMTYPESET_SDL2_DIR}/_deps/sdl2-build/include/SDL2"
-        NO_DEFAULT_PATH)
-    file(GLOB _py_sdl_cfg "${IMTYPESET_SDL2_DIR}/_deps/sdl2-build/include-config-*/SDL2")
-    if(_py_sdl_lib AND _py_sdl_inc)
-        target_include_directories(imtypeset_pyhost_sdl SYSTEM INTERFACE
-            "${_py_sdl_inc}" ${_py_sdl_cfg})
-        target_link_libraries(imtypeset_pyhost_sdl INTERFACE "${_py_sdl_lib}")
-        if(_py_sdl_lib MATCHES "\\.a$")
-            # A static SDL2 on Linux opens X11, Wayland, GL, ALSA and the rest
-            # with dlopen at run time, so this is all it needs at link time. It
-            # has to have been compiled as position-independent code
-            # (SDL_STATIC_PIC) to go into a shared library at all.
-            find_package(Threads REQUIRED)
-            target_link_libraries(imtypeset_pyhost_sdl INTERFACE
-                Threads::Threads ${CMAKE_DL_LIBS} m)
-        endif()
-        set(_py_sdl_found "${_py_sdl_lib}, headers ${_py_sdl_inc}")
-    endif()
-endif()
-if(NOT _py_sdl_found)
-    message(FATAL_ERROR
-        "imtypeset python host: no SDL2. Install one that find_package(SDL2 CONFIG) finds, or "
-        "pass -DIMTYPESET_SDL2_DIR=<install prefix or build tree>.")
-endif()
-message(STATUS "imtypeset python host: SDL2 from ${_py_sdl_found}")
+include("${_py_repo}/cmake/sdl2.cmake")
+imtypeset_find_sdl2(imtypeset_pyhost_sdl "imtypeset python host")
 
 # --- ImGui's backends -------------------------------------------------------------
 # From the checkout the `imgui` target itself is built from, wherever that is.
@@ -143,6 +104,11 @@ set_target_properties(imtypeset_pyhost PROPERTIES
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set_source_files_properties(host/imtypeset_host.cpp PROPERTIES COMPILE_OPTIONS
         "-Wall;-Wextra;-Wpedantic;-Wshadow;-fno-exceptions;-fno-rtti")
+    # Floating point is not contracted in the host's file or in ImGui's
+    # backends, as in the `imgui` target made by cmake/imgui.cmake (D16).
+    target_compile_options(imtypeset_pyhost PRIVATE -ffp-contract=off)
+elseif(MSVC)
+    target_compile_options(imtypeset_pyhost PRIVATE /fp:precise)
 endif()
 
 # All of imtypeset, not only what the host's own file happens to call: the C

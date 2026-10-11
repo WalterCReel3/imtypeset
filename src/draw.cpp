@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace ImTypeset::detail
 {
@@ -556,10 +557,6 @@ struct Drawer::Span {
     size_t word_op = 0;
     Scaled word_x = 0;
     double word_pen = 0.0;
-    // Whether the next span is placed from this one's last glyph
-    // (DrawRules::word_spaces_led): the span that ended last ended in a word,
-    // and nothing but set glue has come since.
-    bool leads = false;
 };
 
 Drawer::Drawer()
@@ -668,10 +665,13 @@ void Drawer::push_area(OpType type, Scaled x, Scaled y, Scaled width, Scaled hei
 // bound: those rounded furthest the way the word is out, the earliest of
 // equals first. The roundings that way add up to more than the drift is past
 // the bound, so there are that many. A word is nearly always out by one
-// pixel, and one pass finds its gap; a word out by more has its gaps
-// selected in `_gaps`, in time that grows with the word's length and not
-// with its length times its drift, which for a word of a megabyte is the
-// difference between a frame and minutes.
+// pixel, and one pass finds its gap. For a word out by more, the smallest
+// rounding that gives is found a byte at a time from the top of its bits,
+// which order as the roundings do: four passes over the word and a fifth to
+// move it, whatever the roundings are and in no memory but the word's own
+// ops. The work grows with the word's length and not with its length times
+// its drift, which for a word of a megabyte is the difference between a
+// frame and minutes.
 double Drawer::settle_word(size_t word_op, double drift)
 {
     const double sign = drift > 0.0 ? 1.0 : -1.0;
@@ -698,33 +698,63 @@ double Drawer::settle_word(size_t word_op, double drift)
         return -sign;
     }
 
-    _gaps.clear();
-    for (size_t k = word_op + 1; k < end; ++k) {
-        if (shift * _ops[k].x1 > 0.0f)
-            _gaps.push_back(k);
-    }
-    size_t count = _gaps.size();
-    if (wanted < static_cast<double>(count)) {
-        count = static_cast<size_t>(wanted);
-        std::nth_element(_gaps.begin(), _gaps.begin() + static_cast<ptrdiff_t>(count), _gaps.end(),
-                         [&](size_t a, size_t b) {
-                             const float at_a = shift * _ops[a].x1;
-                             const float at_b = shift * _ops[b].x1;
-                             return at_a > at_b || (at_a == at_b && a < b);
-                         });
-        _gaps.resize(count);
-        std::sort(_gaps.begin(), _gaps.end());
-    }
-    if (count == 0)
+    // A rounding that can give is above zero, and of two such floats the
+    // larger has the larger bits.
+    const auto bits_of = [](float rounded) {
+        uint32_t bits = 0;
+        std::memcpy(&bits, &rounded, sizeof bits);
+        return bits;
+    };
+    size_t able = 0;
+    for (size_t k = word_op + 1; k < end; ++k)
+        able += shift * _ops[k].x1 > 0.0f ? 1 : 0;
+    if (able == 0)
         return 0.0;
+    // Every gap above `least` gives, and the first `equals` of those at it.
+    size_t count = able;
+    uint32_t least = 0;
+    size_t equals = able;
+    if (wanted < static_cast<double>(able)) {
+        count = static_cast<size_t>(wanted);
+        uint32_t mask = 0;
+        equals = count;
+        for (int place = 24; place >= 0; place -= 8) {
+            // Of the roundings that agree with `least` in the bytes settled
+            // so far, of which there are at least `equals`, how many have
+            // each value of the next byte down.
+            size_t having[256] = {};
+            for (size_t k = word_op + 1; k < end; ++k) {
+                const float rounded = shift * _ops[k].x1;
+                if (!(rounded > 0.0f))
+                    continue;
+                const uint32_t bits = bits_of(rounded);
+                if ((bits & mask) == least)
+                    ++having[(bits >> place) & 0xFFu];
+            }
+            uint32_t byte = 255;
+            while (having[byte] < equals) {
+                equals -= having[byte];
+                --byte;
+            }
+            least |= byte << place;
+            mask |= 0xFFu << place;
+        }
+    }
     // From each gap that gives, every glyph after it moves a pixel more.
     float by = 0.0f;
-    size_t next = 0;
-    for (size_t k = _gaps[0]; k < end; ++k) {
-        if (next < count && _gaps[next] == k) {
-            _ops[k].x1 -= shift;
-            by += shift;
-            ++next;
+    for (size_t k = word_op + 1; k < end; ++k) {
+        const float rounded = shift * _ops[k].x1;
+        if (rounded > 0.0f) {
+            const uint32_t bits = bits_of(rounded);
+            bool gives = bits > least;
+            if (bits == least && equals > 0) {
+                --equals;
+                gives = true;
+            }
+            if (gives) {
+                _ops[k].x1 -= shift;
+                by += shift;
+            }
         }
         _ops[k].x0 -= by;
     }
@@ -748,32 +778,59 @@ void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const 
     Scaled key_bits = 0;
     uint32_t key_index = 0;
     // The formula being placed whole, if any (DrawRules::formula_placed_whole):
-    // the commands from its ATOM to the next glue, atom or line, or to the
-    // first glyph that does not carry its index. Its glyphs and rules are
-    // placed from `formula_pen`, the pixel the left edge of its box
-    // (`formula_x`) was put on. Never set under the reference's rules.
+    // the commands from its ATOM to the next glue, atom or line, to the first
+    // glyph that does not carry its index, or to a rule that lies wholly to
+    // one side of its box. Its glyphs and rules are placed from
+    // `formula_pen`, the pixel the left edge of its box (`formula_x`) was put
+    // on. Never set under the reference's rules.
     bool in_formula = false;
     uint32_t formula_index = 0;
     Scaled formula_x = 0;
+    Scaled formula_width = 0;
     double formula_pen = 0.0;
     const bool hold_words = args.rules.word_width_held;
     const bool lead_words = args.rules.word_spaces_led;
-    // Ends the span. What ended it decides whether the next span can be
-    // placed from it: glue after a word, and nothing else.
-    const auto end_span = [&](bool by_glue) {
-        if (!span.open) {
-            if (!by_glue)
-                span.leads = false;
-            return;
+    // The leader (DrawRules::word_spaces_led): what the next word or formula
+    // on the line is placed from, as it is in the commands and where it
+    // went. The last glyph of the word before it; or, of the formula before
+    // it, the part furthest to the right in the layout, a glyph by its
+    // origin and a rule by its right-hand end, and the left edge of the box
+    // while it has none further. It stays the leader across set glue and
+    // across the start of a formula, and nothing else. While a formula is
+    // being placed the two are kept whether or not `leads` is set: text
+    // straight after it is placed from them.
+    bool leads = false;
+    Scaled lead_x = 0;
+    double lead_pen = 0.0;
+    // Where something whose own place is `place` goes when it is led: the
+    // leader's pixel plus the distance between them rounded once, and no
+    // further from its own place than the pixel on either side of it.
+    const auto led_to = [&](Scaled x, double place) {
+        const double led = lead_pen + snap_px(px(wrap_sub(x, lead_x)));
+        const double low = floor_px(place);
+        const double high = low < place ? low + 1.0 : low;
+        return std::min(std::max(led, low), high);
+    };
+    // Ends the span, holding its word to its width; a span that ended in a
+    // word makes that word's last glyph the leader. What ended it decides
+    // whether there is a leader after it at all.
+    const auto end_span = [&](bool keeps_leader) {
+        if (span.open) {
+            span.open = false;
+            if (span.word) {
+                if (hold_words) {
+                    const double drift =
+                        span.prev_pen - span.word_pen - px(wrap_sub(span.prev_x, span.word_x));
+                    if (std::fabs(drift) > WORD_WIDTH_BOUND_PX)
+                        span.prev_pen += settle_word(span.word_op, drift);
+                }
+                leads = lead_words;
+                lead_x = span.prev_x;
+                lead_pen = span.prev_pen;
+            }
         }
-        span.open = false;
-        span.leads = lead_words && by_glue && span.word;
-        if (hold_words && span.word) {
-            const double drift =
-                span.prev_pen - span.word_pen - px(wrap_sub(span.prev_x, span.word_x));
-            if (std::fabs(drift) > WORD_WIDTH_BOUND_PX)
-                span.prev_pen += settle_word(span.word_op, drift);
-        }
+        if (!keeps_leader)
+            leads = false;
     };
     for (size_t i = 0; i < count; ++i) {
         const DrawCmd& cmd = cmds[i];
@@ -833,20 +890,12 @@ void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const 
                 span.y = cmd.y;
                 span.ascent = ascent;
                 span.top = snap_px(y - ascent);
-                if (span.leads) {
-                    // From the last glyph of the word before, by the gap
-                    // rounded once, and no further from its own place than
-                    // the pixel on either side of it.
-                    const double led = span.prev_pen + snap_px(px(wrap_sub(cmd.x, span.prev_x)));
-                    const double low = floor_px(x);
-                    const double high = low < x ? low + 1.0 : low;
-                    span.prev_pen = std::min(std::max(led, low), high);
-                } else {
-                    span.prev_pen = snap_px(x);
-                }
-                span.prev_x = cmd.x;
-                // The word starts here unless this is a glyph of a formula.
+                // The word starts here unless this is a glyph of a formula,
+                // which is placed below from the formula's edge. A word is
+                // placed from the leader if there is one.
                 span.word = !in_formula || cmd.index != formula_index;
+                span.prev_pen = span.word && leads ? led_to(cmd.x, x) : snap_px(x);
+                span.prev_x = cmd.x;
                 span.word_op = _ops.size();
                 span.word_x = cmd.x;
                 span.word_pen = span.prev_pen;
@@ -867,20 +916,28 @@ void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const 
             // path with a gap of zero. A glyph of a formula placed whole
             // takes its gap from the formula's edge, and where that went,
             // instead; a formula's glyphs carry its atom's index, and the
-            // first that does not is text again, placed from the formula's
-            // last glyph like any other.
+            // first that does not is text again.
             if (in_formula) {
                 if (cmd.index == formula_index) {
                     span.prev_x = formula_x;
                     span.prev_pen = formula_pen;
+                    if (cmd.x > lead_x) {
+                        lead_x = cmd.x;
+                        lead_pen = formula_pen + snap_px(px(wrap_sub(cmd.x, formula_x)));
+                    }
                 } else {
                     in_formula = false;
                     if (!span.word) {
                         // Text straight after a formula's glyphs: the word
-                        // of the span starts here, placed from the formula's
-                        // last glyph, and the gap between the two is not one
-                        // of the word's.
-                        span.prev_pen += snap_px(px(wrap_sub(cmd.x, span.prev_x)));
+                        // of the span starts here. Its first glyph is placed
+                        // from the formula's rightmost part, which need not
+                        // be the glyph the formula shipped last, by the gap
+                        // rounded once; and, when words are led, is kept
+                        // beside its own place as a led word is. The gap
+                        // before it is not one of the word's.
+                        span.prev_pen = leads ? led_to(cmd.x, device_coordinate(args.origin.x,
+                                                                                cmd.x, px_per_inch))
+                                              : lead_pen + snap_px(px(wrap_sub(cmd.x, lead_x)));
                         span.prev_x = cmd.x;
                         span.word = true;
                         span.word_op = _ops.size();
@@ -913,6 +970,12 @@ void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const 
         }
         case CmdType::RULE_RECT:
             ++stats.rules;
+            // A formula's rules lie in its box. One wholly to the left or to
+            // the right of it is not the formula's, whatever follows it:
+            // ship-out makes no such list, and a list built by hand can be.
+            if (in_formula && (cmd.x > wrap_add(formula_x, formula_width) ||
+                               wrap_add(cmd.x, cmd.width) < formula_x))
+                in_formula = false;
             if (in_formula) {
                 // Its two ends as a glyph of the formula is placed, and an
                 // area keeps its ink. Its top and bottom from the baseline
@@ -923,9 +986,13 @@ void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const 
                 DrawOp op;
                 op.type = OpType::RECT_FILLED;
                 op.colour = args.palette.rule;
+                const Scaled far = wrap_add(cmd.x, cmd.width);
                 double left = formula_pen + snap_px(px(wrap_sub(cmd.x, formula_x)));
-                double right =
-                    formula_pen + snap_px(px(wrap_sub(wrap_add(cmd.x, cmd.width), formula_x)));
+                double right = formula_pen + snap_px(px(wrap_sub(far, formula_x)));
+                if (far > lead_x) {
+                    lead_x = far;
+                    lead_pen = right;
+                }
                 if (right <= left && cmd.width > 0)
                     right = left + 1.0;
                 double top = 0.0, bottom = 0.0;
@@ -953,12 +1020,21 @@ void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const 
             break;
         case CmdType::SET_GLUE:
         case CmdType::ATOM:
-            end_span(cmd.type == CmdType::SET_GLUE);
             in_formula = cmd.type == CmdType::ATOM && args.rules.formula_placed_whole;
+            end_span(cmd.type == CmdType::SET_GLUE || in_formula);
             if (in_formula) {
+                // The edge of its box is placed as a word's first glyph is:
+                // from the leader if there is one, and on the pixel nearest
+                // its own place if not. Then it is the leader, until a part
+                // of the formula stands further right.
+                const double x = device_coordinate(args.origin.x, cmd.x, px_per_inch);
                 formula_index = cmd.index;
                 formula_x = cmd.x;
-                formula_pen = snap_px(device_coordinate(args.origin.x, cmd.x, px_per_inch));
+                formula_width = cmd.width;
+                formula_pen = leads ? led_to(cmd.x, x) : snap_px(x);
+                leads = lead_words;
+                lead_x = cmd.x;
+                lead_pen = formula_pen;
             }
             if (args.debug && cmd.width != cmd.a) {
                 push_area(OpType::RECT_FILLED, cmd.x, wrap_sub(cmd.y, cmd.height), cmd.width,

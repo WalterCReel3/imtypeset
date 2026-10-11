@@ -405,8 +405,20 @@ preset, corpus census, both screenshots, anything skipped with the reason. Do no
 
 ## State at the last update (lead)
 
-RUNNING, four builders in disjoint files: doc-fixes (scope: `.concerns/doc-fixes--lead--scope.md`),
+DONE since: draw-seams (one bound: neighbours < 1.5 px from laid-out distance; text straight after a formula still less even than reference — owner's call; 41/41 x5 on live tree), demo-guard (all three findings reproduced and fixed via GetContextSerial; demo images stale), doc-fixes (D45, D46; GetContextSerial added; font lifetime fixed in validate_fonts), py-fixes. docs DONE (README rewritten with run instructions; D47-D50). RUNNING: release-gate (the last task). Gate notes: .concerns/release-gate--lead--notes.md. (was: doc-fixes,
 py-fixes, draw-seams, demo-guard (specs: board details; findings files `.concerns/review-4-*.md`).
 THEN: docs (notes: `.concerns/docs--lead--from-fold-docs.md`, incl. the user's README request for
 run instructions) -> release-gate (must wait for all four fix tasks AND docs, whatever the board
 says; `amalgamation` preset must stay in the gate; clean builds, not incremental).
+
+## After the gate (lead)
+
+release-gate: GREEN from clean in all eleven presets (41/41; debug and python-host 42/42), zero
+warnings from our sources; `.concerns/release-gate--builder--result.md`. SDL2 vendored in `.deps/sdl2`
+(D51). RUNNING: `final-touches` (spec on the board: SDL2 pkg-config fallback, demo "Known limits"
+text, fp-contract on our ImGui targets, dump_font_wild --jobs, bench warm-up, housekeeping, then every
+preset from clean on the final tree). OPEN FOR THE USER, not scheduled: tight justified lines (the
+line breaker shrinking spaces at screen sizes) — the most visible flaw in every picture; the
+stand-in-headers policy for the wheel sidecar; the letter-evenness trade; text-after-formula joint;
+licence. Git: one commit pushed by the user (abad89c), amended locally to drop an attribution trailer
+(5310ff3, needs the user's force-push); everything since is uncommitted. No attribution, ever.

@@ -108,6 +108,8 @@ class RichState:
     # what was described (``_Typeset``). ``None`` until the first frame that draws
     # through imtypeset, and for ever when ``typeset.module()`` is ``None``.
     typeset: Any = None
+    # Frames in a row in which the imtypeset path failed for this pane.
+    typeset_failures: int = 0
 
 
 def windowed(blocks: Sequence[Block]) -> list[Block]:
@@ -381,22 +383,26 @@ def _draw_table(index: int, block: Block) -> None:
     )
     if not imgui.begin_table(f"##rich_table_{index}", columns, flags):
         return
-    for cell in header:
-        imgui.table_setup_column(cell or " ")
-    imgui.table_headers_row()
-    for row in body:
-        imgui.table_next_row()
-        for col in range(columns):
-            imgui.table_next_column()
-            raw = row[col] if col < len(row) else ""
-            plain = _plain_text(parse_inline(raw)) if raw else ""
-            imgui.text_wrapped(plain or " ")
-    imgui.end_table()
+    try:
+        for cell in header:
+            imgui.table_setup_column(cell or " ")
+        imgui.table_headers_row()
+        for row in body:
+            imgui.table_next_row()
+            for col in range(columns):
+                imgui.table_next_column()
+                raw = row[col] if col < len(row) else ""
+                plain = _plain_text(parse_inline(raw)) if raw else ""
+                imgui.text_wrapped(plain or " ")
+    finally:
+        imgui.end_table()
 
     if imgui.begin_popup_context_item(f"##rich_table_ctx_{index}"):
-        if imgui.menu_item_simple(f"copy table ({len(body)} row(s))"):
-            imgui.set_clipboard_text("\n".join(block.lines))
-        imgui.end_popup()
+        try:
+            if imgui.menu_item_simple(f"copy table ({len(body)} row(s))"):
+                imgui.set_clipboard_text("\n".join(block.lines))
+        finally:
+            imgui.end_popup()
 
 
 def _draw_one(index: int, rich: RichState, block: Block, width: float, size: float) -> None:
@@ -443,18 +449,17 @@ def draw(rich: RichState, blocks: Sequence[Block], live: Block | None) -> None:
 
     Through imtypeset when ``typeset.module()`` has it: the blocks are described
     into one retained document when they change and the frame is a constant number
-    of calls, whatever the history's length, so nothing is windowed. Otherwise, and
-    if that path ever raises, the draw-list renderer below, which windows.
+    of calls, whatever the history's length, so nothing is windowed. Otherwise the
+    draw-list renderer below, which windows.
+
+    Exactly one of the two draws a frame. ``_draw_typeset`` says whether the frame
+    is its own; it is not only when it failed before putting anything on screen,
+    and then the renderer below draws this frame in ImGui state nothing has
+    touched.
     """
     ts = typeset.module()
-    if ts is not None:
-        try:
-            _draw_typeset(ts, rich, blocks, live)
-            return
-        except Exception as exc:  # noqa: BLE001 -- a pane that draws beats one that raises
-            typeset.disable(f"{type(exc).__name__}: {exc}")
-            rich.typeset = None
-    _draw_classic(rich, blocks, live)
+    if ts is None or not _draw_typeset(ts, rich, blocks, live):
+        _draw_classic(rich, blocks, live)
 
 
 def _draw_classic(rich: RichState, blocks: Sequence[Block], live: Block | None) -> None:
@@ -506,6 +511,11 @@ _JUSTIFY = os.environ.get("PPTMSTR_TYPESET_JUSTIFY", "") == "1"
 
 _FIND_MARK_CAP = 2000
 
+# Frames in a row the imtypeset path may fail in one pane before it is switched
+# off for the run. One failure is survived: the document is described again from
+# the blocks on the next frame.
+_FAILURES_BEFORE_OFF = 3
+
 _STYLE_NAMES = (
     "body",
     "heading",
@@ -534,11 +544,17 @@ class _Typeset:
         self.live: Block | None = None  # the live block itself: a table can be one
         self.origin: list[int] = []  # document block -> index into source (the live one: count)
         self.texts: list[str] = []  # document block -> its text, as described
-        self.folded: list[str] = []  # the same in lower case, as far as find has needed
+        # The same folded for a search (``_fold``), as far as find has needed.
+        self.folded: list[tuple[str, list[int] | None]] = []
         self.folded_from = 0  # entries from here on were the live tail's and are stale
+        self.found: list[Any] = []  # a mark for each place ``found_needle`` is, by block
+        self.found_needle = ""
+        self.found_upto = 0  # blocks before this one have been searched and have not changed
         self.tables: list[int] = []  # document blocks that are tables, ascending
         self.extents: dict[int, float] = {}  # table -> the height its Host block has
         self.measured: dict[int, float] = {}  # table -> the height ImGui last drew it at
+        # (document block, source) of a table being described again -> the two above
+        self.carried: dict[tuple[int, int], tuple[float | None, float | None]] = {}
         self.links: list[Any] = []  # an underline for each link
         self.revision = 0
         self.marks: Any = None
@@ -683,12 +699,20 @@ def _describe(ts: Any, st: _Typeset, block: Block, source: int, out: list[Any]) 
         else:
             add(ts.Block(text=text, runs=runs, style=_STYLE["body"], flags=flags))
     elif kind is BlockKind.TABLE:
-        st.tables.append(len(st.origin))
+        at = len(st.origin)
+        st.tables.append(at)
         # A guess at its height until it has been drawn once: a row is a line and
-        # its cell padding.
+        # its cell padding. A table that is described again because text arrived
+        # in it keeps the height it had, which was measured, and what ImGui last
+        # drew it at; the guess is a floor, since no row is shorter than a line.
         rows = max(1, len(block.lines) - 1)
         extent = rows * (st.size + 2.0 * imgui.get_style().cell_padding.y)
-        st.extents[len(st.origin)] = extent
+        held, measured = st.carried.get((at, source), (None, None))
+        if held is not None:
+            extent = max(extent, held)
+        if measured is not None:
+            st.measured[at] = measured
+        st.extents[at] = extent
         add(
             ts.Block(ts.BlockKind.Host, "\n".join(block.lines), extent=extent, style=_STYLE["body"])
         )
@@ -733,13 +757,16 @@ def _sync(ts: Any, st: _Typeset, blocks: Sequence[Block], live: Block | None) ->
         return
 
     first = 0 if whole else st.settled
+    cut = bisect.bisect_left(st.tables, first)
+    st.carried = {}
+    for index in st.tables[cut:]:
+        height = (st.extents.pop(index, None), st.measured.pop(index, None))
+        if not whole:
+            st.carried[(index, st.origin[index])] = height
+    del st.tables[cut:]
     del st.origin[first:], st.texts[first:]
     st.folded_from = min(st.folded_from, first)
-    cut = bisect.bisect_left(st.tables, first)
-    for index in st.tables[cut:]:
-        st.extents.pop(index, None)
-        st.measured.pop(index, None)
-    del st.tables[cut:]
+    st.found_upto = min(st.found_upto, first)
     st.links = [mark for mark in st.links if mark.range[0][0] < first]
 
     out: list[Any] = []
@@ -764,32 +791,82 @@ def _sync(ts: Any, st: _Typeset, blocks: Sequence[Block], live: Block | None) ->
         st.doc.replace_blocks(first, len(st.tail), out)
         if st.selection is not None and max(st.selection[0][0], st.selection[1][0]) >= first:
             st.selection = None
+    if st.doc.edit_error.code:
+        # Applied, with something in the description cut to what the library takes.
+        typeset.note(f"description: {st.doc.edit_error.message}")
     st.source, st.count, st.settled, st.tail, st.live_key = blocks, count, settled, tail, live_key
     st.live = live
     st.revision += 1
+
+
+def _fold(text: str) -> tuple[str, list[int] | None]:
+    """
+    ``text`` in lower case for a search, and, when lowering changed its length,
+    the index in ``text`` each character of the result came from. It does for a
+    few characters (a capital I with a dot becomes two), and a match found in the
+    lowered text is then somewhere else in the text the document holds.
+    """
+    folded = text.lower()
+    if len(folded) == len(text):
+        return folded, None
+    parts: list[str] = []
+    where: list[int] = []
+    for index, char in enumerate(text):
+        low = char.lower()
+        parts.append(low)
+        where.extend([index] * len(low))
+    return "".join(parts), where
+
+
+def _find(ts: Any, st: _Typeset, needle: str) -> list[Any]:
+    """
+    A mark for each place the document shows ``needle`` (already in lower case),
+    ``_FIND_MARK_CAP`` at most. A block is searched when it is new or has changed
+    and not again: text that arrives a piece a frame costs a search of the live
+    tail, not of the history.
+    """
+    found = st.found
+    if needle != st.found_needle:
+        found.clear()
+        st.found_needle = needle
+        st.found_upto = 0
+    while found and found[-1].range[0][0] >= st.found_upto:
+        found.pop()
+    # Case is folded once a block, not once a keystroke.
+    folded = st.folded
+    del folded[st.folded_from :]
+    folded.extend(_fold(text) for text in st.texts[len(folded) :])
+    st.folded_from = st.settled
+    if not needle:
+        st.found_upto = st.settled
+        return found
+    colour = faded(P.warn, 0.35)
+    size = len(needle)
+    behind = ts.MarkPlace.Behind
+    index = st.found_upto
+    while index < len(folded) and len(found) < _FIND_MARK_CAP:
+        text, where = folded[index]
+        at = text.find(needle)
+        while at >= 0 and len(found) < _FIND_MARK_CAP:
+            if where is None:
+                start, end = at, at + size
+            else:
+                start, end = where[at], where[at + size - 1] + 1
+            found.append(ts.Mark(((index, start), (index, end)), colour, behind))
+            at = text.find(needle, at + size)
+        index += 1
+    # At the cap the block it was reached in may hold more: it is searched again
+    # if the marks before it ever become fewer.
+    capped = len(found) >= _FIND_MARK_CAP
+    st.found_upto = min(st.settled, found[-1].range[0][0] if capped else index)
+    return found
 
 
 def _marks(ts: Any, st: _Typeset, needle: str) -> Any:
     """Link underlines and find marks, packed once per change of either."""
     key = (st.revision, needle)
     if st.marks_key != key:
-        marks = list(st.links)
-        if needle:
-            colour = faded(P.warn, 0.35)
-            size = len(needle)
-            # Case is folded once a block, not once a keystroke.
-            folded = st.folded
-            del folded[st.folded_from :]
-            folded.extend(text.lower() for text in st.texts[len(folded) :])
-            st.folded_from = st.settled
-            behind = ts.MarkPlace.Behind
-            for index, text in enumerate(folded):
-                at = text.find(needle)
-                while at >= 0:
-                    marks.append(ts.Mark(((index, at), (index, at + size)), colour, behind))
-                    at = text.find(needle, at + size)
-                if len(marks) >= _FIND_MARK_CAP:
-                    break
+        marks = st.links + _find(ts, st, needle)
         st.marks = st.doc.pack_marks(marks) if marks else None
         st.marks_key = key
     return st.marks
@@ -822,15 +899,22 @@ def _draw_tables(st: _Typeset, x: float, y: float, width: float) -> None:
         held = st.extents.get(index, 0.0)
         imgui.set_cursor_screen_pos(imgui.ImVec2(left, upper))
         imgui.push_style_var(imgui.StyleVar_.window_padding, imgui.ImVec2(0.0, 0.0))
-        shown = imgui.begin_child(f"##table_{index}", imgui.ImVec2(width, max(held, 1.0)), 0, flags)
-        imgui.pop_style_var()
-        height = 0.0
-        source = st.origin[index]
-        table = st.source[source] if source < len(st.source) else st.live
-        if shown and table is not None:
-            _draw_table(index, table)
-            height = imgui.get_cursor_pos().y - imgui.get_style().item_spacing.y
-        imgui.end_child()
+        try:
+            shown = imgui.begin_child(
+                f"##table_{index}", imgui.ImVec2(width, max(held, 1.0)), 0, flags
+            )
+        finally:
+            imgui.pop_style_var()
+        # EndChild whatever BeginChild answered and whatever drawing the table does.
+        try:
+            height = 0.0
+            source = st.origin[index]
+            table = st.source[source] if source < len(st.source) else st.live
+            if shown and table is not None:
+                _draw_table(index, table)
+                height = imgui.get_cursor_pos().y - imgui.get_style().item_spacing.y
+        finally:
+            imgui.end_child()
         if height <= 0.0:
             continue  # clipped: nothing was drawn and nothing was learnt
         repeated = abs(height - st.measured.get(index, -1.0)) <= 0.5
@@ -840,29 +924,87 @@ def _draw_tables(st: _Typeset, x: float, y: float, width: float) -> None:
             doc.set_block_extent(index, height)
             if upper < window_top:
                 imgui.set_scroll_y(imgui.get_scroll_y() + height - held)
-    imgui.set_cursor_screen_pos(imgui.ImVec2(x, y))
 
 
-def _draw_typeset(ts: Any, rich: RichState, blocks: Sequence[Block], live: Block | None) -> None:
+def _draw_typeset(ts: Any, rich: RichState, blocks: Sequence[Block], live: Block | None) -> bool:
+    """
+    The frame through imtypeset. True when the frame is this function's: it drew
+    it, or it failed once drawing had begun, and then the frame stays as far as it
+    got. False when it failed before anything was put on screen, so that the
+    caller's own renderer can draw the frame instead.
+
+    It never raises and never leaves ImGui's state other than it found it: what
+    is begun below is ended in a ``finally``. A failure is recorded
+    (``typeset.trouble()``) and the document is dropped, to be described again
+    from the blocks on the next frame; ``_FAILURES_BEFORE_OFF`` failing frames in
+    a row switch the library off for the run, and ``typeset.reason()`` says why.
+    """
+    begun = False
+    try:
+        st, width = _prepare(ts, rich, blocks, live)
+        begun = True
+        _emit(rich, st, width, blocks, live)
+    except Exception as exc:  # noqa: BLE001 -- a pane that draws beats one that raises
+        why = f"{type(exc).__name__}: {exc}"
+        rich.typeset = None
+        rich.typeset_failures += 1
+        if rich.typeset_failures >= _FAILURES_BEFORE_OFF:
+            typeset.disable(f"{why} ({rich.typeset_failures} frames in a row)")
+        else:
+            typeset.note(why)
+        return begun
+    rich.typeset_failures = 0
+    return True
+
+
+def _prepare(
+    ts: Any, rich: RichState, blocks: Sequence[Block], live: Block | None
+) -> tuple[_Typeset, float]:
+    """Everything a frame needs that draws nothing and begins nothing in ImGui."""
     size = imgui.get_font_size()
     st = rich.typeset
     if st is None or st.palette is not current() or st.size != size:
         st = rich.typeset = _Typeset(ts, size)
     _sync(ts, st, blocks, live)
-    doc = st.doc
-
     width = max(1.0, imgui.get_content_region_avail().x)
-    doc.layout(width, st.style)
+    st.doc.layout(width, st.style)
+    _marks(ts, st, rich.find.lower())
+    return st, width
+
+
+def _copy(doc: Any, selection: Any) -> None:
+    """The selection to the clipboard. One that cannot be read is recorded and
+    nothing is copied: it is no reason to stop drawing through the library."""
+    try:
+        text = doc.range_text(selection)
+    except Exception as exc:  # noqa: BLE001
+        typeset.note(f"copy: {type(exc).__name__}: {exc}")
+        return
+    imgui.set_clipboard_text(text)
+
+
+def _emit(
+    rich: RichState, st: _Typeset, width: float, blocks: Sequence[Block], live: Block | None
+) -> None:
+    """Draws the frame: the document, its tables, the pane's item, mouse and menu."""
+    doc = st.doc
     origin = imgui.get_cursor_screen_pos()
     x, y = origin.x, origin.y
     doc.draw(
         typeset.window_draw_list(),
         (x, y),
         selection=st.selection,
-        marks=_marks(ts, st, rich.find.lower()),
+        marks=st.marks,  # packed by _prepare
     )
+    # A table that cannot be drawn does not take the pane's item with it: the
+    # text is on screen, so the frame is finished and the failure raised after.
+    failed: Exception | None = None
     if st.tables:
-        _draw_tables(st, x, y, width)
+        try:
+            _draw_tables(st, x, y, width)
+        except Exception as exc:  # noqa: BLE001
+            failed = exc
+        imgui.set_cursor_screen_pos(imgui.ImVec2(x, y))
 
     imgui.invisible_button("##rich", imgui.ImVec2(width, max(doc.size()[1], 1.0)))
     hovered = imgui.is_item_hovered()
@@ -891,16 +1033,20 @@ def _draw_typeset(ts: Any, rich: RichState, blocks: Sequence[Block], live: Block
         and imgui.get_io().key_ctrl
         and imgui.is_key_pressed(imgui.Key.c, False)
     ):
-        imgui.set_clipboard_text(doc.range_text(st.selection))
+        _copy(doc, st.selection)
 
     if imgui.begin_popup_context_item("##rich_block_ctx"):
-        if st.selection is not None and imgui.menu_item_simple("copy selection"):
-            imgui.set_clipboard_text(doc.range_text(st.selection))
-        target = rich.context_block
-        if target is not None:
-            block = blocks[target] if target < len(blocks) else live
-            if block is not None:
-                label = block.kind.value.replace("_", " ")
-                if imgui.menu_item_simple(f"copy {label}"):
-                    imgui.set_clipboard_text("\n".join(block.lines))
-        imgui.end_popup()
+        try:
+            if st.selection is not None and imgui.menu_item_simple("copy selection"):
+                _copy(doc, st.selection)
+            target = rich.context_block
+            if target is not None:
+                block = blocks[target] if target < len(blocks) else live
+                if block is not None:
+                    label = block.kind.value.replace("_", " ")
+                    if imgui.menu_item_simple(f"copy {label}"):
+                        imgui.set_clipboard_text("\n".join(block.lines))
+        finally:
+            imgui.end_popup()
+    if failed is not None:
+        raise failed

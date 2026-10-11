@@ -46,11 +46,14 @@
 //   - The debug overlay's outlines are rectangles of its own and not ImGui's
 //     AddRect and AddLine (see Drawer::draw_runs).
 //   - Under DrawRules::product(), a formula is placed whole and not as a
-//     rigid span, a word is held to its laid-out width, and a word after a
-//     space is placed from the word before it: see DrawRules.
+//     rigid span, a word is held to its laid-out width, and words and
+//     formulas along a line are each placed from the one before: see
+//     DrawRules, which states the one bound those three keep between them.
 //   - Past 64k vertices with 16-bit indices, a draw command of the list ends
-//     up to 1,024 quads earlier than the reference's does: space is reserved
-//     for a run of quads at a time. The vertices and triangles are the same.
+//     up to 1,023 quads earlier than the reference's does: space is reserved
+//     for a run of up to 1,024 quads at a time, so ImGui starts a new command
+//     at 65,536 - 4,096 vertices at the earliest, where a quad at a time goes
+//     on to 65,532. The vertices and triangles are the same.
 //   - Optional culling by line (`LineIndex`), which the reference leaves to its
 //     views.
 //   - The per-call memo is kept as reusable scratch in a `Drawer`. It is still
@@ -233,7 +236,8 @@ struct DrawRun {
 // goldens runs under; product() is what the public API draws with.
 struct DrawRules {
     // A formula is set as one picture on the pixel grid. The left edge of its
-    // box is put on the nearest pixel, and every glyph and both ends of every
+    // box is put on a pixel — the nearest, or under word_spaces_led one of
+    // the two beside its place — and every glyph and both ends of every
     // rule in it stand at that pixel plus their own distance from the edge in
     // scaled points, converted and rounded once: nothing in a formula is
     // placed from the glyph before it. So each glyph and each end of a rule
@@ -248,6 +252,15 @@ struct DrawRules {
     // is put. What it costs is the evenness of a row of letters inside a
     // formula: a gap between two glyphs can be up to a pixel from the gap in
     // the layout, where a gap rounded on its own is at most half.
+    //
+    // Text set straight after a formula, with no space, is placed from the
+    // formula's rightmost part: whichever glyph, by its origin, or rule, by
+    // its right-hand end, stands furthest right in the layout, by the gap
+    // from it rounded once. That is the bar for a bracket closing a fraction
+    // and the last letter for one closing a row of letters; it need not be
+    // the glyph the formula shipped last, which for a fraction is in the
+    // middle of its denominator. A rule that lies wholly to one side of the
+    // formula's box is not the formula's, and ends it.
     //
     // The reference places a formula's glyphs as it places a word's, each by
     // the rounded gap from the one shipped before it, snaps every rule alone
@@ -273,7 +286,8 @@ struct DrawRules {
     // compared in single precision, as DrawOp::x1 keeps them), so a word is
     // the same picture wherever it stands. Only the word's two ends are
     // held: a glyph in the middle of a long word can still stand further
-    // from its place.
+    // from its place. Text set straight after a formula is a word from its
+    // first glyph, and text straight before one is a word that ends there.
     //
     // The reference rounds every gap to the nearest pixel and holds nothing.
     // The roundings of a word add up, the next word is anchored where layout
@@ -283,24 +297,57 @@ struct DrawRules {
     // width, and some at no width at all (tests/test_word_gaps.cpp).
     bool word_width_held = false;
 
-    // A word that follows a space is placed from the word before it: by the
-    // distance from that word's last glyph, rounded once, as a glyph inside a
-    // word is placed from the glyph before. It is held to the two pixels
-    // either side of where layout put it, so nothing accumulates along a line
-    // and the right-hand margin is kept; a word that starts a line, or
-    // follows a formula, a rule or anything else that is not a word and
-    // spaces, is put on the pixel nearest its own place. So a space is the
-    // width layout gave it to half a pixel wherever that hold does not come
-    // into it, and with word_width_held it is less than a pixel and a half
-    // from it always: a word's first glyph is less than a pixel from its
-    // place and its last less than a pixel and a half. What it costs: where
-    // a word after a space stands depends, by a pixel, on the words before it
-    // on the line, so two lines whose words start at one x in the layout can
-    // start them a pixel apart.
+    // Along a line each thing is placed from the thing before it, as a glyph
+    // inside a word is placed from the glyph before. The thing placed is the
+    // first glyph of a word that follows a space or follows a formula with
+    // no space, or the left edge of a formula's box. What it is placed from,
+    // the leader, is the last glyph of the word before it or, after a
+    // formula, the formula's rightmost part (see formula_placed_whole;
+    // without that rule a formula's glyphs are glyphs of a word like any
+    // others, and an atom ends the leader). It goes to the leader's pixel
+    // plus the laid-out distance between the two, rounded once, and is then
+    // held to the two pixels either side of its own place, so that nothing
+    // accumulates along a line and the right-hand margin is kept. Set glue
+    // and the start of a formula keep the leader. A line, a rule that is no
+    // formula's and anything else end it, and what comes next is put on the
+    // pixel nearest its own place.
+    //
+    // THE BOUND, which is what DrawRules::product() promises and what
+    // tests/test_word_gaps.cpp asserts. Take a word at its glyph nearest the
+    // neighbour and a formula at the left edge of its box. Then two
+    // neighbours on a line are drawn LESS THAN A PIXEL AND A HALF from their
+    // laid-out distance apart: two words across a space; text and a formula
+    // after it, with a space between them or with none; a formula and the
+    // text after it likewise; two formulas. Half a pixel wherever the hold
+    // to its own place does not move the thing that was led, which is nearly
+    // everywhere. It follows from three facts: whatever is led stands less
+    // than a pixel from its own place; a word's last glyph stands less than
+    // a pixel and a half from its place, being half a pixel from its
+    // laid-out distance to the first (word_width_held); and the hold only
+    // ever moves a thing towards its own place, so by less than its leader
+    // stands from the leader's.
+    //
+    // What the bound does not say. Inside a formula every glyph and rule end
+    // is up to half a pixel from its laid-out distance to the box's edge
+    // (formula_placed_whole), so the text before a formula can be up to two
+    // pixels from its laid-out distance to a particular glyph of the
+    // formula; text after a formula is less than a pixel and a half from the
+    // formula's rightmost part and at most a pixel from its box's edge.
+    // And a glyph in the middle of a long word is held by nothing.
+    //
+    // What it costs: where a word or a formula stands depends, by a pixel,
+    // on what is before it on the line, so two lines whose words start at
+    // one x in the layout can start them a pixel apart, and a formula is at
+    // one of the two pixels beside its place and not always the nearer.
+    // Text straight after a formula is, where the hold moves it, a pixel
+    // nearer the formula or further from it than one rounded gap would put
+    // it.
     //
     // The reference puts every span's first glyph on the pixel nearest its
     // own place, so a space carries the rounding of both words' anchors on
-    // top of what the word before it gathered.
+    // top of what the word before it gathered; and it places text after a
+    // formula one rounded gap from the glyph the formula shipped last,
+    // wherever that glyph went.
     bool word_spaces_led = false;
 
     static constexpr DrawRules reference() { return DrawRules(); }
@@ -524,8 +571,6 @@ private:
     std::vector<Other> _others;
     size_t _other_count = 0;
     uint32_t _last_key = 0;
-    // settle_word's: the ops of the gaps of one word that can give.
-    std::vector<size_t> _gaps;
     ImGuiBinder* _binder;
 };
 

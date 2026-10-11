@@ -155,6 +155,49 @@ struct SpanOf {
     // that is a word's and only glue lies between. NONE otherwise.
     size_t led_by = NONE;
     static constexpr size_t NONE = static_cast<size_t>(-1);
+    // What the product's rules place the span's word from, when anything:
+    // the last glyph of the text before it, or the edge of the formula before
+    // it. And the formula whose glyphs open the span, if a formula's do.
+    size_t word_led_by_glyph = NONE;
+    size_t word_led_by_formula = NONE;
+    size_t formula = NONE;
+};
+
+// A formula as the commands have it: its box, the glyphs it shipped, which
+// are side by side in `Drawn::glyphs`, and the ends of its rules with where
+// they were drawn.
+struct FormulaOf {
+    Scaled x = 0;
+    Scaled width = 0;
+    size_t first = 0;
+    size_t end = 0;
+    struct End {
+        Scaled x = 0;
+        double pen = 0.0;
+    };
+    std::vector<End> rule_ends;
+    // The part of it furthest right in the layout: a glyph's origin or a
+    // rule's right-hand end, or the box's left edge if it has neither. What
+    // comes after the formula is placed from this under the product's rules.
+    Scaled rightmost = 0;
+    // What the product's rules place its edge from, as for a span's word.
+    size_t led_by_glyph = SpanOf::NONE;
+    size_t led_by_formula = SpanOf::NONE;
+};
+
+// A glyph of text and a formula side by side on a line, with glue between
+// them or with none.
+struct Joint {
+    size_t text = 0;
+    size_t formula = 0;
+    bool text_first = false;
+    bool spaced = false;
+};
+
+// Two formulas side by side likewise.
+struct FormulaPair {
+    size_t before = 0;
+    size_t after = 0;
 };
 
 // A glue with a glyph of its own line on each side.
@@ -170,6 +213,9 @@ struct Drawn {
     std::vector<Placed> glyphs;
     std::vector<SpanOf> spans;
     std::vector<Space> spaces;
+    std::vector<FormulaOf> formulas;
+    std::vector<Joint> joints;
+    std::vector<FormulaPair> formula_pairs;
     float origin_x = 0.0f;
     double px_per_inch = 96.0;
 };
@@ -187,6 +233,17 @@ bool read_draw(const std::vector<DrawCmd>& cmds, const std::vector<DrawOp>& ops,
     out.glyphs.clear();
     out.spans.clear();
     out.spaces.clear();
+    out.formulas.clear();
+    out.joints.clear();
+    out.formula_pairs.clear();
+    // What stands before on the line with nothing but glue since: nothing, a
+    // glyph of text (the last in `glyphs`), or the formula `formula_at`.
+    enum { NOTHING, TEXT, FORMULA } before = NOTHING;
+    bool glue_since = false;
+    size_t formula_at = SpanOf::NONE;
+    // The product's leader: see SpanOf.
+    size_t lead_glyph = SpanOf::NONE;
+    size_t lead_formula = SpanOf::NONE;
     size_t op = 0;
     int quad = 0;
     bool span_open = false;
@@ -222,8 +279,24 @@ bool read_draw(const std::vector<DrawCmd>& cmds, const std::vector<DrawOp>& ops,
             if (!span_open) {
                 out.spans.push_back(SpanOf{at, at, leader});
                 span_open = true;
+                if (g.formula)
+                    out.spans.back().formula = formula_at;
             }
             out.spans.back().end = at + 1;
+            if (g.formula) {
+                out.formulas[formula_at].end = at + 1;
+                out.formulas[formula_at].rightmost =
+                    std::max(out.formulas[formula_at].rightmost, cmd.x);
+            } else {
+                if (at == out.spans.back().first || out.glyphs[at - 1].formula) {
+                    out.spans.back().word_led_by_glyph = lead_glyph;
+                    out.spans.back().word_led_by_formula = lead_formula;
+                }
+                if (before == FORMULA)
+                    out.joints.push_back(Joint{at, formula_at, false, glue_since});
+                before = TEXT;
+                glue_since = false;
+            }
             if (glue_pending && have_glyph_on_line) {
                 Space s;
                 s.before = at - 1;
@@ -241,6 +314,23 @@ bool read_draw(const std::vector<DrawCmd>& cmds, const std::vector<DrawOp>& ops,
         if (cmd.is(CmdType::RULE_RECT)) {
             if (op >= ops.size() || ops[op].type != OpType::RECT_FILLED)
                 return false;
+            if (in_formula) {
+                // A rule under a pixel long may have been widened to one, by
+                // its right-hand end.
+                out.formulas[formula_at].rule_ends.push_back(
+                    FormulaOf::End{cmd.x, static_cast<double>(ops[op].x0)});
+                if (px_from_sp(cmd.width, out.px_per_inch) >= 1.0)
+                    out.formulas[formula_at].rule_ends.push_back(
+                        FormulaOf::End{cmd.x + cmd.width, static_cast<double>(ops[op].x1)});
+            }
+            if (in_formula) {
+                out.formulas[formula_at].rightmost =
+                    std::max(out.formulas[formula_at].rightmost, cmd.x + cmd.width);
+            } else {
+                before = NOTHING;
+                lead_glyph = SpanOf::NONE;
+                lead_formula = SpanOf::NONE;
+            }
             ++op;
             quad += 4;
             // Under the product's rules a rule inside a formula does not end
@@ -258,6 +348,37 @@ bool read_draw(const std::vector<DrawCmd>& cmds, const std::vector<DrawOp>& ops,
                 leader = out.glyphs.back().formula ? SpanOf::NONE : out.glyphs.size() - 1;
         } else {
             leader = SpanOf::NONE;
+        }
+        if (cmd.is(CmdType::SET_GLUE) || cmd.is(CmdType::ATOM)) {
+            if (span_open && !out.glyphs.back().formula) {
+                lead_glyph = out.glyphs.size() - 1;
+                lead_formula = SpanOf::NONE;
+            }
+            glue_since = glue_since || cmd.is(CmdType::SET_GLUE);
+        } else {
+            before = NOTHING;
+            lead_glyph = SpanOf::NONE;
+            lead_formula = SpanOf::NONE;
+        }
+        if (cmd.is(CmdType::ATOM)) {
+            FormulaOf f;
+            f.x = cmd.x;
+            f.width = cmd.width;
+            f.rightmost = cmd.x;
+            f.first = f.end = out.glyphs.size();
+            f.led_by_glyph = lead_glyph;
+            f.led_by_formula = lead_formula;
+            const size_t now = out.formulas.size();
+            if (before == TEXT)
+                out.joints.push_back(Joint{out.glyphs.size() - 1, now, true, glue_since});
+            else if (before == FORMULA)
+                out.formula_pairs.push_back(FormulaPair{formula_at, now});
+            out.formulas.push_back(f);
+            formula_at = now;
+            before = FORMULA;
+            glue_since = false;
+            lead_glyph = SpanOf::NONE;
+            lead_formula = now;
         }
         span_open = false;
         if (cmd.is(CmdType::SET_GLUE)) {
@@ -301,6 +422,11 @@ struct RuleSet {
     // before, held to the two pixels either side of its own place, in place
     // of the pixel nearest its own place.
     bool follow;
+    // And so is text glued to the end of a formula, and a word after a space
+    // after one, from the formula's edge; and a formula's edge is placed the
+    // same way from what stands before it, with every glyph of the formula
+    // at its own rounded distance from that edge.
+    bool joints;
 };
 
 double snap(double v)
@@ -316,16 +442,62 @@ std::vector<double> pens_under(const Drawn& drawn, const RuleSet& set)
         pens[i] = drawn.glyphs[i].pen;
 
     const double density = drawn.px_per_inch;
+    // One pixel from the place of whatever leads it, and no further from its
+    // own place than the pixel either side.
+    const auto led_to = [&](double lead_pen, Scaled lead_x, Scaled x) {
+        const double place = device_coordinate(drawn.origin_x, x, density);
+        const double led = lead_pen + snap(px_of(x - lead_x, density));
+        return std::min(std::max(led, std::floor(place)), std::ceil(place));
+    };
+    std::vector<double> edges(drawn.formulas.size(), 0.0);
+    size_t edges_known = 0;
+    // Where a formula's rightmost part went: its own rounded distance from
+    // the edge, like every part of a formula.
+    const auto rightmost_pen = [&](size_t f) {
+        return edges[f] + snap(px_of(drawn.formulas[f].rightmost - drawn.formulas[f].x, density));
+    };
     for (const SpanOf& span : drawn.spans) {
+        if (set.joints) {
+            // The edge of every formula that begins before this span ends:
+            // what leads one is before it.
+            for (; edges_known < drawn.formulas.size() &&
+                   drawn.formulas[edges_known].first <= span.first;
+                 ++edges_known) {
+                const FormulaOf& f = drawn.formulas[edges_known];
+                if (f.led_by_glyph != SpanOf::NONE)
+                    edges[edges_known] =
+                        led_to(pens[f.led_by_glyph], drawn.glyphs[f.led_by_glyph].x, f.x);
+                else if (f.led_by_formula != SpanOf::NONE)
+                    edges[edges_known] = led_to(rightmost_pen(f.led_by_formula),
+                                                drawn.formulas[f.led_by_formula].rightmost, f.x);
+                else
+                    edges[edges_known] = snap(device_coordinate(drawn.origin_x, f.x, density));
+            }
+        }
         // The word: from the first glyph of the span that is not a formula's.
         size_t first = span.first;
-        while (first < span.end && drawn.glyphs[first].formula)
+        while (first < span.end && drawn.glyphs[first].formula) {
+            if (set.joints)
+                pens[first] =
+                    edges[span.formula] +
+                    snap(px_of(drawn.glyphs[first].x - drawn.formulas[span.formula].x, density));
             ++first;
+        }
         if (first >= span.end)
             continue;
         // Its first glyph is placed as the draw placed it: the anchor, or the
         // rounded gap from a formula's last glyph.
-        if (set.follow && first == span.first && span.led_by != SpanOf::NONE) {
+        if (set.joints) {
+            const Scaled x = drawn.glyphs[first].x;
+            if (span.word_led_by_glyph != SpanOf::NONE)
+                pens[first] =
+                    led_to(pens[span.word_led_by_glyph], drawn.glyphs[span.word_led_by_glyph].x, x);
+            else if (span.word_led_by_formula != SpanOf::NONE)
+                pens[first] = led_to(rightmost_pen(span.word_led_by_formula),
+                                     drawn.formulas[span.word_led_by_formula].rightmost, x);
+            else
+                pens[first] = snap(device_coordinate(drawn.origin_x, x, density));
+        } else if (set.follow && first == span.first && span.led_by != SpanOf::NONE) {
             const double place = device_coordinate(drawn.origin_x, drawn.glyphs[first].x, density);
             const double led =
                 pens[span.led_by] +
@@ -544,17 +716,17 @@ void print_row(const char* name, const Tally& t)
 }
 
 const RuleSet CANDIDATES[] = {
-    {"advance", Rule::ADVANCE, 0.0, false},
-    {"whole", Rule::WHOLE, 0.0, false},
-    {"greedy 0.5", Rule::GREEDY, 0.5, false},
-    {"greedy 1.0", Rule::GREEDY, 1.0, false},
-    {"tie 0.5", Rule::NEAREST_TIE, 0.5, false},
-    {"tie 0.75", Rule::NEAREST_TIE, 0.75, false},
-    {"tie 1.0", Rule::NEAREST_TIE, 1.0, false},
-    {"advance+follow", Rule::ADVANCE, 0.0, true},
-    {"tie 0.5+follow", Rule::NEAREST_TIE, 0.5, true},
-    {"tie 0.75+follow", Rule::NEAREST_TIE, 0.75, true},
-    {"tie 1.0+follow", Rule::NEAREST_TIE, 1.0, true},
+    {"advance", Rule::ADVANCE, 0.0, false, false},
+    {"whole", Rule::WHOLE, 0.0, false, false},
+    {"greedy 0.5", Rule::GREEDY, 0.5, false, false},
+    {"greedy 1.0", Rule::GREEDY, 1.0, false, false},
+    {"tie 0.5", Rule::NEAREST_TIE, 0.5, false, false},
+    {"tie 0.75", Rule::NEAREST_TIE, 0.75, false, false},
+    {"tie 1.0", Rule::NEAREST_TIE, 1.0, false, false},
+    {"advance+follow", Rule::ADVANCE, 0.0, true, false},
+    {"tie 0.5+follow", Rule::NEAREST_TIE, 0.5, true, false},
+    {"tie 0.75+follow", Rule::NEAREST_TIE, 0.75, true, false},
+    {"tie 1.0+follow", Rule::NEAREST_TIE, 1.0, true, false},
 };
 constexpr size_t CANDIDATE_COUNT = sizeof(CANDIDATES) / sizeof(CANDIDATES[0]);
 
@@ -607,7 +779,7 @@ bool draw_case(Stage& stage, ImTypesetParagraph* p, const Case& c, float size, b
 }
 
 // What DrawRules::product() is, in the terms of `pens_under`.
-const RuleSet PRODUCT = {"product", Rule::NEAREST_TIE, WORD_WIDTH_BOUND_PX, true};
+const RuleSet PRODUCT = {"product", Rule::NEAREST_TIE, WORD_WIDTH_BOUND_PX, true, true};
 
 long pens_that_differ(const Drawn& drawn, const RuleSet& set)
 {
@@ -805,6 +977,288 @@ TEST(under_the_products_rules_a_word_is_one_picture_wherever_it_stands)
             }
         }
     }
+    ImTypeset::DestroyParagraph(p);
+}
+
+// --- Where text meets a formula ---------------------------------------------------------
+
+namespace
+{
+
+// Text glued to a formula on either side and on both, and formulas with a
+// space beside them, in prose long enough to be justified over several lines.
+// Not "$n$th": a dollar with a letter, a digit, a brace or a bracket straight
+// after it closes no formula (scan_math in src/imtypeset.cpp, after the
+// reference), so that is text, dollars and all. What can be glued to the end
+// of a formula is punctuation and what follows it.
+const char* const JOINTS_1 =
+    "The $n$-th term of the series lies on the $x$-axis, and $f$'s value there ($x$) is "
+    "written f($x$) when it is $x$, or $y$; so the $k$-th root of ($a+b$) is $r$, where the "
+    "$x$-axis meets the $y$-axis, and $g$'s slope ($m$) is g($t$) for $t$, not $s$. The "
+    "$i$-th and the $j$-th of them, ($p$) and ($q$), are h($u$) and h($v$): $h$'s own.";
+const char* const JOINTS_2 =
+    "The sum ($\\frac{n(n+1)}{2}$) of the first $n$ integers is $\\frac{n(n+1)}{2}$, which "
+    "is $x^2$-like for large $n$; the $i$-th partial sum f($\\frac{1}{2}$) and ($\\sqrt{x}$)'s "
+    "value, $\\sqrt{2}$, meet at ($x_1$, $x_2$), the $m$-th and the $(m+1)$-st, with "
+    "g($x^2 + y^2$) for $\\frac{a}{b}$'s $k$-th power and ($\\sqrt{a^2 + b^2}$)-long sides.";
+const char* const JOINTS_3 =
+    "It is $x$ if it is $y$ and it is $z$, so $a$ is $b$, $c$ is $d$ and $e$ is $f$; then "
+    "$a$ $b$ $c$ are $d$ $e$ $f$, as $p$, $q$, $r$ is $s$, $t$, $u$. What is $w$ is $w$, "
+    "what is $v$ was $u$, and it is $x$-wise the $n$-th ($n$) of f($n$), is $n$, was $n$.";
+
+std::vector<Case> joint_cases()
+{
+    std::vector<Case> out;
+    for (const float width : {520.0f, 337.0f, 250.0f}) {
+        out.push_back({"joints-1", JOINTS_1, width});
+        out.push_back({"joints-2", JOINTS_2, width});
+        out.push_back({"joints-3", JOINTS_3, width});
+    }
+    return out;
+}
+
+// The four ways a glyph of text stands beside a formula.
+const char* const JOINT_KINDS[4] = {
+    "text, formula",
+    "text, space, formula",
+    "formula, text",
+    "formula, space, text",
+};
+
+// How far joints are drawn from how they were laid out, in pixels: the drawn
+// distance less the laid-out one, so below zero is closer together.
+struct JointTally {
+    long count = 0;
+    // From the glyph of text to the part of the formula that stands nearest
+    // it in the layout: for text before the formula the glyph origin or rule
+    // end furthest left, for text after it the one furthest right.
+    double near_low = 0.0;
+    double near_high = 0.0;
+    long near_over_half = 0;
+    long near_over_1 = 0;
+    // To whichever glyph or end of a rule of the formula is furthest out.
+    double any = 0.0;
+    long any_over_15 = 0;
+    // To the edge of the formula's box, where its glyphs and rules all stand
+    // at their own rounded distances from one pixel: the product's rules.
+    double edge_low = 0.0;
+    double edge_high = 0.0;
+    long edge_over_1 = 0;
+};
+
+// The pixel a formula's parts were placed from, by its first glyph; false if
+// it has none or its parts were not placed from one pixel.
+bool edge_of(const Drawn& drawn, const FormulaOf& f, double* edge)
+{
+    if (f.first >= f.end)
+        return false;
+    const double density = drawn.px_per_inch;
+    *edge = drawn.glyphs[f.first].pen - snap(px_of(drawn.glyphs[f.first].x - f.x, density));
+    for (size_t i = f.first; i < f.end; ++i)
+        if (drawn.glyphs[i].pen != *edge + snap(px_of(drawn.glyphs[i].x - f.x, density)))
+            return false;
+    return true;
+}
+
+// Adds the joints of one draw to `kinds`, and answers the furthest any was
+// from its laid-out distance at the formula's edge (zero where `edges` is
+// false: under the reference's rules a formula has none).
+double tally_joints(const Drawn& drawn, bool edges, JointTally kinds[4])
+{
+    const double density = drawn.px_per_inch;
+    double worst_edge = 0.0;
+    for (const Joint& j : drawn.joints) {
+        const FormulaOf& f = drawn.formulas[j.formula];
+        if (f.first >= f.end)
+            continue;
+        const Placed& text = drawn.glyphs[j.text];
+        JointTally& t = kinds[(j.text_first ? 0 : 2) + (j.spaced ? 1 : 0)];
+        const auto off = [&](Scaled x, double pen) {
+            return j.text_first ? (pen - text.pen) - px_of(x - text.x, density)
+                                : (text.pen - pen) - px_of(text.x - x, density);
+        };
+        ++t.count;
+        FormulaOf::End nearest{drawn.glyphs[f.first].x, drawn.glyphs[f.first].pen};
+        const auto nearer = [&](Scaled x, double pen) {
+            if (j.text_first ? x < nearest.x : x > nearest.x)
+                nearest = FormulaOf::End{x, pen};
+        };
+        double any = 0.0;
+        for (size_t i = f.first; i < f.end; ++i) {
+            any = std::max(any, std::fabs(off(drawn.glyphs[i].x, drawn.glyphs[i].pen)));
+            nearer(drawn.glyphs[i].x, drawn.glyphs[i].pen);
+        }
+        for (const FormulaOf::End& end : f.rule_ends) {
+            any = std::max(any, std::fabs(off(end.x, end.pen)));
+            nearer(end.x, end.pen);
+        }
+        const double near = off(nearest.x, nearest.pen);
+        t.near_low = std::min(t.near_low, near);
+        t.near_high = std::max(t.near_high, near);
+        t.near_over_half += std::fabs(near) > 0.5 + 1.0e-9;
+        t.near_over_1 += std::fabs(near) > 1.0;
+        t.any = std::max(t.any, any);
+        t.any_over_15 += any > 1.5;
+        double edge = 0.0;
+        if (edges && edge_of(drawn, f, &edge)) {
+            const double at_edge = off(f.x, edge);
+            t.edge_low = std::min(t.edge_low, at_edge);
+            t.edge_high = std::max(t.edge_high, at_edge);
+            t.edge_over_1 += std::fabs(at_edge) > 1.0;
+            worst_edge = std::max(worst_edge, std::fabs(at_edge));
+        }
+    }
+    return worst_edge;
+}
+
+void print_joints(const char* rules, const JointTally kinds[4], bool edges)
+{
+    for (int k = 0; k < 4; ++k) {
+        const JointTally& t = kinds[k];
+        std::printf("    %-9s %-21s %6ld: nearest part %+.2f to %+.2f px (%ld over 0.5, %ld "
+                    "over 1); furthest part %.2f (%ld over 1.5)",
+                    rules, JOINT_KINDS[k], t.count, t.near_low, t.near_high, t.near_over_half,
+                    t.near_over_1, t.any, t.any_over_15);
+        if (edges)
+            std::printf("; box edge %+.2f to %+.2f (%ld over 1)", t.edge_low, t.edge_high,
+                        t.edge_over_1);
+        std::printf("\n");
+    }
+}
+
+} // namespace
+
+TEST(under_the_products_rules_a_joint_of_text_and_formula_is_within_a_pixel_and_a_half_too)
+{
+    // The one bound of DrawRules::product(), over prose in which text is
+    // glued to formulas on both sides ("$n$-th", "$x$-axis", "$f$'s", "($x$)",
+    // "f($x$)", "is $x$", "$x$,"), justified at three widths, at 13 to 20 px
+    // as an em and as a font size, at three origins: two neighbours on a line
+    // — a word and a word across a space, a glyph of text and a formula with
+    // a space between them or none, two formulas — are drawn less than a
+    // pixel and a half from their laid-out distance apart, a word taken at
+    // the glyph nearest the neighbour and a formula at the edge of its box.
+    // Inside a formula every glyph is within half a pixel of its laid-out
+    // distance from that edge. And the product's rules against the
+    // reference's at the same joints, by the glyphs and rule ends
+    // themselves, which is a measure the reference's rules have too.
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    ImTypesetParagraph* p = ImTypeset::CreateParagraph();
+    REQUIRE(p != nullptr);
+    const std::vector<Case> all = joint_cases();
+    JointTally reference[4], product[4];
+    Tally reference_spaces, product_spaces;
+    double worst_pair_of_formulas = 0.0;
+    double reference_place = 0.0, product_place = 0.0;
+    for (const bool as_em : {true, false}) {
+        for (int size = 13; size <= 20; ++size) {
+            for (const Case& c : all) {
+                for (const float origin : {8.0f, 8.375f, 8.6875f}) {
+                    CHECK_CONTEXT("%s at %d px (%s), width %g, origin %g", c.name, size,
+                                  as_em ? "em" : "font size", static_cast<double>(c.width),
+                                  static_cast<double>(origin));
+                    Drawn drawn;
+                    stage.ctx->draw_rules = DrawRules::reference();
+                    REQUIRE(draw_case(stage, p, c, static_cast<float>(size), as_em, origin, drawn));
+                    std::vector<double> pens(drawn.glyphs.size());
+                    for (size_t i = 0; i < pens.size(); ++i) {
+                        pens[i] = drawn.glyphs[i].pen;
+                        reference_place = std::max(
+                            reference_place,
+                            std::fabs(pens[i] - (static_cast<double>(origin) +
+                                                 px_of(drawn.glyphs[i].x, drawn.px_per_inch))));
+                    }
+                    tally(drawn, pens, "", reference_spaces);
+                    tally_joints(drawn, false, reference);
+
+                    stage.ctx->draw_rules = DrawRules::product();
+                    REQUIRE(draw_case(stage, p, c, static_cast<float>(size), as_em, origin, drawn));
+                    CHECK_EQ(pens_that_differ(drawn, PRODUCT), 0L);
+                    long off_grid = 0;
+                    for (size_t i = 0; i < pens.size(); ++i) {
+                        pens[i] = drawn.glyphs[i].pen;
+                        off_grid += pens[i] != std::floor(pens[i]);
+                        product_place = std::max(
+                            product_place,
+                            std::fabs(pens[i] - (static_cast<double>(origin) +
+                                                 px_of(drawn.glyphs[i].x, drawn.px_per_inch))));
+                    }
+                    CHECK_EQ(off_grid, 0L);
+                    Tally here;
+                    tally(drawn, pens, "", here);
+                    tally(drawn, pens, "", product_spaces);
+                    CHECK(here.worst_word <= WORD_WIDTH_BOUND_PX);
+                    CHECK(here.worst_narrow > -1.5);
+                    CHECK(here.worst_wide < 1.5);
+                    CHECK(!drawn.joints.empty());
+                    CHECK(tally_joints(drawn, true, product) < 1.5);
+                    for (const FormulaOf& f : drawn.formulas) {
+                        double edge = 0.0;
+                        CHECK(edge_of(drawn, f, &edge));
+                    }
+                    for (const FormulaPair& pair : drawn.formula_pairs) {
+                        const FormulaOf& a = drawn.formulas[pair.before];
+                        const FormulaOf& b = drawn.formulas[pair.after];
+                        double edge_a = 0.0, edge_b = 0.0;
+                        if (!edge_of(drawn, a, &edge_a) || !edge_of(drawn, b, &edge_b))
+                            continue;
+                        const double off = (edge_b - edge_a) - px_of(b.x - a.x, drawn.px_per_inch);
+                        worst_pair_of_formulas = std::max(worst_pair_of_formulas, std::fabs(off));
+                        CHECK(std::fabs(off) < 1.5);
+                    }
+                }
+            }
+        }
+    }
+    print_joints("reference", reference, false);
+    print_joints("product", product, true);
+    std::printf("    spaces between two words: reference %ld, %+.2f to %+.2f px, %ld over 1; "
+                "product %+.2f to %+.2f px, %ld over 1\n",
+                reference_spaces.spaces, reference_spaces.worst_narrow, reference_spaces.worst_wide,
+                reference_spaces.off_by_over_1, product_spaces.worst_narrow,
+                product_spaces.worst_wide, product_spaces.off_by_over_1);
+    std::printf("    two formulas side by side, edge to edge: product %.2f px at the worst\n",
+                worst_pair_of_formulas);
+    std::printf("    a glyph against its own place, which is where a caret before it and the "
+                "edge of a highlight stand: reference %.2f px at the worst, product %.2f; in "
+                "words alone %.2f and %.2f\n",
+                reference_place, product_place, reference_spaces.worst_place,
+                product_spaces.worst_place);
+    std::printf("    pairs of glyphs in words over half a pixel off: reference %ld of %ld, "
+                "product %ld\n",
+                reference_spaces.uneven, reference_spaces.pairs, product_spaces.uneven);
+    for (int k = 0; k < 4; ++k) {
+        CHECK_CONTEXT("%s", JOINT_KINDS[k]);
+        CHECK(product[k].count > 100);
+        // By the parts themselves, which is a measure both sets of rules
+        // have: no part of a formula further out than under the reference's
+        // rules at any kind of joint.
+        CHECK(product[k].any <= reference[k].any);
+        CHECK(product[k].any_over_15 <= reference[k].any_over_15);
+        // The part of the formula nearest the text: a pixel and a half and
+        // the half a pixel that part has against the box's edge.
+        CHECK(product[k].near_low > -2.0);
+        CHECK(product[k].near_high < 2.0);
+        // And against the reference's rules, for all but text straight
+        // after a formula: no further out at the worst, and over half a
+        // pixel out less often.
+        if (k != 2) {
+            CHECK(product[k].near_low >= reference[k].near_low);
+            CHECK(product[k].near_high <= reference[k].near_high);
+            CHECK(product[k].near_over_half <= reference[k].near_over_half);
+            CHECK(product[k].near_over_1 <= reference[k].near_over_1);
+        }
+    }
+    // Text straight after a formula is the one kind the reference's rules
+    // place more evenly: by one rounded gap from the glyph the formula
+    // shipped last, with nothing to hold it to its own place. Here it is
+    // placed from the formula's rightmost part by one rounded gap too, and
+    // then held beside its own place, which is what keeps the space after it;
+    // where that hold moves it, it is a pixel nearer or further.
+    CHECK(product[2].near_low > -1.5);
+    CHECK(product[2].near_high < 1.5);
+    CHECK(product[2].near_over_1 * 100 < product[2].count);
     ImTypeset::DestroyParagraph(p);
 }
 
@@ -1008,6 +1462,64 @@ TEST(a_word_of_twenty_thousand_glyphs_is_held_and_the_work_is_not_its_length_tim
     CHECK_EQ(wide, static_cast<size_t>(std::ceil(laid_out - 19999.0 - WORD_WIDTH_BOUND_PX)));
 }
 
+TEST(the_gaps_that_give_are_the_ones_rounded_furthest_whatever_their_roundings_are)
+{
+    // Three hundred gaps of 1 px and something under a half, the something
+    // from a generator and so in no order, with many equal: each rounds to 1
+    // and the word is some seventy pixels narrow. Those that give, found
+    // here by sorting every gap by how far it was rounded and then by where
+    // it is, are the ones the draw moves: the selection of the many from
+    // the more is exact, ties and all.
+    const FontKey key = font_key(Face::PROSE, 20 * UNITY);
+    const Scaled y = 20 * UNITY;
+    for (const bool narrow : {true, false}) {
+        CHECK_CONTEXT("%s", narrow ? "too narrow" : "too wide");
+        std::vector<DrawCmd> commands;
+        std::vector<float> rounding(1, 0.0f);
+        Scaled x = 0;
+        uint32_t state = 12345;
+        commands.push_back(DrawCmd::glyph(key, 'a', x, y, 0));
+        double laid_out = 0.0;
+        for (uint32_t i = 1; i <= 300; ++i) {
+            state = state * 1664525u + 1013904223u;
+            // A fraction of 0.02 to 0.48 in steps of a fiftieth, so that
+            // many gaps are rounded alike; above a half for a word too wide.
+            const int64_t fiftieths = 1 + (state >> 16) % 24;
+            const Scaled gap = UNITY + (narrow ? fiftieths : 50 - fiftieths) * UNITY / 50;
+            x += gap;
+            commands.push_back(DrawCmd::glyph(key, 'a', x, y, i));
+            const double step = px_from_sp(gap, PT_PER_INCH);
+            rounding.push_back(static_cast<float>(std::floor(step + 0.5) - step));
+            laid_out += step;
+        }
+        const double natural = narrow ? 300.0 : 600.0;
+        const double sign = narrow ? -1.0 : 1.0;
+        const size_t wanted =
+            static_cast<size_t>(std::ceil(std::fabs(natural - laid_out) - WORD_WIDTH_BOUND_PX));
+        REQUIRE(wanted > 20);
+        REQUIRE(wanted < 280);
+        std::vector<size_t> order;
+        for (size_t i = 1; i <= 300; ++i)
+            order.push_back(i);
+        std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+            return static_cast<float>(sign) * rounding[a] > static_cast<float>(sign) * rounding[b];
+        });
+        std::vector<bool> gives(301, false);
+        for (size_t n = 0; n < wanted; ++n)
+            gives[order[n]] = true;
+        std::vector<float> expected(1, 0.0f);
+        for (size_t i = 1; i <= 300; ++i) {
+            const float rounded = narrow ? 1.0f : 2.0f;
+            expected.push_back(expected.back() + rounded -
+                               (gives[i] ? static_cast<float>(sign) : 0.0f));
+        }
+        const std::vector<float> pens = pens_of(commands, only_held(), 0.0f);
+        CHECK(pens == expected);
+        REQUIRE_EQ(pens.size(), size_t(301));
+        CHECK(std::fabs(static_cast<double>(pens.back()) - laid_out) <= WORD_WIDTH_BOUND_PX);
+    }
+}
+
 TEST(a_word_after_a_space_is_placed_from_the_word_before_and_kept_beside_its_own_place)
 {
     const FontKey key = font_key(Face::PROSE, 20 * UNITY);
@@ -1040,16 +1552,36 @@ TEST(a_word_after_a_space_is_placed_from_the_word_before_and_kept_beside_its_own
         // would be 15 + snap(3.5) = 19.
         DrawCmd::glyph(key, 'g', hundredths(840), y, 10),
         glue(900, 11),
-        // A place on a whole pixel has no pixel either side: 10 + 12 = 22.
-        // Led from g it would be 18 + snap(3.4) = 21.
+        // Led from g, 18 + snap(3.6) = 22, which is its own place too.
         DrawCmd::glyph(key, 'h', hundredths(1200), y, 12),
+        DrawCmd::line(0, y, 0, 0, 0, 13, 16),
+        // j at snap(10.5) = 11, half a pixel right of its place.
+        DrawCmd::glyph(key, 'j', hundredths(50), y, 13),
+        glue(200, 14),
+        // k is 3.5 px on, and its place is a whole pixel, 14. Led it would
+        // be at 11 + snap(3.5) = 15; a place on a whole pixel has no pixel
+        // either side of it, and k is held to 14.
+        DrawCmd::glyph(key, 'k', hundredths(400), y, 15),
     };
-    CHECK(pens_of(commands, DrawRules::reference(), 10.0f) ==
-          (std::vector<float>{10.0f, 11.0f, 15.0f, 16.0f, 20.0f, 15.0f, 18.0f, 22.0f}));
-    CHECK(pens_of(commands, only_led(), 10.0f) ==
-          (std::vector<float>{10.0f, 11.0f, 14.0f, 15.0f, 19.0f, 15.0f, 18.0f, 22.0f}));
-    CHECK(pens_of(commands, DrawRules::product(), 10.0f) ==
-          (std::vector<float>{10.0f, 11.0f, 14.0f, 15.0f, 19.0f, 15.0f, 18.0f, 22.0f}));
+    REQUIRE_EQ(commands[commands.size() - 3].x, UNITY / 2);
+    REQUIRE_EQ(commands.back().x, 4 * UNITY);
+    CHECK(
+        pens_of(commands, DrawRules::reference(), 10.0f) ==
+        (std::vector<float>{10.0f, 11.0f, 15.0f, 16.0f, 20.0f, 15.0f, 18.0f, 22.0f, 11.0f, 14.0f}));
+    CHECK(
+        pens_of(commands, only_led(), 10.0f) ==
+        (std::vector<float>{10.0f, 11.0f, 14.0f, 15.0f, 19.0f, 15.0f, 18.0f, 22.0f, 11.0f, 14.0f}));
+    CHECK(
+        pens_of(commands, DrawRules::product(), 10.0f) ==
+        (std::vector<float>{10.0f, 11.0f, 14.0f, 15.0f, 19.0f, 15.0f, 18.0f, 22.0f, 11.0f, 14.0f}));
+    // Without the hold to its own place k would have been led to 15: the same
+    // two, a hundredth of a pixel further along, where 14.01 has 15 beside it.
+    std::vector<DrawCmd> beside = {
+        DrawCmd::glyph(key, 'j', hundredths(51), y, 0),
+        glue(200, 1),
+        DrawCmd::glyph(key, 'k', hundredths(401), y, 2),
+    };
+    CHECK(pens_of(beside, only_led(), 10.0f) == (std::vector<float>{11.0f, 15.0f}));
 }
 
 TEST(a_word_is_led_from_where_the_word_before_ended_after_it_was_held)
@@ -1070,7 +1602,7 @@ TEST(a_word_is_led_from_where_the_word_before_ended_after_it_was_held)
     CHECK(pens_of(commands, only_led(), 0.0f) == (std::vector<float>{0.0f, 1.0f, 2.0f, 6.0f}));
 }
 
-TEST(a_formula_neither_leads_a_word_nor_is_led_and_its_glyphs_are_not_of_the_word)
+TEST(a_formula_is_led_by_its_boxs_edge_and_leads_by_its_rightmost_part)
 {
     const FontKey key = font_key(Face::PROSE, 20 * UNITY);
     const Scaled y = 20 * UNITY;
@@ -1081,28 +1613,237 @@ TEST(a_formula_neither_leads_a_word_nor_is_led_and_its_glyphs_are_not_of_the_wor
         DrawCmd::glyph(key, 'a', hundredths(30), y, 0),  // 10
         DrawCmd::glyph(key, 'b', hundredths(150), y, 1), // 11
         glue(250, 2),
-        // A formula 3.4 px on from b, its box at 14.9: on its own pixel, 15,
-        // where a word would have been led to 14. Its two glyphs from the
-        // box's edge: 15 + snap(0) and 15 + snap(1.45) = 16.
+        // A formula 3.4 px on from b, its box at 14.9: led as a word would
+        // be, 11 + 3 = 14, which is beside 14.9. Its two glyphs from the
+        // box's edge: 14 + snap(0) and 14 + snap(1.45) = 15.
         DrawCmd::atom(hundredths(490), y, hundredths(300), hundredths(300), 0, 0, 3),
         DrawCmd::glyph(key, 'x', hundredths(490), y, 3),
         DrawCmd::glyph(key, 'y', hundredths(635), y, 3),
         // A comma straight after it is a word of one glyph in the formula's
-        // span, placed from the formula's last glyph: 16 + snap(1.45) = 17.
+        // span, placed from the formula's rightmost part, the y: 1.45 px on,
+        // 15 + 1 = 16, which is not beside its place, 17.8, and it is held
+        // to 17.
         DrawCmd::glyph(key, ',', hundredths(780), y, 4),
         glue(850, 5),
         // And it leads: 4.1 px on, 17 + 4 = 21, its place 21.9.
         DrawCmd::glyph(key, 'c', hundredths(1190), y, 6),
         glue(1300, 7),
+        // A box whose place is a whole pixel, 24, is on it: led from c it
+        // would be at 21 + snap(2.1) = 23.
         DrawCmd::atom(hundredths(1400), y, hundredths(100), hundredths(100), 0, 0, 8),
         DrawCmd::glyph(key, 'z', hundredths(1400), y, 8), // 24
         glue(1500, 9),
-        // After a formula with nothing after it, a word's own place:
-        // snap(27.9) = 28. Led from z it would be 24 + snap(3.4) = 27.
+        // A word after a space after a formula is led from the formula's
+        // rightmost part, here the z: 3.9 px on, 24 + 4 = 28, its place 27.9.
         DrawCmd::glyph(key, 'd', hundredths(1790), y, 10),
+        glue(1900, 11),
+        // Two formulas. The first is led from d, 2.4 px on: 28 + 2 = 30, its
+        // place 30.3. The second from the first's rightmost part, which is
+        // its one glyph, 5.4 px on: 30 + 5 = 35, beside its place at 35.7.
+        DrawCmd::atom(hundredths(2030), y, hundredths(100), hundredths(100), 0, 0, 12),
+        DrawCmd::glyph(key, 'p', hundredths(2030), y, 12),
+        glue(2200, 13),
+        DrawCmd::atom(hundredths(2570), y, hundredths(100), hundredths(100), 0, 0, 14),
+        DrawCmd::glyph(key, 'q', hundredths(2570), y, 14),
     };
-    CHECK(pens_of(commands, DrawRules::product(), 10.0f) ==
-          (std::vector<float>{10.0f, 11.0f, 15.0f, 16.0f, 17.0f, 21.0f, 24.0f, 28.0f}));
+    CHECK(
+        pens_of(commands, DrawRules::product(), 10.0f) ==
+        (std::vector<float>{10.0f, 11.0f, 14.0f, 15.0f, 17.0f, 21.0f, 24.0f, 28.0f, 30.0f, 35.0f}));
+    // Under the reference's rules each of them is on the pixel nearest its
+    // own place, and the y and the comma a rounded gap on from the glyph
+    // before.
+    CHECK(
+        pens_of(commands, DrawRules::reference(), 10.0f) ==
+        (std::vector<float>{10.0f, 11.0f, 15.0f, 16.0f, 17.0f, 22.0f, 24.0f, 28.0f, 30.0f, 36.0f}));
+    // A formula's glyphs are no part of a word: the gap between the x and
+    // the y is 1.45 px and rounds to 1 whatever the words either side do.
+}
+
+TEST(
+    text_glued_to_the_end_of_a_formula_is_kept_beside_its_place_and_the_space_after_keeps_its_width)
+{
+    // "$x^2$-th a", origin 0. The box at 10.6 goes to 11, and the formula's
+    // last glyph, 5.6 px along it, to 11 + 6 = 17, 0.8 right of its place.
+    // The hyphen is 4.6 px on from that glyph, 17 + 5 = 22, and its place is
+    // 20.8: 22 is not beside it, and the hyphen is held to 21. Then gaps of
+    // 4.6 and 4.95: 26 and 31 (25.4 and 30.35; the word is 10 wide against
+    // 9.55). The a, on a whole pixel at 39, is on it, and the space between
+    // h and a is 8 px from pen to pen against 8.65.
+    //
+    // Not held, the hyphen is at 22 and the h at 32, 1.65 px right of its
+    // place, and all of that comes out of the space: 7 against 8.65.
+    const FontKey key = font_key(Face::PROSE, 20 * UNITY);
+    const Scaled y = 20 * UNITY;
+    const std::vector<DrawCmd> commands = {
+        DrawCmd::atom(hundredths(1060), y, hundredths(1020), hundredths(1020), 0, 0, 0),
+        DrawCmd::glyph(key, 'x', hundredths(1060), y, 0),
+        DrawCmd::glyph(key, '2', hundredths(1620), y, 0),
+        DrawCmd::glyph(key, '-', hundredths(2080), y, 1),
+        DrawCmd::glyph(key, 't', hundredths(2540), y, 2),
+        DrawCmd::glyph(key, 'h', hundredths(3035), y, 3),
+        DrawCmd::set_glue(hundredths(3600), y, hundredths(300), hundredths(300), 0, 0, 4),
+        DrawCmd::glyph(key, 'a', hundredths(3900), y, 5),
+    };
+    REQUIRE_EQ(commands.back().x, 39 * UNITY);
+    CHECK(pens_of(commands, DrawRules::reference(), 0.0f) ==
+          (std::vector<float>{11.0f, 17.0f, 22.0f, 27.0f, 32.0f, 39.0f}));
+    const std::vector<float> pens = pens_of(commands, DrawRules::product(), 0.0f);
+    CHECK(pens == (std::vector<float>{11.0f, 17.0f, 21.0f, 26.0f, 31.0f, 39.0f}));
+    REQUIRE_EQ(pens.size(), size_t(6));
+    CHECK(std::fabs(static_cast<double>(pens[5] - pens[4]) - 8.65) < 1.5);
+    // The hyphen against the box's edge: 10 px against 10.2.
+    CHECK(std::fabs(static_cast<double>(pens[2] - pens[0]) - 10.2) < 1.5);
+}
+
+TEST(a_bracket_after_a_fraction_stands_clear_of_the_bar_it_follows)
+{
+    // "$\frac{n}{2}$)" with the box at 0: a numerator's glyph at 2.0, the bar
+    // from 0 to 46.6, the denominator's glyph at 20.49, which is the last
+    // glyph the formula ships, and the bracket at the box's far edge, 46.98.
+    // The bar ends at snap(46.6) = 47 and is the formula's rightmost part;
+    // the bracket, 0.38 px on from it, is at 47 + 0 = 47. From the
+    // denominator's glyph, at 20, by the rounded gap of 26.49 it is at 46, a
+    // pixel inside the bar: where the reference's rules put it.
+    const FontKey key = font_key(Face::PROSE, 20 * UNITY);
+    const Scaled y = 20 * UNITY;
+    const std::vector<DrawCmd> commands = {
+        DrawCmd::atom(0, y, hundredths(4698), hundredths(4698), 0, 0, 0),
+        DrawCmd::glyph(key, 'n', hundredths(200), y - 6 * UNITY, 0),
+        DrawCmd::rule_rect(0, y - 4 * UNITY, hundredths(4660), UNITY),
+        DrawCmd::glyph(key, '2', hundredths(2049), y + 6 * UNITY, 0),
+        DrawCmd::glyph(key, ')', hundredths(4698), y, 1),
+    };
+    for (const bool product : {false, true}) {
+        CHECK_CONTEXT("%s", product ? "product" : "reference");
+        DrawRun run;
+        run.cmds = commands.data();
+        run.count = commands.size();
+        run.ink = 0xFF000000u;
+        DrawArgs args;
+        args.px_per_inch = PT_PER_INCH;
+        args.rules = product ? DrawRules::product() : DrawRules::reference();
+        Drawer drawer;
+        PlainBinder binder;
+        drawer.place(&run, 1, args, binder);
+        const std::vector<DrawOp>& ops = drawer.ops();
+        REQUIRE_EQ(ops.size(), size_t(4));
+        REQUIRE(ops[1].type == OpType::RECT_FILLED);
+        CHECK_EQ(ops[0].x0, 2.0f);
+        CHECK_EQ(ops[1].x0, 0.0f);
+        CHECK_EQ(ops[1].x1, 47.0f);
+        CHECK_EQ(ops[2].x0, 20.0f);
+        CHECK_EQ(ops[3].x0, product ? 47.0f : 46.0f);
+    }
+}
+
+TEST(a_bracket_before_a_formula_is_no_further_from_it_than_under_the_references_rules)
+{
+    // "ab ($x$)", origin 0. The word before: a at snap(27.51) = 28, b a gap
+    // of 1.51 on at 30, 0.98 right of its place at 29.02. The bracket is
+    // 10.0 px on from b: led to 40, and 40 is beside its place, 39.02. The
+    // box, 5.47 px on from the bracket with its place at 44.49, is led from
+    // the bracket: 40 + 5 = 45, and so is the x in it; 5 px from the bracket
+    // against 5.47, which is what the reference's rules make of it (39 and
+    // 44). On the pixel nearest its own place the box would be at 44, 4 px
+    // from a bracket that was led to 40. The closing bracket, 5.47 px on
+    // from the x: 45 + 5 = 50, its place 49.96.
+    const FontKey key = font_key(Face::PROSE, 20 * UNITY);
+    const Scaled y = 20 * UNITY;
+    const std::vector<DrawCmd> commands = {
+        DrawCmd::glyph(key, 'a', hundredths(2751), y, 0),
+        DrawCmd::glyph(key, 'b', hundredths(2902), y, 1),
+        DrawCmd::set_glue(hundredths(3052), y, hundredths(850), hundredths(850), 0, 0, 2),
+        DrawCmd::glyph(key, '(', hundredths(3902), y, 3),
+        DrawCmd::atom(hundredths(4449), y, hundredths(547), hundredths(547), 0, 0, 4),
+        DrawCmd::glyph(key, 'x', hundredths(4449), y, 4),
+        DrawCmd::glyph(key, ')', hundredths(4996), y, 5),
+    };
+    const std::vector<float> reference = pens_of(commands, DrawRules::reference(), 0.0f);
+    const std::vector<float> product = pens_of(commands, DrawRules::product(), 0.0f);
+    CHECK(reference == (std::vector<float>{28.0f, 30.0f, 39.0f, 44.0f, 49.0f}));
+    CHECK(product == (std::vector<float>{28.0f, 30.0f, 40.0f, 45.0f, 50.0f}));
+    REQUIRE_EQ(product.size(), size_t(5));
+    REQUIRE_EQ(reference.size(), size_t(5));
+    CHECK(std::fabs(static_cast<double>(product[3] - product[2]) - 5.47) <=
+          std::fabs(static_cast<double>(reference[3] - reference[2]) - 5.47));
+    CHECK(std::fabs(static_cast<double>(product[4] - product[3]) - 5.47) <=
+          std::fabs(static_cast<double>(reference[4] - reference[3]) - 5.47));
+}
+
+TEST(a_justified_space_before_a_formula_is_within_a_pixel_and_a_half_of_its_laid_out_width)
+{
+    // "ab cd $x$", origin 0. As above, b is at 30 and 0.98 right of its
+    // place; c, 10.0 px on, is led to 40, 0.98 right of 39.02; d a gap of
+    // exactly 1.5 on at 42, 1.48 right of 40.52, and a word half a pixel
+    // wide of its laid-out width is left alone. Then a space squeezed to
+    // 2.45 px and a formula whose box, 3.97 px on from d, has its place at
+    // 44.49. Led from d it would be at 46; that is not beside its place, and
+    // it is held to 45: 3 px from d against 3.97. On the pixel nearest its
+    // own place, 44, it is 2 px from d and the 2.45 px space is drawn 0.48
+    // wide.
+    const FontKey key = font_key(Face::PROSE, 20 * UNITY);
+    const Scaled y = 20 * UNITY;
+    const std::vector<DrawCmd> commands = {
+        DrawCmd::glyph(key, 'a', hundredths(2751), y, 0),
+        DrawCmd::glyph(key, 'b', hundredths(2902), y, 1),
+        DrawCmd::set_glue(hundredths(3052), y, hundredths(850), hundredths(850), 0, 0, 2),
+        DrawCmd::glyph(key, 'c', hundredths(3902), y, 3),
+        DrawCmd::glyph(key, 'd', hundredths(4052), y, 4),
+        DrawCmd::set_glue(hundredths(4204), y, hundredths(245), hundredths(338), 0, 0, 5),
+        DrawCmd::atom(hundredths(4449), y, hundredths(547), hundredths(547), 0, 0, 6),
+        DrawCmd::glyph(key, 'x', hundredths(4449), y, 6),
+    };
+    REQUIRE_EQ(commands[4].x - commands[3].x, 3 * UNITY / 2);
+    CHECK(pens_of(commands, DrawRules::reference(), 0.0f) ==
+          (std::vector<float>{28.0f, 30.0f, 39.0f, 41.0f, 44.0f}));
+    const std::vector<float> pens = pens_of(commands, DrawRules::product(), 0.0f);
+    CHECK(pens == (std::vector<float>{28.0f, 30.0f, 40.0f, 42.0f, 45.0f}));
+    REQUIRE_EQ(pens.size(), size_t(5));
+    CHECK(std::fabs(static_cast<double>(pens[4] - pens[3]) - 3.97) < 1.5);
+}
+
+TEST(a_rule_that_lies_outside_a_formulas_box_is_not_the_formulas)
+{
+    // Not what ship-out makes: a rule straight after a formula's glyph, with
+    // no glue, line or text between, that is nowhere near the formula's box.
+    // It is snapped by its own two edges, as a rule of the page is, it ends
+    // the span, and nothing is led across it. A rule that touches the box is
+    // the formula's and stands at its rounded distance from the box's edge.
+    const FontKey key = font_key(Face::PROSE, 20 * UNITY);
+    const Scaled y = 20 * UNITY;
+    for (const bool foreign : {true, false}) {
+        CHECK_CONTEXT("%s", foreign ? "a rule elsewhere" : "a rule in the box");
+        // The box at 10.4 goes to 10. A rule in it from 12.0 to 16.8 is 1.6
+        // and 6.4 px from the box's edge: 10 + 2 = 12 to 10 + 6 = 16. One
+        // from 80.3 to 90.4 goes to 80 and 90 by its own edges.
+        const std::vector<DrawCmd> commands = {
+            DrawCmd::atom(hundredths(1040), y, hundredths(1000), hundredths(1000), 0, 0, 0),
+            DrawCmd::glyph(key, 'x', hundredths(1040), y, 0),
+            foreign ? DrawCmd::rule_rect(hundredths(8030), y, hundredths(1010), UNITY)
+                    : DrawCmd::rule_rect(hundredths(1200), y, hundredths(480), UNITY),
+            DrawCmd::glyph(key, 'y', hundredths(2575), y, 0),
+        };
+        DrawRun run;
+        run.cmds = commands.data();
+        run.count = commands.size();
+        run.ink = 0xFF000000u;
+        DrawArgs args;
+        args.px_per_inch = PT_PER_INCH;
+        args.rules = DrawRules::product();
+        Drawer drawer;
+        PlainBinder binder;
+        drawer.place(&run, 1, args, binder);
+        const std::vector<DrawOp>& ops = drawer.ops();
+        REQUIRE_EQ(ops.size(), size_t(3));
+        CHECK_EQ(ops[0].x0, 10.0f);
+        REQUIRE(ops[1].type == OpType::RECT_FILLED);
+        CHECK_EQ(ops[1].x0, foreign ? 80.0f : 12.0f);
+        CHECK_EQ(ops[1].x1, foreign ? 90.0f : 16.0f);
+        // The y carries the formula's index and is 15.35 px along the box:
+        // 10 + 15 = 25 as a glyph of the formula. After a rule that is not
+        // the formula's it is an anchor: snap(25.75) = 26.
+        CHECK_EQ(ops[2].x0, foreign ? 26.0f : 25.0f);
+    }
 }
 
 TEST(pictures_of_the_three_paragraphs_for_whoever_sets_IMTYPESET_WORD_GAPS_SHOTS)
@@ -1139,6 +1880,12 @@ TEST(pictures_of_the_three_paragraphs_for_whoever_sets_IMTYPESET_WORD_GAPS_SHOTS
          19.0f, 460.0f},
         {"pane", PANE_1, 13.0f, 520.0f},
         {"demo-paragraph", DEMO_PARAGRAPH, 17.0f, 250.0f},
+        // Text glued to formulas.
+        {"joints-1", JOINTS_1, 16.0f, 337.0f},
+        {"joints-1", JOINTS_1, 19.0f, 460.0f},
+        {"joints-2", JOINTS_2, 16.0f, 460.0f},
+        {"joints-2", JOINTS_2, 19.0f, 520.0f},
+        {"joints-3", JOINTS_3, 13.0f, 250.0f},
     };
     const int zoom = 3;
     for (const auto& shot : shots) {

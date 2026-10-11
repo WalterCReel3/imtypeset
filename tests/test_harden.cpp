@@ -1414,7 +1414,8 @@ TEST(d7_a_formula_is_placed_glyph_by_glyph_by_the_reference_and_whole_here)
     //   y, from the span's baseline at 100:
     //      floor(100 + (85.6 - 100.3) + 0.5) = 85 to floor(100 + (86.5 - 100.3) + 0.5) = 86
     //   the glyph after it: floor(45.0 + 0.5) = 45, on the row of the others
-    //   the comma is text: from the glyph before it, 45 + floor(10.4 + 0.5) = 55
+    //   the comma is text: from the formula's rightmost part, which is the
+    //   rule's end at 62, 6.2 px back: 62 - 6 = 56, beside its place at 55.4
     args.rules = DrawRules::product();
     drawer.place(&run, 1, args, binder);
     REQUIRE_EQ(drawer.ops().size(), size_t(7));
@@ -1429,7 +1430,7 @@ TEST(d7_a_formula_is_placed_glyph_by_glyph_by_the_reference_and_whole_here)
     CHECK_EQ(drawer.ops()[4].y1, 86.0f);
     CHECK_EQ(drawer.ops()[5].x0, 45.0f);
     CHECK_EQ(drawer.ops()[5].y0, 88.0f);
-    CHECK_EQ(drawer.ops()[6].x0, 55.0f);
+    CHECK_EQ(drawer.ops()[6].x0, 56.0f);
 
     // The same picture wherever the page is put: with the origin 0.3, 0.5
     // and 0.9 of a pixel along, the edge goes to floor(0.3 + 0.5) = 0,

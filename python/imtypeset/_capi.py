@@ -328,6 +328,7 @@ PROTOTYPES = {
     "ImTypeset_DestroyContext": (_INT, [_P]),
     "ImTypeset_GetCurrentContext": (_P, []),
     "ImTypeset_SetCurrentContext": (_INT, [_P]),
+    "ImTypeset_GetContextSerial": (C.c_ulonglong, []),
     "ImTypeset_GetLastError": (_INT, [_ptr(ErrorInfo)]),
     "ImTypeset_GetLastErrorMessage": (_INT, [C.c_char_p, _INT]),
     "ImTypeset_GetStats": (_INT, [_ptr(Stats)]),

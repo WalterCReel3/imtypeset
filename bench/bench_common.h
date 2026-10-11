@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -152,6 +153,35 @@ inline std::string first_line_of(const char* path, const char* prefix)
     return found;
 }
 
+// Keeps this thread busy for IMTYPESET_BENCH_WARMUP_S seconds (8 when unset or
+// unreadable) and returns the seconds spent. Every benchmark calls it, through
+// header(), before its first timed row: on a processor that has been idle the
+// first seconds of work run at a lower clock, and the rows printed first would
+// be the ones to carry it (docs/performance.md, "A benchmark started cold").
+// It times nothing and touches nothing the rows measure.
+inline double warm_up()
+{
+    double seconds = 8.0;
+    if (const char* text = std::getenv("IMTYPESET_BENCH_WARMUP_S")) {
+        char* end = nullptr;
+        const double asked = std::strtod(text, &end);
+        if (end != text && asked >= 0.0 && asked <= 600.0)
+            seconds = asked;
+    }
+    const double start = now_us();
+    const double stop = start + seconds * 1.0e6;
+    volatile double sink = 0.0;
+    double x = 1.0;
+    while (now_us() < stop) {
+        for (int i = 0; i < 100000; ++i)
+            x = x * 1.0000001 + 1.0e-9;
+        if (x > 1.0e100)
+            x = 1.0;
+        sink = sink + x;
+    }
+    return (now_us() - start) * 1.0e-6;
+}
+
 // What a number means nothing without. The flags string is the global flags
 // and the build type's; imtypeset_build_flags adds the warnings,
 // -fno-exceptions -fno-rtti and -ffp-contract=off to every source of ours,
@@ -183,6 +213,11 @@ inline void header(const char* name)
     std::printf("- text: bench/data/sample.txt, the prose of the reference's demo/sample.md as "
                 "plain paragraphs (the port has no markdown: headings are set as paragraphs, "
                 "code blocks and tables are left out)\n");
+    const double warmed = warm_up();
+    std::printf("- warm-up: %.1f s of untimed arithmetic on this thread before the first row "
+                "(IMTYPESET_BENCH_WARMUP_S sets the seconds, 0 for none)\n",
+                warmed);
+    std::fflush(stdout);
 }
 
 inline std::string font_path(const char* file)

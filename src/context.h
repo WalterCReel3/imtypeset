@@ -267,9 +267,6 @@ struct ImTypesetParagraph {
     // If not null, where the material's boxes go instead of `arena`, which is
     // then not cleared when the material is built: a document's block.
     ImTypeset::detail::NodeArena* material_arena = nullptr;
-    // If not null, one font per entry of `runs`, used for the run instead of
-    // what its face and scale come to: see DocumentHook::run.
-    const ImTypeset::detail::FontSpec* run_fonts = nullptr;
 
     // --- Layout
     ImTypeset::detail::ParagraphLayout layout;
@@ -305,6 +302,8 @@ struct ImTypesetContext {
     ImTypesetContext& operator=(const ImTypesetContext&) = delete;
 
     ImGuiContext* imgui = nullptr;
+    // ImTypeset::GetContextSerial(): this context's alone, in this process.
+    ImU64 serial = 0;
     ImTypesetStyle style;
     ImTypesetStats stats = {};
 
@@ -320,6 +319,8 @@ struct ImTypesetContext {
     // When they were last looked for in the atlas: see validate_fonts.
     int fonts_checked_frame = -1;
     int fonts_checked_count = -1;
+    ImGuiID fonts_checked_newest = 0;
+    const ImFontAtlas* fonts_checked_atlas = nullptr;
 
     // What the layout core measures characters with.
     ImTypeset::detail::CharMeasure measure();
@@ -393,6 +394,20 @@ struct ImTypesetContext {
     uint64_t focused_key = 0;
 };
 
+// A statement run from a destructor, which must not unwind: where exceptions
+// are enabled a host's IM_ASSERT may throw from inside ImGui, and an exception
+// leaving a destructor ends the program. What the statement was undoing is
+// then left as it is. Without exceptions this is the statement.
+#if defined(__cpp_exceptions)
+#define IMTYPESET_NO_UNWIND(statement) \
+    try {                              \
+        statement;                     \
+    } catch (...) {                    \
+    }
+#else
+#define IMTYPESET_NO_UNWIND(statement) statement
+#endif
+
 namespace ImTypeset::detail
 {
 
@@ -441,8 +456,9 @@ bool usable(ImTypesetContext& ctx, int face);
 Align align_of(ImTypesetAlign align);
 double decimal_of(float value);
 // Appends to `out` the runs of `runs` that are in order from `floor` on and
-// inside a text of `size` bytes, validated; the first that is not is reported
-// in `error` if that holds nothing yet.
+// inside a text of `size` bytes, validated. The first that is out of order is
+// left out and reported in `error`, if that holds nothing yet, as
+// ImTypesetError_DescriptionCut: the others are still taken.
 void validate_runs(std::vector<StyledRun>& out, const ImTypesetRun* runs, int runs_count,
                    size_t size, uint32_t floor, ErrorState& error);
 bool set_text(ImTypesetParagraph& p, const char* text, size_t size, const ImTypesetRun* runs,

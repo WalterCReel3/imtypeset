@@ -2,11 +2,12 @@
 imtypeset block description cannot say.
 
     PYTHONDONTWRITEBYTECODE=1 ../pptmstr/.venv/bin/python -P -B \
-        python/spike_bundle/pptmstr_census.py [--source sessions|repo] [--sessions DIR]
+        python/spike_bundle/pptmstr_census.py [--sessions DIR]
 
 Loads no library and opens no window: pptmstr's own Transcript, NodeTranscript,
 BlockCursor and inline parser (read-only from ../pptmstr) over the corpora of
-pptmstr_corpus.py. Prints one JSON object:
+pptmstr_corpus.py: this repository's own reports unless --sessions names a
+directory of Claude Code session logs to read instead. Prints one JSON object:
 
 sizes      per transcript: bytes, lines, blocks, and what rich_pane.windowed()
            keeps of them (the 400-line window is what RICH mode draws today).
@@ -45,9 +46,12 @@ def spread(values) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--source", default="sessions", choices=("sessions", "repo"))
-    parser.add_argument("--sessions", default=corpus.DEFAULT_SESSIONS)
+    parser.add_argument("--source", default="", choices=("", "sessions", "repo"),
+                        help="repo (default): the reports in this repository. sessions needs --sessions")
+    parser.add_argument("--sessions", default="", metavar="DIR",
+                        help="opt in: read the Claude Code session logs in DIR (nothing is read by default)")
     args = parser.parse_args()
+    args.source = args.source or ("sessions" if args.sessions else "repo")
 
     from pptmstr.transcript import SegmentKind
     from pptmstr.ui import rich_pane

@@ -3,9 +3,16 @@ measurements in pptmstr_real_panes.py and the census in pptmstr_census.py.
 
 pptmstr is imported READ-ONLY from ../pptmstr; nothing here loads imtypeset.
 
-Two sources, both real text and neither invented for the purpose:
+Two sources, both real text and neither invented for the purpose. The DEFAULT
+everywhere is `repo`: nothing outside this repository is read unless a
+directory of session logs is named on the command line (`--sessions DIR`).
+There is no default directory and no environment variable that supplies one.
 
-sessions   Claude Code session logs (`*.jsonl`, sub-agents included) replayed
+repo       the agent-written reports under .concerns/ in this repository
+           (each one is a sub-agent's deliverable, which is what DETAIL's
+           "what it delivered" renders), strung into one transcript with a
+           tool call and a tool result between them.
+sessions   OPT-IN. Claude Code session logs (`*.jsonl`, sub-agents included) replayed
            through the rules of pptmstr/driver.py: a thinking block is
            REASONING, a text block is OUTPUT, a tool use is
            "\\nName(compact args)\\n" as TOOL_CALL, a tool result is
@@ -14,10 +21,7 @@ sessions   Claude Code session logs (`*.jsonl`, sub-agents included) replayed
            and `_compact_result` are pptmstr's own functions. This is what the
            CONTEXT pane showed for those sessions, to the extent the log holds
            what the SDK streamed. Read in place; nothing of them is copied.
-repo       the agent-written reports under .concerns/ in this repository
-           (each one is a sub-agent's deliverable, which is what DETAIL's
-           "what it delivered" renders), strung into one transcript with a
-           tool call and a tool result between them.
+           These are a person's conversations: name the directory yourself.
 """
 
 import glob
@@ -31,7 +35,17 @@ PPTMSTR = os.environ.get("PPTMSTR_ROOT", os.path.join(os.path.dirname(REPO), "pp
 if PPTMSTR not in sys.path:
     sys.path.append(PPTMSTR)
 
-DEFAULT_SESSIONS = os.path.expanduser("~/.claude/projects/-home-wreel-Source-imtypeset")
+
+def sessions_directory(named: str) -> str:
+    """The directory of session logs the caller NAMED. Exits when none was: session
+    logs are read only when someone asked for them by path."""
+    if not named:
+        raise SystemExit(
+            "session logs are read only when their directory is named: --sessions DIR "
+            "(a Claude Code project directory, e.g. under ~/.claude/projects). "
+            "Without it the corpus is this repository's own reports (--source repo)."
+        )
+    return os.path.expanduser(named)
 
 
 # Logs written after this moment are left out: the session doing the measuring is
@@ -39,9 +53,10 @@ DEFAULT_SESSIONS = os.path.expanduser("~/.claude/projects/-home-wreel-Source-imt
 SESSIONS_BEFORE = os.environ.get("SPIKE_SESSIONS_BEFORE", "2026-10-10T06:15:00")
 
 
-def session_files(directory: str = DEFAULT_SESSIONS) -> list:
+def session_files(directory: str) -> list:
     import datetime
 
+    directory = sessions_directory(directory)
     cutoff = datetime.datetime.fromisoformat(SESSIONS_BEFORE).timestamp()
     found = glob.glob(os.path.join(directory, "*.jsonl"))
     found += glob.glob(os.path.join(directory, "*", "subagents", "*.jsonl"))
@@ -137,7 +152,7 @@ def transcript_from_reports(repeat: int = 1, limit_files: int = 0):
     return transcript_from_ops(ops_from_reports(repeat, limit_files))
 
 
-def pick_session(which: str, directory: str = DEFAULT_SESSIONS):
+def pick_session(which: str, directory: str):
     """(path, ops) of the session whose transcript is the median, p90 or longest by lines."""
     sized = []
     for path in session_files(directory):

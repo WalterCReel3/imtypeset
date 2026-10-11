@@ -71,6 +71,18 @@ add_library(imgui STATIC
 target_include_directories(imgui SYSTEM PUBLIC "${_imgui_dir}")
 set_target_properties(imgui PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# The one flag of ours this ImGui is given (D16, D52). The draw goldens compare
+# vertices ImGui computes, and a compiler allowed to contract a*b+c (GCC once
+# -march names a CPU with FMA, Clang by default) could move them on that
+# machine only. PRIVATE, and only here: an ImGui target a host brings is
+# compiled however the host compiles it, and the library's own results do not
+# depend on it.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(imgui PRIVATE -ffp-contract=off)
+elseif(MSVC)
+    target_compile_options(imgui PRIVATE /fp:precise)
+endif()
+
 # ImWchar is 16 bits unless this is defined. ON is what the reference's ImGui
 # has, and lets the atlas be asked for the math face's plane-1 and plane-15
 # codepoints as they are; OFF is ImGui's default and what many hosts have, so the

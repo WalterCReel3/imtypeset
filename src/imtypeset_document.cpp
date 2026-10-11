@@ -35,8 +35,13 @@ constexpr double WINDOW_MARGIN_PX = 2.0;
 // Formula boxes no block names any more are dropped, all at once, when there
 // are this many and more than those still named.
 constexpr size_t DEAD_BOXES_MIN = 4096;
-// The fewest views a document keeps before it reuses one.
+// A document keeps a view for each block the last draw showed, twice over, so
+// that a steady frame builds none: never fewer than MIN_VIEWS before it reuses
+// one and never more than MAX_VIEWS, whatever a clip rectangle shows.
 constexpr size_t MIN_VIEWS = 32;
+constexpr size_t MAX_VIEWS = 256;
+// The most bytes of a marker that are set.
+constexpr size_t MAX_MARKER_BYTES = 256;
 
 ImTypesetDocument* owned(ImTypesetDocument* d)
 {
@@ -108,7 +113,32 @@ int text_size_of(const DocBlock& b)
     return static_cast<int>(is_code(b.kind) ? b.code_end : b.text.size());
 }
 
-void map_code(DocBlock& b, bool keep);
+// Counts a code block's lines and finds where what is set of it ends
+// (DocBlock::code_lines, code_end): src/blocks' walk, which needs no font.
+void measure_code(DocBlock& b)
+{
+    const CodeExtent extent = code_extent(b.text);
+    b.code_lines = extent.lines;
+    b.code_end = extent.end;
+}
+
+// How many views the document keeps, from how many blocks the last draw showed.
+size_t view_limit(const ImTypesetDocument& d)
+{
+    return std::min(std::max(MIN_VIEWS, 2 * d.shown_blocks + 8), MAX_VIEWS);
+}
+
+// The longest prefix of `size` bytes of `text` that is no longer than `limit`
+// and does not end inside a character.
+size_t cut_at_character(const char* text, size_t size, size_t limit)
+{
+    if (size <= limit)
+        return size;
+    size_t kept = limit;
+    while (kept > 0 && (static_cast<unsigned char>(text[kept]) & 0xC0) == 0x80)
+        --kept;
+    return kept;
+}
 
 // What stands in for a block's material in the height it is taken to have
 // before it is laid out (Block::length_hint): a text's bytes, or the lines of
@@ -149,14 +179,25 @@ Composition composition_of(const ImTypesetDocument& d)
 
 // The containers [first, end) of `d.containers` as the block layer's quotes
 // and lists. A container's parent is an earlier one, so one pass suffices.
-void declare_containers(ImTypesetDocument& d, size_t first)
+// What is wrong with one is cut to what is right and noted in `trouble` if
+// that holds nothing yet.
+void declare_containers(ImTypesetDocument& d, size_t first, ErrorState& trouble)
 {
+    const auto note = [&](size_t container, const char* what) {
+        if (trouble.ok())
+            trouble.set(ImTypesetError_DescriptionCut,
+                        "container " + std::to_string(container) + ": " + what);
+    };
     d.container_quote.resize(d.containers.size(), NO_CONTAINER);
     d.container_list.resize(d.containers.size(), NO_CONTAINER);
     for (size_t c = first; c < d.containers.size(); ++c) {
         const ImTypesetContainer& given = d.containers[c];
         const int parent =
             given.Parent >= 1 && static_cast<size_t>(given.Parent) <= c ? given.Parent - 1 : -1;
+        if (given.Parent != 0 && parent < 0)
+            note(c, "its Parent is not an earlier container; it is inside none");
+        if (given.Kind != ImTypesetContainerKind_List && given.Kind != ImTypesetContainerKind_Quote)
+            note(c, "its Kind is not a container kind; it is a quote");
         const int32_t outer_quote =
             parent >= 0 ? d.container_quote[static_cast<size_t>(parent)] : NO_CONTAINER;
         const int32_t outer_list =
@@ -193,7 +234,7 @@ void describe(ImTypesetDocument& d, DocBlock& b, const ImTypesetDocumentContent&
     };
     const int size = content.Text != nullptr && content.TextSize > 0 ? content.TextSize : 0;
     const auto stretch = [&](int start, int end, const char* what, int* out_start) {
-        int s = std::max(start, 0);
+        int s = std::min(std::max(start, 0), size);
         int e = std::min(end, size);
         if (start < 0 || end > size || end < start)
             note(what);
@@ -257,26 +298,32 @@ void describe(ImTypesetDocument& d, DocBlock& b, const ImTypesetDocumentContent&
         w.text.clear();
         w.runs.clear();
     } else if (b.kind != ImTypesetBlockKind_Rule && b.kind != ImTypesetBlockKind_Table) {
-        size_t kept = std::min(text_bytes, static_cast<size_t>(MAX_TEXT_BYTES));
-        while (kept > 0 && kept < text_bytes &&
-               (static_cast<unsigned char>(text[kept]) & 0xC0) == 0x80)
-            --kept;
+        const size_t kept = cut_at_character(text, text_bytes, static_cast<size_t>(MAX_TEXT_BYTES));
         if (kept < text_bytes)
             b.text_error.set(ImTypesetError_TextTooLong,
                              "the text is longer than 16 MiB and was cut there",
                              static_cast<int>(kept));
         b.text.assign(text, kept);
     }
+    // What was found wrong with the text as it was set (runs out of order, a
+    // text past the limit) is the block's from here on, and the edit's.
+    if (trouble.ok() && !b.text_error.ok())
+        trouble.set(b.text_error.code,
+                    "block " + std::to_string(number) + ": " + b.text_error.message,
+                    b.text_error.byte_pos, b.text_error.codepoint_pos);
     b.error = b.text_error;
     if (is_code(b.kind))
-        map_code(b, false);
+        measure_code(b);
 
     if (b.kind != ImTypesetBlockKind_Rule && !is_host(b.kind)) {
         int marker_start = 0;
         const size_t marker_bytes = stretch(
             in.MarkerStart, in.MarkerEnd, "its marker is not inside the text given", &marker_start);
-        if (marker_bytes > 0)
-            b.marker.assign(content.Text + marker_start, std::min<size_t>(marker_bytes, 256));
+        const char* marker = size > 0 ? content.Text + marker_start : "";
+        const size_t kept = cut_at_character(marker, marker_bytes, MAX_MARKER_BYTES);
+        if (kept < marker_bytes)
+            note("its marker is longer than 256 bytes and was cut there");
+        b.marker.assign(marker, kept);
     }
 }
 
@@ -327,7 +374,10 @@ BlockSpec resolve_spec(ImTypesetDocument& d, const DocBlock& b)
     spec.left_indent = clamp_dimen(base.left_indent + length_sp(d, b.left_indent));
     spec.first_line_indent =
         own != nullptr ? length_sp(d, own->FirstLineIndent) : base.first_line_indent;
-    spec.first_line = FirstLineIndent::BOX_ONLY;
+    // The reference narrows the first line by the indent as well as putting
+    // the box there (docs/divergences.md); the product does not.
+    spec.first_line =
+        d.reference_rules ? FirstLineIndent::BOX_AND_SHAPE : FirstLineIndent::BOX_ONLY;
     spec.marker_gap =
         own != nullptr && own->MarkerGap > 0.0f ? length_sp(d, own->MarkerGap) : em / 2;
     if (own != nullptr) {
@@ -348,9 +398,7 @@ void apply_spec(ImTypesetDocument& d, size_t i)
 {
     ImTypesetContext& ctx = *d.ctx;
     DocBlock& b = d.blocks[i];
-    BlockSpec spec = resolve_spec(d, b);
-    if (d.hook.block != nullptr)
-        d.hook.block(d.hook.user, static_cast<int>(i), spec);
+    const BlockSpec spec = resolve_spec(d, b);
 
     const ImTypesetBlockStyle* own = b.style >= 0 && static_cast<size_t>(b.style) < d.styles.size()
                                          ? &d.styles[static_cast<size_t>(b.style)]
@@ -360,7 +408,8 @@ void apply_spec(ImTypesetDocument& d, size_t i)
     b.font = spec.font;
     b.align = spec.align;
     b.first_line_indent = spec.first_line_indent;
-    b.has_spec = true;
+    // Not resolved until the block layer has all of it: see the end.
+    b.has_spec = false;
     b.has_material = false;
     d.dead_boxes += b.atom_boxes;
     d.live_boxes -= std::min<size_t>(d.live_boxes, b.atom_boxes);
@@ -395,31 +444,30 @@ void apply_spec(ImTypesetDocument& d, size_t i)
         why.clear();
         set_marker(block.text, b.marker, spec.marker_font, composition_of(d), ctx.resolve, &why);
     }
+    b.has_spec = true;
 }
 
 // The rules, the theme and the breaking parameters every block is laid out
-// under, from the options, the style and the hook.
+// under, from the options and the style.
 void apply_rules(ImTypesetDocument& d)
 {
     ImTypesetContext& ctx = *d.ctx;
     DocumentTheme theme;
+    // A default DocumentRules is the reference's behaviour throughout.
     DocumentRules rules;
-    if (d.hook.reference_rules) {
-        theme.quote_indent = d.hook.quote_indent;
-        theme.quote_rule_thickness = d.hook.quote_rule_thickness;
-    } else {
+    if (!d.reference_rules) {
         rules = DocumentRules::product(d.style.em);
         rules.code_overflow =
             d.options.CodeOverflow == ImTypesetCodeOverflow_Clip
                 ? CodeOverflow::CLIP
                 : (d.options.CodeOverflow == ImTypesetCodeOverflow_Grow ? CodeOverflow::GROW
                                                                         : CodeOverflow::WRAP);
-        theme.quote_indent =
-            d.options.QuoteIndent > 0.0f ? length_sp(d, d.options.QuoteIndent) : d.style.em;
-        theme.quote_rule_thickness = d.options.QuoteBarThickness > 0.0f
-                                         ? length_sp(d, d.options.QuoteBarThickness)
-                                         : std::max(d.style.em / 8, length_sp(d, 1.0f));
     }
+    theme.quote_indent =
+        d.options.QuoteIndent > 0.0f ? length_sp(d, d.options.QuoteIndent) : d.style.em;
+    theme.quote_rule_thickness = d.options.QuoteBarThickness > 0.0f
+                                     ? length_sp(d, d.options.QuoteBarThickness)
+                                     : std::max(d.style.em / 8, length_sp(d, 1.0f));
     d.doc.set_rules(rules);
     d.doc.set_theme(theme);
     LineBreakParams params = prose_breaking();
@@ -427,81 +475,6 @@ void apply_rules(ImTypesetDocument& d)
     if (d.style.line_break == ImTypesetLineBreak_FirstFit)
         params.first_fit = true;
     d.composer.params = params;
-}
-
-// Where each node of a code block's lines came from in its source: the walk
-// of src/blocks' `set_code`, keeping bytes. A tab's spaces are all the tab.
-//
-// With `keep` false only the lines are counted (DocBlock::code_lines), which
-// needs no font and is done when the block is described.
-void map_code(DocBlock& b, bool keep)
-{
-    b.source_offsets.clear();
-    b.code_end = 0;
-    const std::string& text = b.text;
-    std::vector<uint32_t> ends;
-    uint32_t column = 0;
-    bool open = false;
-    size_t at = 0;
-    uint32_t last_char_end = 0;
-    std::vector<uint32_t> line_char_end;
-    while (at < text.size()) {
-        const size_t start = at;
-        const unsigned char lead = static_cast<unsigned char>(text[at]);
-        // One character as decode_utf8 takes one: a lead byte and the
-        // continuation bytes that follow it, or one byte that is neither.
-        size_t next = at + 1;
-        if (lead >= 0xC0) {
-            const size_t want = lead >= 0xF0 ? 4 : (lead >= 0xE0 ? 3 : 2);
-            while (next < text.size() && next < at + want &&
-                   (static_cast<unsigned char>(text[next]) & 0xC0) == 0x80)
-                ++next;
-        }
-        at = next;
-        uint32_t c = lead;
-        if (c == '\r') {
-            if (at < text.size() && text[at] == '\n')
-                continue;
-            c = '\n';
-        }
-        if (c == '\n') {
-            ends.push_back(static_cast<uint32_t>(b.source_offsets.size()));
-            line_char_end.push_back(last_char_end);
-            column = 0;
-            open = false;
-            continue;
-        }
-        open = true;
-        if (c == '\t') {
-            const uint32_t spaces = TAB_WIDTH - column % TAB_WIDTH;
-            for (uint32_t s = 0; s < spaces; ++s)
-                b.source_offsets.push_back(static_cast<uint32_t>(start));
-            column += spaces;
-        } else {
-            b.source_offsets.push_back(static_cast<uint32_t>(start));
-            ++column;
-        }
-        last_char_end = static_cast<uint32_t>(at);
-    }
-    if (open) {
-        ends.push_back(static_cast<uint32_t>(b.source_offsets.size()));
-        line_char_end.push_back(last_char_end);
-    }
-    // Blank lines at the end are dropped, and with them their newlines.
-    while (!ends.empty()) {
-        const size_t last = ends.size() - 1;
-        const uint32_t first = last == 0 ? 0 : ends[last - 1];
-        if (ends[last] != first)
-            break;
-        ends.pop_back();
-        line_char_end.pop_back();
-    }
-    b.code_end = line_char_end.empty() ? 0 : line_char_end.back();
-    b.code_lines = static_cast<uint32_t>(std::min<size_t>(ends.size(), 0xFFFFFFFFu));
-    if (!keep) {
-        b.source_offsets.clear();
-        b.source_offsets.shrink_to_fit();
-    }
 }
 
 // DocumentComposer::materialize: block `number` is about to be laid out.
@@ -521,21 +494,23 @@ void materialize(void* user, size_t number, Block& block)
     b.display_block = false;
     b.error = b.text_error;
     if (is_code(b.kind)) {
+        // Not taken for built if the build is unwound through.
+        Building building(b.has_material);
         std::string& why = ctx.scratch;
         why.clear();
-        if (!set_code(block.code, b.text, b.font, composition_of(d), ctx.resolve, &why) ||
+        // The byte each node came from is found by the walk that makes the
+        // node, so the two cannot disagree about what a character is.
+        if (!set_code(block.code, b.text, b.font, composition_of(d), ctx.resolve, &why,
+                      &b.source_offsets) ||
             !usable(ctx, static_cast<int>(b.font.face))) {
             block.code.clear();
+            b.source_offsets.clear();
             b.fallback = true;
             if (b.error.ok())
                 b.error.set(ImTypesetError_NoFont, std::string("no font has been added for ") +
                                                        public_face(static_cast<int>(b.font.face)));
         }
-        map_code(b, true);
-        if (b.source_offsets.size() != block.code.nodes.size()) {
-            // The two walks disagree: positions would be wrong, so there are none.
-            b.source_offsets.assign(block.code.nodes.size(), 0);
-        }
+        building.finished = true;
         return;
     }
     if (!is_text(b.kind))
@@ -546,58 +521,49 @@ void materialize(void* user, size_t number, Block& block)
     // The block's text and runs are lent to the scratch paragraph for the
     // build and come back whichever way the build is left: a host can unwind
     // through it (an allocation that fails where exceptions are enabled), and
-    // the block must not lose its text to that, nor be taken for built.
+    // the block must not lose its text to that, nor be taken for built. The
+    // document's arena is taken back to where the build found it: boxes of a
+    // formula that was never finished are nobody's, and a build cut short can
+    // leave the arena's tables out of step until it is.
     struct Lent {
         DocBlock& block;
         ImTypesetParagraph& work;
+        NodeArena& arena;
+        const NodeArena::Mark before;
         bool finished = false;
-        Lent(DocBlock& b_, ImTypesetParagraph& w_)
+        Lent(DocBlock& b_, ImTypesetParagraph& w_, NodeArena& arena_)
             : block(b_)
             , work(w_)
+            , arena(arena_)
+            , before(arena_.mark())
         {
             work.text.swap(block.text);
             work.runs.swap(block.runs);
         }
         ~Lent()
         {
-            work.run_fonts = nullptr;
             work.text.swap(block.text);
             work.runs.swap(block.runs);
-            if (!finished)
+            if (!finished) {
                 block.has_material = false;
+                arena.rewind(before);
+            }
         }
         Lent(const Lent&) = delete;
         Lent& operator=(const Lent&) = delete;
-    } lent(b, w);
+    } lent(b, w, d.doc.arena());
     w.text_error = b.text_error;
     w.flags = b.flags;
     w.material_arena = &d.doc.arena();
     ++w.text_version;
-    w.run_fonts = nullptr;
     ResolvedStyle style = d.style;
     style.face = b.font.face;
     style.em = b.font.size;
     style.align = b.align;
-    if (d.hook.run != nullptr && !w.runs.empty()) {
-        d.run_fonts.clear();
-        for (size_t r = 0; r < w.runs.size(); ++r) {
-            const StyledRun& run = w.runs[r];
-            FontSpec font = b.font;
-            if (run.face >= 0 && usable(ctx, run.face))
-                font.face = static_cast<Face>(run.face);
-            if (run.scale != 1.0)
-                font.size = clamped_sp(round_to_scaled(static_cast<double>(style.em) * run.scale),
-                                       1, MAX_EM);
-            d.hook.run(d.hook.user, static_cast<int>(number), static_cast<int>(r), font);
-            d.run_fonts.push_back(font);
-        }
-        w.run_fonts = d.run_fonts.data();
-    }
 
-    const NodeArena::Mark before = d.doc.arena().mark();
     build_material_now(ctx, w, style);
     const NodeArena::Mark after = d.doc.arena().mark();
-    b.atom_boxes = after.boxes - before.boxes;
+    b.atom_boxes = after.boxes - lent.before.boxes;
     d.live_boxes += b.atom_boxes;
 
     block.text.run.nodes.swap(w.block.run.nodes);
@@ -659,7 +625,9 @@ void take_style(ImTypesetDocument& d, const ImTypesetStyle& given, float width)
             const size_t count = d.blocks.size();
             d.doc.clear();
             d.doc.splice(0, 0, count);
-            declare_containers(d, 0);
+            // What was wrong with a container was said when it was handed over.
+            ErrorState said;
+            declare_containers(d, 0, said);
             for (DocBlock& b : d.blocks)
                 b.atom_boxes = 0;
             d.dead_boxes = 0;
@@ -743,7 +711,8 @@ void sync(ImTypesetDocument& d, size_t i)
     const BlockLayout& layout = d.doc.layout(i);
     if (b.seen == layout.serial)
         return;
-    b.seen = layout.serial;
+    // Not up to date until all of it is: see the end. (No layout has serial 0.)
+    b.seen = 0;
     index_lines(layout.cmds.data(), layout.cmds.size(), b.lines);
     b.inks.clear();
     b.marker_items = 0;
@@ -768,6 +737,7 @@ void sync(ImTypesetDocument& d, size_t i)
     if (!layout.ok() && b.error.ok())
         b.error.set(ImTypesetError_LayoutFailed,
                     "a character could not be measured; its line is set without it");
+    b.seen = layout.serial;
 }
 
 // Lays out the unit a block is in. False if there is no such block.
@@ -804,10 +774,12 @@ const ImTypesetParagraph& view_of(ImTypesetDocument& d, size_t i)
         return found->p;
     }
     if (found == nullptr) {
-        const size_t limit = std::max(MIN_VIEWS, 2 * d.shown_blocks + 8);
+        const size_t limit = view_limit(d);
         if (spare == nullptr || (d.views.size() < limit && spare->block >= 0) ||
             spare->used == d.tick) {
-            d.views.emplace_back(new DocView());
+            // Owned before it is listed: listing it can fail.
+            std::unique_ptr<DocView> made(new DocView());
+            d.views.push_back(std::move(made));
             spare = d.views.back().get();
         }
         found = spare;
@@ -923,6 +895,20 @@ ImTypesetDocumentRange ordered(const ImTypesetDocument& d, ImTypesetDocumentRang
     if (range.Start.Block >= count || range.End.Block < 0 || !before(range.Start, range.End))
         return none;
     return range;
+}
+
+// Gives up the views used longest ago beyond what the document keeps.
+void trim_views(ImTypesetDocument& d)
+{
+    const size_t limit = view_limit(d);
+    if (d.views.size() <= limit)
+        return;
+    std::nth_element(d.views.begin(), d.views.begin() + static_cast<std::ptrdiff_t>(limit),
+                     d.views.end(),
+                     [](const std::unique_ptr<DocView>& a, const std::unique_ptr<DocView>& b) {
+                         return a->used > b->used;
+                     });
+    d.views.resize(limit);
 }
 
 // --- Drawing ----------------------------------------------------------------------------
@@ -1098,18 +1084,26 @@ void draw_block(ImTypesetDocument& d, size_t i, double left, double top, const T
     run.cmds = layout.cmds.data();
     run.count = layout.cmds.size();
     run.lines = &b.lines;
-    const bool clip = layout.clipped && target.list != nullptr;
-    if (clip) {
+    // The clip rectangle is popped however the draw is left: a host can
+    // unwind through it, and its draw list must not keep a rectangle of ours.
+    struct Clip {
+        ImDrawList* list = nullptr;
+        ~Clip()
+        {
+            if (list != nullptr)
+                IMTYPESET_NO_UNWIND(list->PopClipRect());
+        }
+    } clipped;
+    if (layout.clipped && target.list != nullptr) {
         const Scaled x = d.doc.block(i).style.left_indent;
         target.list->PushClipRect(
             ImVec2(static_cast<float>(left + px_of(d, x)), static_cast<float>(top)),
             ImVec2(static_cast<float>(left + px_of(d, d.width)),
                    static_cast<float>(top + px_of(d, layout.extent))),
             true);
+        clipped.list = target.list;
     }
     emit(ctx, target, run, args);
-    if (clip)
-        target.list->PopClipRect();
 }
 
 // Why a document cannot be drawn now, as a failure; true if it can.
@@ -1199,6 +1193,7 @@ bool draw_document(ImTypesetDocument& d, const Target& target, const ImVec2& pos
             y += d.doc.unit(u + 1).gap;
     }
     d.shown_blocks = blocks;
+    trim_views(d);
     ++ctx.stats.DrawCalls;
     return trouble != nullptr ? report(*trouble) : succeed();
 }
@@ -1326,6 +1321,30 @@ ImTypesetTextRange unit_at(ImTypesetDocument& d, const Probe& at, Granularity gr
     return out;
 }
 
+bool too_many_blocks()
+{
+    return fail(ImTypesetError_InvalidArgument,
+                "a document holds at most " + std::to_string(MAX_DOCUMENT_BLOCKS) + " blocks");
+}
+
+// Where a position is once blocks [at, at + removed) have been replaced by
+// `incoming` blocks. Below the edit nothing moves; above it a block moves by
+// the difference; a block replaced one for one keeps its number. A position
+// in blocks that are gone is the nearest that is left: the start of a range
+// moves to after what took their place, its end to before it.
+ImTypesetPosition moved_by_edit(ImTypesetPosition position, size_t at, size_t removed,
+                                size_t incoming, bool is_end)
+{
+    if (position.Block < 0 || static_cast<size_t>(position.Block) < at)
+        return position;
+    const size_t block = static_cast<size_t>(position.Block);
+    if (block >= at + removed)
+        return ImTypesetPosition{static_cast<int>(block - removed + incoming), position.Offset};
+    if (incoming == removed)
+        return position;
+    return ImTypesetPosition{static_cast<int>(is_end ? at : at + incoming), 0};
+}
+
 void append_px(const ImTypesetDocument& d, const Rect& rect, Scaled top, ImVector<ImVec4>* out)
 {
     out->push_back(ImVec4(pxf(d, rect.x), pxf(d, top + rect.y), pxf(d, rect.x + rect.width),
@@ -1338,16 +1357,6 @@ void append_px(const ImTypesetDocument& d, const Rect& rect, Scaled top, ImVecto
 
 namespace ImTypeset::detail
 {
-
-void set_document_hook(ImTypesetDocument& document, const DocumentHook& hook)
-{
-    document.hook = hook;
-    if (document.has_style)
-        apply_rules(document);
-    for (DocBlock& b : document.blocks)
-        b.has_spec = false;
-    document.specs_stale = true;
-}
 
 void destroy_documents(ImTypesetContext& ctx)
 {
@@ -1456,8 +1465,7 @@ bool ReplaceDocumentBlocks(ImTypesetDocument* document, int first, int count,
     const size_t at = static_cast<size_t>(first);
     const size_t removed = static_cast<size_t>(count);
     if (!d->doc.splice(at, removed, incoming))
-        return fail(ImTypesetError_InvalidArgument,
-                    "a document holds at most " + std::to_string(MAX_DOCUMENT_BLOCKS) + " blocks");
+        return too_many_blocks();
 
     for (size_t i = at; i < at + removed; ++i) {
         d->dead_boxes += d->blocks[i].atom_boxes;
@@ -1475,17 +1483,24 @@ bool ReplaceDocumentBlocks(ImTypesetDocument* document, int first, int count,
     // A view names its block by number, and the numbers have moved.
     for (const std::unique_ptr<DocView>& view : d->views)
         view->block = -1;
+    // So have those of the selection DocumentView() keeps.
+    if (before(d->selection.Start, d->selection.End)) {
+        d->selection.Start = moved_by_edit(d->selection.Start, at, removed, incoming, false);
+        d->selection.End = moved_by_edit(d->selection.End, at, removed, incoming, true);
+    }
+    if (!before(d->selection.Start, d->selection.End))
+        d->selection = ImTypesetDocumentRange{{0, 0}, {0, 0}};
 
+    ErrorState trouble;
     const size_t containers_before = d->containers.size();
     if (given.Styles != nullptr && given.StyleCount > 0)
         d->styles.insert(d->styles.end(), given.Styles, given.Styles + given.StyleCount);
     if (given.Containers != nullptr && given.ContainerCount > 0) {
         d->containers.insert(d->containers.end(), given.Containers,
                              given.Containers + given.ContainerCount);
-        declare_containers(*d, containers_before);
+        declare_containers(*d, containers_before, trouble);
     }
 
-    ErrorState trouble;
     for (size_t k = 0; k < incoming; ++k) {
         describe(*d, d->blocks[at + k], given, given.Blocks[k], static_cast<int>(at + k), trouble);
         if (d->has_style && !d->specs_stale)
@@ -1501,6 +1516,11 @@ bool SetDocumentBlocks(ImTypesetDocument* document, const ImTypesetDocumentConte
     ImTypesetDocument* d = owned(document);
     if (d == nullptr)
         return no_document();
+    // Refused before anything is given up: the one way the replacement below
+    // can fail.
+    if (content != nullptr && content->Blocks != nullptr && content->BlockCount > 0 &&
+        static_cast<size_t>(content->BlockCount) > MAX_DOCUMENT_BLOCKS)
+        return too_many_blocks();
     d->doc.clear();
     d->blocks.clear();
     d->styles.clear();
@@ -1525,27 +1545,31 @@ bool AppendDocumentText(ImTypesetDocument* document, const char* text, const cha
     DocBlock& b = d->blocks[i];
     if (!is_text(b.kind) && !is_code(b.kind))
         return fail(ImTypesetError_InvalidArgument, "the last block is not one that holds text");
-    size_t size = text_size(text, text_end);
+    // What THIS call found wrong, which is what it answers: what an earlier
+    // call found is the block's (GetDocumentBlockError) and was said then.
+    ErrorState trouble;
+    const size_t given = text_size(text, text_end);
     const size_t room = b.text.size() < static_cast<size_t>(MAX_TEXT_BYTES)
                             ? static_cast<size_t>(MAX_TEXT_BYTES) - b.text.size()
                             : 0;
-    if (size > room) {
-        size = room;
-        while (size > 0 && (static_cast<unsigned char>(text[size]) & 0xC0) == 0x80)
-            --size;
-        if (b.text_error.ok())
-            b.text_error.set(ImTypesetError_TextTooLong,
-                             "the text is longer than 16 MiB and was cut there",
-                             static_cast<int>(b.text.size() + size));
-    }
+    const size_t size = cut_at_character(text, given, room);
+    if (size < given)
+        trouble.set(ImTypesetError_TextTooLong, "the text is longer than 16 MiB and was cut there",
+                    static_cast<int>(b.text.size() + size));
     if (size > 0)
         b.text.append(text, size);
-    if (is_text(b.kind))
+    if (is_text(b.kind)) {
+        ErrorState run_trouble;
         validate_runs(b.runs, runs, runs_count, b.text.size(),
-                      b.runs.empty() ? 0 : b.runs.back().end, b.text_error);
+                      b.runs.empty() ? 0 : b.runs.back().end, run_trouble);
+        if (trouble.ok())
+            trouble = run_trouble;
+    }
+    if (b.text_error.ok())
+        b.text_error = trouble;
     const uint32_t lines_before = b.code_lines;
     if (is_code(b.kind))
-        map_code(b, false);
+        measure_code(b);
     // Whether a code block sets a box at all is part of what the gaps round
     // it were computed from.
     const bool appeared = is_code(b.kind) && (lines_before == 0) != (b.code_lines == 0);
@@ -1560,7 +1584,7 @@ bool AppendDocumentText(ImTypesetDocument* document, const char* text, const cha
         block.code.clear();
         block.length_hint = length_hint(b);
     }
-    return report(b.text_error);
+    return report(trouble);
 }
 
 bool SetDocumentBlockExtent(ImTypesetDocument* document, int block, float extent)
@@ -2019,7 +2043,20 @@ bool DocumentView(const char* str_id, ImTypesetDocument* document, const ImVec2&
         return fail(ImTypesetError_InvalidArgument,
                     "DocumentView was called outside a frame: call it between "
                     "ImGui::NewFrame() and ImGui::Render()");
+    // The child is ended however the view is left: a host can unwind through
+    // it (an IM_ASSERT that throws, a failed allocation), and its window stack
+    // must be what it was. Left in the ordinary way, EndChild() is called as
+    // any other call is and may itself throw.
+    struct Child {
+        bool begun = false;
+        ~Child()
+        {
+            if (begun)
+                IMTYPESET_NO_UNWIND(ImGui::EndChild());
+        }
+    } child;
     const bool open = ImGui::BeginChild(str_id != nullptr ? str_id : "##document", size);
+    child.begun = true;
     bool ok = true;
     if (open) {
         const float width = ImGui::GetContentRegionAvail().x;
@@ -2080,6 +2117,7 @@ bool DocumentView(const char* str_id, ImTypesetDocument* document, const ImVec2&
             *selection = d.selection;
     }
     const ErrorState outcome = last_error();
+    child.begun = false;
     ImGui::EndChild();
     return ok ? succeed() : report(outcome);
 }

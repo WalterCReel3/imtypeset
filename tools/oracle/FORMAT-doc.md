@@ -346,8 +346,8 @@ Exactly what `BareView._paint` computes with the whole document in view:
 - `inks`: `_overlaid(roleinks, decoinks)`, the `inks` argument of
   `draw_runs`: a decoration wins over a role.
 - `fills`: the `fills` argument of `draw_runs`, in the reference's order: per
-  unit, per block, each link's underlines, then each colour span's marks in
-  span order — marks and underlines are NOT merged or sorted, and overlapping
+  unit, per block, each colour span's marks in span order, then each link's
+  underlines — marks and underlines are NOT merged or sorted, and overlapping
   marks are both drawn. A mark is the full height of its line. An underline is
   `Rect(x, baseline + 2·t, width, t)` with `t = decor`'s thickness, one per
   line of the link, only when links are styled.

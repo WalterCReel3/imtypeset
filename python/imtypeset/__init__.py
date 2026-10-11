@@ -99,6 +99,7 @@ __all__ = [
     "create_context",
     "current_context",
     "destroy_context",
+    "get_context_serial",
     "get_font",
     "get_style",
     "host_info",
@@ -583,6 +584,9 @@ def last_error() -> ErrorInfo:
     return _error_info(raw)
 
 
+_NO_ERROR = ErrorInfo(0, "", -1, -1)
+
+
 def _outcome(ok, where: str) -> bool:
     """True; or False for something done differently; or raises for something not done."""
     if ok:
@@ -644,6 +648,14 @@ def current_context() -> Optional[int]:
 
 def set_current_context(ctx: Optional[int]) -> None:
     _lib.ImTypeset_SetCurrentContext(ctx)
+
+
+def get_context_serial() -> int:
+    """A number no other context of this process has had or will have; 0 with no
+    current context. A handle is an address, and a context made after another
+    was destroyed can have its address: code that keeps paragraphs or documents
+    across frames without owning the context keeps this beside them."""
+    return int(_lib.ImTypeset_GetContextSerial())
 
 
 def stats() -> Stats:
@@ -1130,9 +1142,13 @@ class Document:
     containers it is given to the document's: `style_count` and
     `container_count` say where the new ones start.
 
-    An edit that the library applied only in part (an index that names no
-    style, a Table block) raises `Error` AFTER the blocks are set as far as
-    they could be; the document is consistent and may be used.
+    AN EDIT HAS THREE OUTCOMES. Applied whole: True. Applied in part (the
+    library cut what was wrong in the description, a Table block for one, and
+    set the rest): False, and `edit_error` holds what it said, with
+    ErrorCode.DescriptionCut; the document is consistent and may be used.
+    Not applied: `Error` is raised, and what this object keeps of the
+    document (block count, positions) is still what the library holds.
+    `from_blocks` cannot return the False: read `edit_error` after it.
     """
 
     def __init__(self):
@@ -1145,6 +1161,8 @@ class Document:
         # [n, text, data]: after `n` ASCII bytes come `text` and its UTF-8.
         self._texts: list = []
         self._last_size = 0  # Bytes of text the last block holds.
+        # What the last edit reported: `code` 0 when it was applied whole.
+        self.edit_error = _NO_ERROR
         self._vertices = None
         self._indices = None
         self._copy = _C.create_string_buffer(1024)
@@ -1154,6 +1172,8 @@ class Document:
     def from_blocks(
         cls, blocks: Sequence, styles: Sequence = (), containers: Sequence = ()
     ) -> "Document":
+        """A document holding `blocks`. When the library set them only in
+        part, `edit_error` on the document returned says what was cut."""
         document = cls()
         document.set_blocks(blocks, styles, containers)
         return document
@@ -1190,9 +1210,13 @@ class Document:
     # --- Positions ---
 
     def _byte(self, block: int, offset: int) -> int:
+        entry = self._texts[block] if 0 <= block < len(self._texts) else None
+        return self._byte_in(entry, offset)
+
+    @staticmethod
+    def _byte_in(entry, offset: int) -> int:
         if offset <= 0:
             return 0
-        entry = self._texts[block] if 0 <= block < len(self._texts) else None
         if entry is None:
             return offset
         ascii_bytes, text, data = entry
@@ -1224,6 +1248,34 @@ class Document:
         )
 
     # --- Edits ---
+    #
+    # `_texts` and `_last_size` say what the library holds, so they are written
+    # only once the library has answered, and only with what it took.
+
+    def _edited(self, ok, where: str) -> bool:
+        """An edit's outcome: True (whole), False (in part; `edit_error` set), or raises."""
+        if ok:
+            self.edit_error = _NO_ERROR
+            return True
+        info = last_error()
+        if info.code != ErrorCode.None_ and info.code not in Error.SOFT:
+            raise Error(info, where)
+        self.edit_error = info
+        return False
+
+    def _refused(self, handle: int) -> None:
+        """After an edit that was refused. Nothing changes here unless the
+        library holds another number of blocks than it did: then it changed
+        the document while refusing, the texts this object kept are no longer
+        its, and what is left is the count (positions in those blocks are
+        taken as byte offsets until the blocks are set again)."""
+        count = _lib.ImTypeset_GetDocumentBlockCount(handle)
+        if count < 0 or count == len(self._texts):
+            return
+        self._texts = [None] * count
+        self._last_size = (
+            max(_lib.ImTypeset_GetDocumentBlockTextSize(handle, count - 1), 0) if count else 0
+        )
 
     @staticmethod
     def _pack(blocks: Sequence, styles: Sequence, containers: Sequence):
@@ -1331,14 +1383,20 @@ class Document:
         """Replaces everything the document holds. One call into the library.
         False, with `last_error()` saying ErrorCode.DescriptionCut, when
         something in the description was wrong and was cut to what is right
-        (a table, an index that names nothing): the blocks are set."""
+        (a table, an index that names nothing): the blocks are set, and
+        `edit_error` keeps what was said. Raises `Error` when they were not."""
         handle = self._h()
         content, held, entries, last = self._pack(blocks, styles, containers)
         ok = _lib.ImTypeset_SetDocumentBlocks(handle, _C.byref(content))
         del held
+        try:
+            whole = self._edited(ok, "Document.set_blocks")
+        except Error:
+            self._refused(handle)
+            raise
         self._texts = entries
         self._last_size = last
-        return _outcome(ok, "Document.set_blocks")
+        return whole
 
     def replace_blocks(
         self,
@@ -1361,6 +1419,11 @@ class Document:
         touches_end = first + count == len(self._texts)
         ok = _lib.ImTypeset_ReplaceDocumentBlocks(handle, first, count, _C.byref(content))
         del held
+        try:
+            whole = self._edited(ok, "Document.replace_blocks")
+        except Error:
+            self._refused(handle)
+            raise
         self._texts[first : first + count] = entries
         if touches_end:
             if entries:
@@ -1371,33 +1434,33 @@ class Document:
                     if self._texts
                     else 0
                 )
-        return _outcome(ok, "Document.replace_blocks")
+        return whole
 
-    def append_text(self, text: str, runs: Sequence = ()) -> None:
+    def append_text(self, text: str, runs: Sequence = ()) -> bool:
         """Appends to the text of the LAST block: text that arrives a piece at a
         time. `runs` are further runs of that block, indexing its whole text.
-        Only that block is laid out again. One call into the library."""
+        Only that block is laid out again. One call into the library.
+        True, False or `Error` as `set_blocks`."""
         handle = self._h()
         if not self._texts:
             raise ValueError("append_text: the document has no block")
         data = text.encode("utf-8")
+        # The last block's entry as it will be once the text is appended.
         entry = self._texts[-1]
         if entry is None:
             if len(data) != len(text):
-                entry = self._texts[-1] = [self._last_size, text, data]
+                entry = [self._last_size, text, data]
         else:
-            entry[1] += text
-            entry[2] += data
-        self._last_size += len(data)
+            entry = [entry[0], entry[1] + text, entry[2] + data]
+        grown = self._last_size + len(data)
         array = None
         if runs:
             given = [run if type(run) is Run else Run(*run) for run in runs]
-            block = len(self._texts) - 1
             array = _C.create_string_buffer(
                 b"".join(
                     _RUN.pack(
-                        self._byte(block, run.start),
-                        self._byte(block, run.end),
+                        self._byte_in(entry, run.start),
+                        self._byte_in(entry, run.end),
                         int(run.face),
                         run.scale,
                         run.color,
@@ -1408,17 +1471,26 @@ class Document:
                 )
             )
         ok = _lib.ImTypeset_AppendDocumentText(handle, *_text_args(data), array, len(runs))
-        if not ok:
-            # Nothing was appended unless the library says it did it differently.
-            info = last_error()
-            if info.code not in Error.SOFT:
-                size = _lib.ImTypeset_GetDocumentBlockTextSize(handle, len(self._texts) - 1)
-                if size != self._last_size:
-                    self._last_size -= len(data)
-                    if entry is not None:
-                        entry[1] = entry[1][: len(entry[1]) - len(text)]
-                        entry[2] = entry[2][: len(entry[2]) - len(data)]
-                raise Error(info, "Document.append_text")
+        try:
+            whole = self._edited(ok, "Document.append_text")
+        except Error:
+            # Refused. If the last block holds the text all the same (its size
+            # says), it is kept here too.
+            if _lib.ImTypeset_GetDocumentBlockTextSize(handle, len(self._texts) - 1) == grown:
+                self._texts[-1] = entry
+                self._last_size = grown
+            raise
+        if not whole:
+            # Taken in part: the library may have cut the text (ErrorCode.TextTooLong).
+            size = _lib.ImTypeset_GetDocumentBlockTextSize(handle, len(self._texts) - 1)
+            if 0 <= size < grown:
+                if entry is not None:
+                    kept = entry[2][: max(size - entry[0], 0)]
+                    entry = [entry[0], kept.decode("utf-8", "ignore"), kept]
+                grown = size
+        self._texts[-1] = entry
+        self._last_size = grown
+        return whole
 
     def set_block_extent(self, block: int, extent: float) -> None:
         """A Rule's thickness or a Host block's height, in pixels."""

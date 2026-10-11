@@ -89,7 +89,7 @@ C++ exception into an error status at each entry.
 | `../pptmstr/.venv` | imgui_bundle 1.92.801, Dear ImGui 1.92.8 | stand-in `v1.92.8-docking` | accepted, 22 probes | `examples/python/bundle_host.py --frames 30` on Xvfb: selection (74, 284), 2 layouts |
 | `../imgui-adv-text/.venv` | imgui_bundle 1.92.900, Dear ImGui 1.92.9 | stand-in `v1.92.9-docking` | accepted, 22 probes | the same numbers; screenshot looked at |
 
-The library exports 77 `ImTypeset_*` and 8 `ImTypesetBundle_*` symbols and
+The library exports 78 `ImTypeset_*` and 8 `ImTypesetBundle_*` symbols and
 leaves 51 ImGui symbols undefined for the wheel to supply.
 
 **The caveat that remains.** Both libraries above are built against stand-in
@@ -127,9 +127,18 @@ an application:
 cmake --preset python-host && cmake --build --preset python-host && ctest --preset python-host
 ```
 
-It needs an SDL2 (`IMTYPESET_SDL2_DIR`; the preset points at
-`../example-project/build/desktop-debug`) and skips, with the reason, when it
-has no interpreter. With `IMTYPESET_BUILD_PYTHON_HOST` on, the `imtypeset`
+It needs an SDL2, found as `cmake/sdl2.cmake` says and as the demo host finds
+it: `-DIMTYPESET_SDL2_DIR=` when given; else an installed one, by
+`find_package(SDL2 CONFIG)` (a target, or the variables older packages set) and
+then by pkg-config, which is what a distribution's `libsdl2-dev` or `SDL2-devel`
+provides; else the untracked `.deps/sdl2` of this tree, which
+`tools/vendor_sdl2.sh <SDL2 install prefix or build tree>` fills. The configure
+step prints the route, and stops with the list where there is none. **The
+installed-package route has not been run against a distribution's package**
+(this machine has none): each branch of it was run against a hand-written
+`sdl2.pc` or `SDL2Config.cmake` that points at `.deps/sdl2`, and this library
+was built and `python_binding` passed through the `sdl2.pc` one (D52). The
+test skips, with the reason, when it has no interpreter. With `IMTYPESET_BUILD_PYTHON_HOST` on, the `imtypeset`
 target is position-independent: take no timing from such a tree.
 
 ---
@@ -282,7 +291,13 @@ licence to name yet.
 The library's results are compared with the reference's to the last bit, and
 are defined as IEEE double arithmetic with each operation rounded on its own.
 Every configuration of this tree's own build passes `-ffp-contract=off`
-(`/fp:precise` in the MSVC branch) and never a fast-math flag. A drop-in host
+(`/fp:precise` in the MSVC branch) and never a fast-math flag: to this tree's
+sources, and to the Dear ImGui it compiles itself from `.deps/imgui` or
+`IMTYPESET_IMGUI_DIR` (`cmake/imgui.cmake`, and the backends the demo host and
+the Python host compile). It is never added to an ImGui target a host brings
+(`add_subdirectory` into a project that has one, `imgui::imgui` from a
+package, the wheel's ImGui under the sidecar): that is compiled however the
+host compiles it, and D52 says why the difference is accepted. A drop-in host
 compiles `imtypeset.cpp` with its own flags, so the question was measured.
 
 GCC 12.2.0, `-O3 -march=native` on a CPU with FMA, `-std=c++17`. (GCC's default
@@ -320,7 +335,7 @@ What the generated file does about it:
 
 `fp-host` is the one preset in which `-ffp-contract=off` is not on the
 library's command line; `build/fp-host/compile_commands.json` shows it on every
-other target.
+other entry, Dear ImGui's files and the one C test included.
 
 ---
 
@@ -384,21 +399,23 @@ test presets run four jobs. The two sanitised test presets set
 | `exceptions` | ASan + UBSan, exceptions and RTTI on, `IM_ASSERT` throws (`tests/imconfig_throwing.h`); `test_exception_safety` does its work only here and in the next | 41 of 41 |
 | `bundle-config` | exceptions on, Dear ImGui Bundle's own configuration header from `../imgui_bundle` (throwing `IM_ASSERT`, 32-bit `ImDrawIdx`), `IMGUI_DISABLE_OBSOLETE_FUNCTIONS` | 41 of 41 |
 | `imgui-next` | the Dear ImGui checked out in `../imgui` (1.93.0 WIP, 19298) | 41 of 41 |
-| `python-host` | debug plus `python/` and the `python_binding` test (SDL2 from `../example-project`) | 42 of 42 |
+| `python-host` | debug plus `python/` and the `python_binding` test (SDL2 from `.deps/sdl2`) | 42 of 42 |
 
-Each was run on the final tree, one at a time, as an incremental rebuild of its
-own directory under `build/` (not from an empty one), FreeType 2.12.1 except
-`stb`, 32-bit `ImWchar` except `wchar16`. No warning from this tree's sources in
-any of them; a fresh build of `exceptions` and `bundle-config` prints four
-`-Wterminate` warnings, all in Dear ImGui's own destructors, where the throwing
-`IM_ASSERT` is expanded.
+Each was run on the final tree (after D52's changes), one at a time in a
+single pass, from a directory under `build/` that did not exist before it, FreeType 2.12.1 except `stb`, 32-bit `ImWchar`
+except `wchar16`. No warning from this tree's sources in any of them;
+`exceptions` and `bundle-config` each print four `-Wterminate` warnings, all in
+Dear ImGui's own destructors (`~ImDrawListSharedData`, `~ImFontAtlas`,
+`~ImGuiContext`, `~ImGuiWindow`), where the throwing `IM_ASSERT` is expanded.
+A build at `-O2` (`RelWithDebInfo`, a private directory, not a preset): 41 of 41,
+on the tree before D52's changes; not run again after them.
 
 Also run once in a private directory and not a preset: 1.93.0 WIP with
 `IMGUI_DISABLE_OBSOLETE_FUNCTIONS` (`-DIMTYPESET_IMGUI_DIR=../imgui
 -DIMTYPESET_IMGUI_DEFINITIONS=IMGUI_DISABLE_OBSOLETE_FUNCTIONS`), debug: 41 of 41.
 
-`bundle-config`, `imgui-next` and `python-host` need a sibling checkout and fail
-at configure where it is absent: CMake presets have no condition that tests for
+`bundle-config` and `imgui-next` need a sibling checkout, and `python-host` an
+SDL2 (installed, or `.deps/sdl2`), and fail at configure where it is absent: CMake presets have no condition that tests for
 a directory.
 
 `consumer_projects` runs in `debug` only (`IMTYPESET_BUILD_CONSUMER_TESTS`): it

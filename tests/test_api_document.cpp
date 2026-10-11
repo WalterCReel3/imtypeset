@@ -1,8 +1,8 @@
 // The Document of include/imtypeset.h: styled blocks in; layout, drawing and
 // selection out. Everything goes in through the public header;
-// src/imtypeset_document.h is included to install the hook that replays the
-// reference's goldens (reference rules, exact scaled points) and to look at
-// the block layer underneath.
+// src/imtypeset_document.h is included to select the reference's rules for the
+// replay of its goldens (tests/document_reference.h) and to look at the block
+// layer underneath.
 //
 // What is tested, and what each stands on:
 //   - the description: every kind of block, runs, tags, markers, containers;
@@ -18,6 +18,7 @@
 
 #include "blocks_golden.h"
 #include "core_golden.h"
+#include "document_reference.h"
 #include "golden.h"
 
 #include "imtypeset.h"
@@ -888,14 +889,11 @@ TEST(a_host_block_changes_height_without_anything_else_being_laid_out)
 // LayoutDocumentWindow(); and the block layer underneath is flattened and
 // compared with the reference's commands, exactly.
 //
-// Two things stand between a public description and the reference's numbers,
-// and the DocumentHook supplies both: the reference's rules (the public
-// default is the product's), and scaled points. The reference's lengths are
-// integers of scaled points and the header's are float pixels, which do not
-// carry every one of them, so the hook replaces each length the description
-// came to by the golden's, AFTER checking that the two are within two scaled
-// points (1/32768 of a point): what the public description says is the
-// reference's block, to the precision a float has.
+// One thing stands between a public description and the reference's layout:
+// the reference's rules, where the public default is the product's. They are
+// selected as tests/document_reference.h says. Everything else, every length
+// included, goes in through the header as float pixels, and what each came to
+// in scaled points is held to the golden's exactly.
 
 namespace
 {
@@ -925,85 +923,12 @@ struct Replay {
     int compositions = 0;
     int blocks = 0;
     size_t cmds = 0;
+    // Lengths of the description held to the golden's scaled points, by ==.
     int lengths = 0;
-    int lengths_exact = 0;
     std::map<std::string, int> skipped;
 };
 
-struct HookData {
-    const std::vector<blocks_golden::BlockIn>* inputs = nullptr;
-    const blocks_golden::ThemeIn* theme = nullptr;
-    std::vector<std::vector<FontSpec>> run_fonts;
-    Replay* tally = nullptr;
-};
-
-// One length as the public description resolved it against the golden's.
-void take(HookData& data, Scaled& resolved, Scaled exact, const char* what)
-{
-    ++data.tally->lengths;
-    if (resolved == exact)
-        ++data.tally->lengths_exact;
-    const Scaled apart = resolved > exact ? resolved - exact : exact - resolved;
-    if (apart > 2)
-        FAIL("%s: the description came to %lld sp and the reference has %lld", what,
-             static_cast<long long>(resolved), static_cast<long long>(exact));
-    resolved = exact;
-}
-
-void golden_block(void* user, int number, BlockSpec& spec)
-{
-    HookData& data = *static_cast<HookData*>(user);
-    if (number < 0 || static_cast<size_t>(number) >= data.inputs->size())
-        return;
-    const blocks_golden::BlockIn& in = (*data.inputs)[static_cast<size_t>(number)];
-    CHECK_CONTEXT("block %d (line %d)", number, in.line);
-    CHECK(spec.type == in.type);
-    take(data, spec.left_indent, in.left_indent, "left indent");
-    take(data, spec.space_above, in.space_above, "space above");
-    take(data, spec.space_below, in.space_below, "space below");
-    if (in.type == BlockType::RULE) {
-        take(data, spec.extent, in.thickness, "thickness");
-        return;
-    }
-    const FontSpec font = blocks_golden::spec_of(in.font);
-    CHECK(spec.font.face == font.face);
-    take(data, spec.font.size, font.size, "size");
-    take(data, spec.interline.baselineskip.width, in.interline.baselineskip.width, "leading");
-    take(data, spec.interline.lineskip.width, in.interline.lineskip.width, "lineskip");
-    spec.interline = in.interline;
-    spec.strut = in.strut;
-    if (in.type == BlockType::TEXT) {
-        CHECK(spec.align == in.align);
-        take(data, spec.first_line_indent, in.first_line_indent, "first-line indent");
-        // The reference narrows the first line by the indent as well as
-        // putting the box there (docs/divergences.md); the product does not.
-        spec.first_line = FirstLineIndent::BOX_AND_SHAPE;
-        CHECK_EQ(spec.quote_depth, in.quote_depth);
-    }
-    take(data, spec.marker_gap, data.theme->marker_gap, "marker gap");
-    if (in.has_marker) {
-        CHECK(spec.marker_font.face == in.marker_font.face);
-        take(data, spec.marker_font.size, in.marker_font.size, "marker size");
-    }
-}
-
-void golden_run(void* user, int number, int run_index, FontSpec& font)
-{
-    HookData& data = *static_cast<HookData*>(user);
-    if (number < 0 || static_cast<size_t>(number) >= data.run_fonts.size())
-        return;
-    const std::vector<FontSpec>& fonts = data.run_fonts[static_cast<size_t>(number)];
-    if (!CHECK(run_index >= 0 && static_cast<size_t>(run_index) < fonts.size()))
-        return;
-    const FontSpec exact = fonts[static_cast<size_t>(run_index)];
-    CHECK(font.face == exact.face);
-    take(data, font.size, exact.size, "run size");
-}
-
-float px_float(Scaled length, double ppi)
-{
-    return static_cast<float>(px_from_sp(length, ppi));
-}
+using document_reference::px_float;
 
 // One `blocks` case. Returns why it cannot be described, or null.
 const char* replay_blocks_case(Stage& stage, const golden::File& file, const core_golden::Case& c,
@@ -1039,12 +964,6 @@ const char* replay_blocks_case(Stage& stage, const golden::File& file, const cor
             ? ImTypesetSpacing_French
             : (theme.composition.spacing == Spacing::NONFRENCH ? ImTypesetSpacing_TeX
                                                                : ImTypesetSpacing_Sentence);
-
-    HookData data;
-    data.inputs = &inputs;
-    data.theme = &theme;
-    data.tally = &tally;
-    data.run_fonts.resize(inputs.size());
 
     Content content;
     for (size_t i = 0; i < inputs.size(); ++i) {
@@ -1143,7 +1062,6 @@ const char* replay_blocks_case(Stage& stage, const golden::File& file, const cor
                                                static_cast<double>(font.size));
             if (!piece.event->breakable)
                 run.Flags |= ImTypesetRunFlags_NoBreak;
-            data.run_fonts[i].push_back(piece.event->font);
         }
         if (in.has_marker)
             content.marker(in.marker_text);
@@ -1152,14 +1070,10 @@ const char* replay_blocks_case(Stage& stage, const golden::File& file, const cor
     ImTypesetDocument* document = ImTypeset::CreateDocument();
     if (document == nullptr)
         return "no document";
-    DocumentHook hook;
-    hook.reference_rules = true;
-    hook.quote_indent = theme.theme.quote_indent;
-    hook.quote_rule_thickness = theme.theme.quote_rule_thickness;
-    hook.block = &golden_block;
-    hook.run = &golden_run;
-    hook.user = &data;
-    set_document_hook(*document, hook);
+    if (const char* why = document_reference::use_reference(document, theme)) {
+        ImTypeset::DestroyDocument(document);
+        return why;
+    }
     const ImTypesetDocumentContent view = content.view();
     CHECK(ImTypeset::SetDocumentBlocks(document, &view));
     CHECK_EQ(ImTypeset::GetDocumentBlockCount(document), static_cast<int>(inputs.size()));
@@ -1203,6 +1117,9 @@ const char* replay_blocks_case(Stage& stage, const golden::File& file, const cor
         Document& inner = block_document(*document);
         if (!CHECK(inner.settled()))
             continue;
+        document_reference::hold_theme(*document, theme, tally.lengths);
+        for (size_t i = 0; i < inputs.size(); ++i)
+            document_reference::hold_block(*document, i, inputs[i], false, theme, tally.lengths);
         if (vbox_extent >= 0)
             CHECK_EQ(inner.height(), vbox_extent);
         flat.clear();
@@ -1250,10 +1167,9 @@ TEST(the_block_goldens_described_through_the_public_header_compose_to_the_refere
         }
     }
     std::printf("document: %d of %d block cases through the public header: %d compositions, %d "
-                "blocks, %zu commands; %d of %d lengths came to the reference's scaled point "
-                "exactly, the rest within 2 sp\n",
-                tally.cases, total, tally.compositions, tally.blocks, tally.cmds,
-                tally.lengths_exact, tally.lengths);
+                "blocks, %zu commands; %d lengths of the description held to the reference's "
+                "scaled points by ==\n",
+                tally.cases, total, tally.compositions, tally.blocks, tally.cmds, tally.lengths);
     for (const auto& entry : tally.skipped)
         std::printf("document:   not expressible (%d): %s\n", entry.second, entry.first.c_str());
     // A replay that quietly shrank must not read as a pass.
@@ -1261,6 +1177,7 @@ TEST(the_block_goldens_described_through_the_public_header_compose_to_the_refere
     CHECK(tally.cases >= 64);
     CHECK(tally.compositions >= 200);
     CHECK(tally.cmds > 34000);
+    CHECK(tally.lengths > 2000);
 }
 
 namespace
@@ -1669,4 +1586,526 @@ TEST(a_range_over_the_whole_document_keeps_a_bounded_number_of_views)
                 "selection over %d blocks\n",
                 document->views.size(), count);
     ImTypeset::DestroyDocument(document);
+}
+
+// --- What an edit says of itself ------------------------------------------------------
+
+// A call that was applied says so. Runs out of order are dropped and that is
+// said once, by the call that handed them over, as something done differently;
+// an append afterwards answers for the append alone.
+TEST(an_append_that_was_applied_does_not_answer_for_what_an_earlier_call_found)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    Frame frame;
+    ImTypesetDocument* document = ImTypeset::CreateDocument();
+    REQUIRE(document != nullptr);
+    const int ORDERS[2][4] = {{3, 5, 0, 2}, {0, 6, 2, 4}}; // backwards; one inside another
+    for (const auto& order : ORDERS) {
+        CHECK_CONTEXT("runs {%d,%d} {%d,%d}", order[0], order[1], order[2], order[3]);
+        Content content;
+        content.add(ImTypesetBlockKind_Paragraph, "abcdef");
+        content.run(order[0], order[1]).Face = ImTypesetFace_Bold;
+        content.run(order[2], order[3]).Face = ImTypesetFace_Italic;
+        const ImTypesetDocumentContent view = content.view();
+        // Said when the blocks are set, as a description that was cut.
+        CHECK(!ImTypeset::SetDocumentBlocks(document, &view));
+        CHECK_EQ(ImTypeset::GetLastError()->Code, static_cast<int>(ImTypesetError_DescriptionCut));
+        CHECK_EQ(ImTypeset::GetDocumentBlockError(document, 0)->Code,
+                 static_cast<int>(ImTypesetError_DescriptionCut));
+        CHECK_EQ(ImTypeset::GetDocumentBlockTextSize(document, 0), 6);
+        // The append is applied, and says so, every time.
+        for (int again = 0; again < 3; ++again) {
+            CHECK(ImTypeset::AppendDocumentText(document, " more"));
+            CHECK_EQ(ImTypeset::GetLastError()->Code, static_cast<int>(ImTypesetError_None));
+        }
+        CHECK_EQ(ImTypeset::GetDocumentBlockTextSize(document, 0), 21);
+        // What the block was found to have wrong is still the block's.
+        CHECK_EQ(ImTypeset::GetDocumentBlockError(document, 0)->Code,
+                 static_cast<int>(ImTypesetError_DescriptionCut));
+        CHECK(ImTypeset::LayoutDocument(document, 300.0f));
+        CHECK_EQ(copied(document, ImTypesetPosition{0, 0}, ImTypesetPosition{0, 100}),
+                 std::string("abcdef more more more"));
+    }
+
+    // Runs handed to an append that are not after the block's: dropped, the
+    // text appended, and said by that call alone.
+    Content content;
+    content.add(ImTypesetBlockKind_Paragraph, "abcdef");
+    content.run(2, 4).Face = ImTypesetFace_Bold;
+    const ImTypesetDocumentContent view = content.view();
+    CHECK(ImTypeset::SetDocumentBlocks(document, &view));
+    ImTypesetRun early;
+    early.Start = 1;
+    early.End = 3;
+    CHECK(!ImTypeset::AppendDocumentText(document, "gh", nullptr, &early, 1));
+    CHECK_EQ(ImTypeset::GetLastError()->Code, static_cast<int>(ImTypesetError_DescriptionCut));
+    CHECK_EQ(ImTypeset::GetDocumentBlockTextSize(document, 0), 8);
+    CHECK(ImTypeset::AppendDocumentText(document, "ij"));
+    CHECK_EQ(ImTypeset::GetDocumentBlockTextSize(document, 0), 10);
+    ImTypesetRun late;
+    late.Start = 8;
+    late.End = 12;
+    late.Tag = 7;
+    CHECK(ImTypeset::AppendDocumentText(document, "kl", nullptr, &late, 1));
+    CHECK(ImTypeset::LayoutDocument(document, 300.0f));
+    CHECK_EQ(copied(document, ImTypesetPosition{0, 0}, ImTypesetPosition{0, 100}),
+             std::string("abcdefghijkl"));
+    ImTypeset::DestroyDocument(document);
+}
+
+// The same of a paragraph: runs out of order are dropped, the text is set, and
+// the code is one of those that say "done, differently".
+TEST(a_paragraph_whose_runs_are_out_of_order_is_set_and_says_done_differently)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    ImTypesetParagraph* paragraph = ImTypeset::CreateParagraph();
+    REQUIRE(paragraph != nullptr);
+    ImTypesetRun runs[2];
+    runs[0].Start = 3;
+    runs[0].End = 5;
+    runs[1].Start = 0;
+    runs[1].End = 2;
+    CHECK(!ImTypeset::SetParagraphText(paragraph, "abcdef", nullptr, runs, 2));
+    CHECK_EQ(ImTypeset::GetLastError()->Code, static_cast<int>(ImTypesetError_DescriptionCut));
+    CHECK_EQ(ImTypeset::GetParagraphError(paragraph)->Code,
+             static_cast<int>(ImTypesetError_DescriptionCut));
+    (void)ImTypeset::LayoutParagraph(paragraph, 300.0f);
+    CHECK_EQ(ImTypeset::GetParagraphLineCount(paragraph), 1);
+    ImTypeset::DestroyParagraph(paragraph);
+}
+
+// Everything describe() cuts is said: a container's parent that is not an
+// earlier container, a container kind that is not one, a marker past its limit.
+TEST(a_container_or_a_marker_that_was_cut_is_said_too)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    Frame frame;
+    ImTypesetDocument* document = ImTypeset::CreateDocument();
+    REQUIRE(document != nullptr);
+    {
+        Content content;
+        ImTypesetContainer orphan;
+        orphan.Kind = ImTypesetContainerKind_List;
+        orphan.Parent = 5;
+        content.containers.push_back(orphan);
+        content.add(ImTypesetBlockKind_ListItem, "an item").Container = 1;
+        const ImTypesetDocumentContent view = content.view();
+        CHECK(!ImTypeset::SetDocumentBlocks(document, &view));
+        CHECK_EQ(ImTypeset::GetLastError()->Code, static_cast<int>(ImTypesetError_DescriptionCut));
+        CHECK_EQ(ImTypeset::GetDocumentBlockCount(document), 1);
+    }
+    {
+        Content content;
+        ImTypesetContainer odd;
+        odd.Kind = 7;
+        content.containers.push_back(odd);
+        content.add(ImTypesetBlockKind_Paragraph, "quoted").Container = 1;
+        const ImTypesetDocumentContent view = content.view();
+        CHECK(!ImTypeset::SetDocumentBlocks(document, &view));
+        CHECK_EQ(ImTypeset::GetLastError()->Code, static_cast<int>(ImTypesetError_DescriptionCut));
+    }
+    {
+        // 255 bytes and then a two-byte character: the cut at 256 bytes would
+        // fall inside it. The marker ends before the character, whole.
+        Content content;
+        content.add(ImTypesetBlockKind_ListItem, "an item");
+        content.marker(std::string(255, 'i') + "\xC3\xA9");
+        const ImTypesetDocumentContent view = content.view();
+        CHECK(!ImTypeset::SetDocumentBlocks(document, &view));
+        CHECK_EQ(ImTypeset::GetLastError()->Code, static_cast<int>(ImTypesetError_DescriptionCut));
+        CHECK(ImTypeset::LayoutDocument(document, 4000.0f));
+        CHECK(ImTypeset::LayoutDocumentWindow(document, 0.0f, 100.0f));
+        const std::vector<Node>& marker = block_document(*document).block(0).text.marker.nodes;
+        size_t characters = 0;
+        for (const Node& node : marker) {
+            if (!node.is(NodeType::CHAR))
+                continue;
+            ++characters;
+            CHECK_EQ(node.codepoint(), static_cast<uint32_t>('i'));
+        }
+        CHECK_EQ(characters, static_cast<size_t>(255));
+    }
+    ImTypeset::DestroyDocument(document);
+}
+
+// A count the document cannot hold is refused with NOTHING done: what the
+// document held, it still holds. The array behind the count is never read.
+TEST(a_set_that_is_refused_leaves_the_document_as_it_was)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    Frame frame;
+    ImTypesetDocument* document = ImTypeset::CreateDocument();
+    REQUIRE(document != nullptr);
+    const Content content = paragraphs(2);
+    const ImTypesetDocumentContent view = content.view();
+    CHECK(ImTypeset::SetDocumentBlocks(document, &view));
+    document->selection = ImTypesetDocumentRange{{0, 1}, {1, 2}};
+    ImTypesetDocumentContent many = view;
+    many.BlockCount = static_cast<int>(MAX_DOCUMENT_BLOCKS) + 1;
+    CHECK(!ImTypeset::SetDocumentBlocks(document, &many));
+    CHECK_EQ(ImTypeset::GetLastError()->Code, static_cast<int>(ImTypesetError_InvalidArgument));
+    CHECK_EQ(ImTypeset::GetDocumentBlockCount(document), 2);
+    CHECK_EQ(ImTypeset::GetDocumentStyleCount(document), 1);
+    CHECK_EQ(document->selection.End.Block, 1);
+    CHECK(ImTypeset::LayoutDocument(document, 300.0f));
+    CHECK_EQ(copied(document, ImTypesetPosition{1, 0}, ImTypesetPosition{1, 1}), std::string("1"));
+    ImTypeset::DestroyDocument(document);
+}
+
+// --- The selection a view keeps ---------------------------------------------------------
+
+// DocumentView() with no selection of the host's keeps one with the document,
+// as positions. An edit that moves blocks moves it with them; what it held of
+// blocks that are gone, it no longer holds.
+TEST(the_selection_a_view_keeps_follows_its_blocks_through_an_edit)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    Frame frame;
+    ImTypesetDocument* document = ImTypeset::CreateDocument();
+    REQUIRE(document != nullptr);
+    const Content content = paragraphs(10);
+    const ImTypesetDocumentContent view = content.view();
+    const Content one = paragraphs(1);
+    const ImTypesetDocumentContent one_view = one.view();
+    const auto reset = [&](ImTypesetDocumentRange kept) {
+        CHECK(ImTypeset::SetDocumentBlocks(document, &view));
+        document->selection = kept;
+    };
+    const auto is = [&](int b0, int o0, int b1, int o1) {
+        const ImTypesetDocumentRange& s = document->selection;
+        CHECK_EQ(s.Start.Block, b0);
+        CHECK_EQ(s.Start.Offset, o0);
+        CHECK_EQ(s.End.Block, b1);
+        CHECK_EQ(s.End.Offset, o1);
+    };
+    // A block removed above it: it still covers the text it covered.
+    reset({{5, 2}, {5, 9}});
+    CHECK(ImTypeset::ReplaceDocumentBlocks(document, 0, 1, nullptr));
+    is(4, 2, 4, 9);
+    // Two inserted above it.
+    reset({{5, 2}, {6, 9}});
+    CHECK(ImTypeset::ReplaceDocumentBlocks(document, 3, 0, &view));
+    is(15, 2, 16, 9);
+    // An edit below it moves nothing.
+    reset({{2, 2}, {3, 9}});
+    CHECK(ImTypeset::ReplaceDocumentBlocks(document, 4, 3, nullptr));
+    is(2, 2, 3, 9);
+    // A block replaced by one block keeps its number, and the selection in it.
+    reset({{5, 2}, {5, 9}});
+    CHECK(ImTypeset::ReplaceDocumentBlocks(document, 5, 1, &one_view));
+    is(5, 2, 5, 9);
+    // Its blocks removed: nothing is selected.
+    reset({{5, 2}, {6, 9}});
+    CHECK(ImTypeset::ReplaceDocumentBlocks(document, 4, 4, nullptr));
+    CHECK(!(document->selection.Start.Block < document->selection.End.Block ||
+            (document->selection.Start.Block == document->selection.End.Block &&
+             document->selection.Start.Offset < document->selection.End.Offset)));
+    // It ends in blocks that are replaced by another number of blocks: it
+    // ends where they began.
+    reset({{2, 3}, {6, 9}});
+    CHECK(ImTypeset::ReplaceDocumentBlocks(document, 5, 3, &one_view));
+    is(2, 3, 5, 0);
+    // It starts in such blocks: it starts after what took their place.
+    reset({{5, 3}, {9, 4}});
+    CHECK(ImTypeset::ReplaceDocumentBlocks(document, 4, 2, &one_view));
+    is(5, 0, 8, 4);
+    ImTypeset::DestroyDocument(document);
+}
+
+// --- Code that is not UTF-8 ------------------------------------------------------------
+
+// A code block's characters are found in its source by the one decoder that
+// sets them (src/style's decode_utf8): bytes that are not UTF-8 are each
+// maximal ill-formed run one character, and every position after them is
+// still the byte it is.
+TEST(a_code_block_of_ill_formed_utf8_has_positions_at_the_bytes_its_characters_start_at)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    Frame frame;
+    ImTypesetDocument* document = ImTypeset::CreateDocument();
+    REQUIRE(document != nullptr);
+    const std::string SOURCES[] = {
+        std::string("a\xC0\x80"
+                    "b"),
+        std::string("a\xE0\x80\x80"
+                    "b"),
+        std::string("a\xED\xA0\x80"
+                    "b"),
+        std::string("a\xF8\x88\x80\x80"
+                    "b"),
+        std::string("\xFFz\n\xC3\xA9\xC3"),
+        // Well formed, and wrapped: a tab and a line far longer than the
+        // column, which continues on further lines.
+        "\tif (" + std::string(120, 'w') + ") \xC3\xA9\n\tend",
+    };
+    for (const std::string& source : SOURCES) {
+        const bool wrapped = source.size() > 100;
+        CHECK_CONTEXT("source of %zu bytes, bytes %02X %02X", source.size(),
+                      static_cast<unsigned>(static_cast<unsigned char>(source[0])),
+                      static_cast<unsigned>(static_cast<unsigned char>(source[1])));
+        Content content;
+        content.add(ImTypesetBlockKind_Code, source);
+        const ImTypesetDocumentContent view = content.view();
+        CHECK(ImTypeset::SetDocumentBlocks(document, &view));
+        CHECK(ImTypeset::LayoutDocument(document, wrapped ? 300.0f : 2000.0f));
+        if (wrapped)
+            CHECK(ImTypeset::GetDocumentBlockGeometry(document, 0).LineCount > 3);
+        std::vector<uint32_t> codepoints;
+        std::vector<uint32_t> starts;
+        decode_utf8(source, codepoints, &starts);
+        const int size = static_cast<int>(source.size());
+        float line_top = -1.0f;
+        float last_x = -1.0f;
+        for (size_t c = 0; c < starts.size(); ++c) {
+            const int at = static_cast<int>(starts[c]);
+            const int next = c + 1 < starts.size() ? static_cast<int>(starts[c + 1]) : size;
+            CHECK_CONTEXT("character %zu at byte %d", c, at);
+            if (codepoints[c] == '\n') {
+                line_top = -1.0f;
+                continue;
+            }
+            // Its rectangle is one rectangle with a width, after the one before it.
+            ImVector<ImVec4> rects;
+            const ImTypesetDocumentRange range = {{0, at}, {0, next}};
+            if (!CHECK_EQ(ImTypeset::GetDocumentRangeRects(document, range, &rects), 1))
+                continue;
+            const ImVec4 rect = rects[0];
+            CHECK(rect.z > rect.x);
+            if (rect.y != line_top) {
+                line_top = rect.y;
+                last_x = -1.0f;
+            }
+            CHECK(rect.x >= last_x);
+            last_x = rect.z;
+            // A point in it is at the character: the caret before or after.
+            const ImTypesetDocumentHit left = ImTypeset::HitTestDocument(
+                document, ImVec2(rect.x + 0.25f * (rect.z - rect.x), 0.5f * (rect.y + rect.w)));
+            CHECK_EQ(left.Position.Offset, at);
+            // (After the last character of a line the caret is the next line's.)
+            const ImTypesetDocumentHit right = ImTypeset::HitTestDocument(
+                document, ImVec2(rect.x + 0.75f * (rect.z - rect.x), 0.5f * (rect.y + rect.w)));
+            // (Inside a tab's spaces every caret but the last is the tab's.)
+            if ((c + 1 == starts.size() || codepoints[c + 1] != '\n') && codepoints[c] != '\t')
+                CHECK_EQ(right.Position.Offset, next);
+            // And the caret there is at its left edge.
+            CHECK_EQ(ImTypeset::GetDocumentCaretRect(document, ImTypesetPosition{0, at}).x, rect.x);
+        }
+        CHECK_EQ(copied(document, ImTypesetPosition{0, 0}, ImTypesetPosition{0, size}), source);
+    }
+    ImTypeset::DestroyDocument(document);
+}
+
+// --- What a document keeps ---------------------------------------------------------------
+
+// A clip rectangle that shows thousands of blocks, all of them selected, needs
+// a view of each for the moment it is drawn. They are not all kept, and what
+// was kept for a large window is given up when a small one follows.
+TEST(a_window_over_thousands_of_selected_blocks_keeps_a_bounded_number_of_views)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    Frame frame;
+    const int count = 2000;
+    const Content content = paragraphs(count);
+    ImTypesetDocument* document = ImTypeset::CreateDocument();
+    REQUIRE(document != nullptr);
+    const ImTypesetDocumentContent view = content.view();
+    CHECK(ImTypeset::SetDocumentBlocks(document, &view));
+    CHECK(ImTypeset::LayoutDocument(document, 480.0f));
+    ImTypesetDocumentDraw with;
+    with.Selection = ImTypesetDocumentRange{{0, 0}, {count - 1, 1 << 20}};
+    Buffers buffers;
+    // The whole document in one clip rectangle, for two frames: the second
+    // knows how many blocks the first showed. (More vertices than a 16-bit
+    // ImDrawIdx indexes, which the call says: what is asked here is what the
+    // document kept.)
+    (void)draw_window(document, buffers, 0.0f, 1.0e7f, &with);
+    (void)draw_window(document, buffers, 0.0f, 1.0e7f, &with);
+    CHECK_EQ(ImTypeset::GetDocumentStats(document).BlocksDeferred, 0);
+    CHECK_EQ(ImTypeset::GetDocumentStats(document).BlocksDrawn, static_cast<ImU64>(2 * count));
+    const size_t after_all = document->views.size();
+    CHECK(after_all <= 256);
+    // A screenful.
+    CHECK(draw_window(document, buffers, 2000.0f, 600.0f, &with));
+    const size_t after_one = document->views.size();
+    CHECK(after_one <= 64);
+    std::printf("document: %zu views held after a window over %d selected blocks, %zu after a "
+                "screenful\n",
+                after_all, count, after_one);
+    ImTypeset::DestroyDocument(document);
+}
+
+// --- Blocks of no height ---------------------------------------------------------------
+
+// Blocks that are nothing tall all stand at one height, so a window that shows
+// that height shows all of them, and one that starts just below it lays them
+// out with what it shows, ONCE: said in the header under LAYOUT IS LAZY. What
+// is held here is that it is once, and that a window further down does not
+// reach back for them.
+TEST(a_run_of_blocks_of_no_height_is_laid_out_once_and_only_by_a_window_at_its_height)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    Frame frame;
+    const int hosts = 5000;
+    Content content;
+    ImTypesetBlockStyle body;
+    body.SpaceBelow = 8.0f;
+    content.styles.push_back(body);
+    content.styles.push_back(ImTypesetBlockStyle()); // no space above or below
+    for (int i = 0; i < hosts; ++i)
+        content.add(ImTypesetBlockKind_Host, "", 1);
+    for (int i = 0; i < 200; ++i)
+        content.add(ImTypesetBlockKind_Paragraph, std::to_string(i) + " " + SENTENCE);
+    ImTypesetDocument* document = ImTypeset::CreateDocument();
+    REQUIRE(document != nullptr);
+    const ImTypesetDocumentContent view = content.view();
+    CHECK(ImTypeset::SetDocumentBlocks(document, &view));
+    CHECK(ImTypeset::LayoutDocument(document, 480.0f));
+    Buffers buffers;
+    // Far down: the blocks of no height are not touched.
+    CHECK(draw_window(document, buffers, 3000.0f, 600.0f));
+    const ImU64 far_down = ImTypeset::GetDocumentStats(document).BlocksLaidOut;
+    CHECK(far_down < 60);
+    // Starting inside the first paragraph, below the height they stand at.
+    CHECK(draw_window(document, buffers, 5.0f, 600.0f));
+    const ImU64 near_top = ImTypeset::GetDocumentStats(document).BlocksLaidOut;
+    CHECK(near_top >= static_cast<ImU64>(hosts));
+    CHECK(near_top < static_cast<ImU64>(hosts) + 120);
+    // Again: nothing more.
+    const ImU64 drawn_before = ImTypeset::GetDocumentStats(document).BlocksDrawn;
+    CHECK(draw_window(document, buffers, 5.0f, 600.0f));
+    CHECK_EQ(ImTypeset::GetDocumentStats(document).BlocksLaidOut, near_top);
+    const ImU64 drawn = ImTypeset::GetDocumentStats(document).BlocksDrawn - drawn_before;
+    CHECK(drawn < 60);
+    std::printf("document: %d blocks of no height above a window: %llu blocks laid out by the "
+                "first frame that starts at their height, 0 by the next; %llu drawn a frame\n",
+                hosts, static_cast<unsigned long long>(near_top - far_down),
+                static_cast<unsigned long long>(drawn));
+    ImTypeset::DestroyDocument(document);
+}
+
+// --- DocumentView's size -------------------------------------------------------------
+
+// The header's warning, held: a view of size zero takes what is left of its
+// window, and a window that sizes itself to its contents has nothing left. The
+// child is then the few pixels ImGui gives a child of no size, and what is
+// drawn is the one block those pixels show, once.
+TEST(a_view_of_no_size_in_a_window_that_fits_its_contents_shows_next_to_nothing)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    const Content content = paragraphs(50);
+    const ImTypesetDocumentContent view = content.view();
+    ImU64 drawn[2] = {0, 0};
+    for (int given = 0; given < 2; ++given) {
+        ImTypesetDocument* document = ImTypeset::CreateDocument();
+        REQUIRE(document != nullptr);
+        CHECK(ImTypeset::SetDocumentBlocks(document, &view));
+        for (int frame_number = 0; frame_number < 6; ++frame_number) {
+            Frame frame;
+            ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+            ImGui::Begin(given == 0 ? "fits" : "fits with a height", nullptr,
+                         ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
+            (void)ImTypeset::DocumentView("doc", document,
+                                          given == 0 ? ImVec2(0.0f, 0.0f) : ImVec2(300.0f, 200.0f));
+            ImGui::End();
+        }
+        drawn[given] = ImTypeset::GetDocumentStats(document).BlocksDrawn;
+        ImTypeset::DestroyDocument(document);
+    }
+    CHECK(drawn[0] <= 6); // at most the first block, a frame
+    CHECK(drawn[1] >= 12);
+    std::printf("document: a view of size (0,0) in an auto-resizing window drew %llu blocks in 6 "
+                "frames; with a size, %llu\n",
+                static_cast<unsigned long long>(drawn[0]),
+                static_cast<unsigned long long>(drawn[1]));
+}
+
+// --- A tab, in a paragraph ---------------------------------------------------------------
+
+// In a code block a tab is several items with one byte, and a range that
+// starts at it starts at the first of them
+// (test_api_document_golden: a_tab_in_a_code_block_is_selected_whole_by_its_one_byte).
+// In a paragraph a tab is white space: one item, the glue between two words,
+// whatever it was written as. Its one byte selects that glue whole, the caret
+// before it stands at the end of the word before, and it copies as a space.
+TEST(a_tab_in_a_paragraph_is_one_space_selected_whole_by_its_one_byte)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    Frame frame;
+    for (int as_block = 0; as_block < 2; ++as_block) {
+        CHECK_CONTEXT(as_block ? "a document's paragraph" : "a paragraph");
+        ImTypesetStyle style = ImTypeset::GetStyle();
+        style.Align = ImTypesetAlign_Left;
+        ImVector<ImVec4> a;
+        ImVector<ImVec4> tab;
+        ImVector<ImVec4> b;
+        ImVec4 caret_tab;
+        ImVec4 caret_b;
+        ImGuiTextBuffer copy;
+        ImTypesetParagraph* paragraph = nullptr;
+        ImTypesetDocument* document = nullptr;
+        if (as_block == 0) {
+            paragraph = ImTypeset::CreateParagraph();
+            REQUIRE(paragraph != nullptr);
+            CHECK(ImTypeset::SetParagraphText(paragraph, "ab\tcd"));
+            CHECK(ImTypeset::LayoutParagraph(paragraph, 300.0f, &style));
+            CHECK_EQ(ImTypeset::GetParagraphRangeRects(paragraph, ImTypesetTextRange{0, 2}, &a), 1);
+            CHECK_EQ(ImTypeset::GetParagraphRangeRects(paragraph, ImTypesetTextRange{2, 3}, &tab),
+                     1);
+            CHECK_EQ(ImTypeset::GetParagraphRangeRects(paragraph, ImTypesetTextRange{3, 5}, &b), 1);
+            caret_tab = ImTypeset::GetParagraphCaretRect(paragraph, 2);
+            caret_b = ImTypeset::GetParagraphCaretRect(paragraph, 3);
+            ImTypeset::AppendParagraphRangeText(paragraph, ImTypesetTextRange{0, 5}, &copy);
+        } else {
+            document = ImTypeset::CreateDocument();
+            REQUIRE(document != nullptr);
+            Content content;
+            ImTypesetBlockStyle left;
+            left.Align = ImTypesetAlign_Left;
+            content.styles.push_back(left);
+            content.add(ImTypesetBlockKind_Paragraph, "ab\tcd");
+            const ImTypesetDocumentContent view = content.view();
+            CHECK(ImTypeset::SetDocumentBlocks(document, &view));
+            CHECK(ImTypeset::LayoutDocument(document, 300.0f, &style));
+            const auto rects = [&](int from, int to, ImVector<ImVec4>& out) {
+                const ImTypesetDocumentRange range = {{0, from}, {0, to}};
+                return ImTypeset::GetDocumentRangeRects(document, range, &out);
+            };
+            CHECK_EQ(rects(0, 2, a), 1);
+            CHECK_EQ(rects(2, 3, tab), 1);
+            CHECK_EQ(rects(3, 5, b), 1);
+            caret_tab = ImTypeset::GetDocumentCaretRect(document, ImTypesetPosition{0, 2});
+            caret_b = ImTypeset::GetDocumentCaretRect(document, ImTypesetPosition{0, 3});
+            const ImTypesetDocumentRange all = {{0, 0}, {0, 5}};
+            ImTypeset::AppendDocumentRangeText(document, all, &copy);
+        }
+        if (CHECK(a.Size == 1 && tab.Size == 1 && b.Size == 1)) {
+            // The three stretches tile the line: the tab's is the whole gap.
+            CHECK(tab[0].z > tab[0].x);
+            CHECK_EQ(tab[0].x, a[0].z);
+            CHECK_EQ(tab[0].z, b[0].x);
+            CHECK_EQ(caret_tab.x, tab[0].x);
+            CHECK_EQ(caret_b.x, b[0].x);
+            const ImVec2 in_gap(0.5f * (tab[0].x + tab[0].z), 0.5f * (tab[0].y + tab[0].w));
+            if (paragraph != nullptr) {
+                const int at = ImTypeset::HitTestParagraph(paragraph, in_gap).TextOffset;
+                CHECK(at == 2 || at == 3);
+            } else {
+                const int at = ImTypeset::HitTestDocument(document, in_gap).Position.Offset;
+                CHECK(at == 2 || at == 3);
+            }
+        }
+        CHECK_EQ(std::string(copy.c_str()), std::string("ab cd"));
+        ImTypeset::DestroyParagraph(paragraph);
+        ImTypeset::DestroyDocument(document);
+    }
 }

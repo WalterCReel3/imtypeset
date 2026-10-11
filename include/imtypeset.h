@@ -250,9 +250,11 @@ enum ImTypesetError_ {
                                     // its source. Positions say where.
     ImTypesetError_LayoutFailed = 9, // Lines were produced; something in them measures as
                                      // nothing.
-    // Something in a document's description was wrong and was cut to what is
-    // right: an offset outside the text, a style, a container or runs that
-    // are not there, a kind that is not one, a table. The blocks are set.
+    // Something in what was described was wrong and was cut to what is right:
+    // a run out of order (a paragraph's or a block's); in a document, an
+    // offset outside the text, a style, a container or runs that are not
+    // there, a kind that is not one, a marker past its limit, a table. The
+    // text and the blocks are set.
     ImTypesetError_DescriptionCut = 12
 };
 
@@ -393,8 +395,10 @@ struct ImTypesetStyle {
 // A stretch of a paragraph's text set differently from the rest. Start and End
 // are byte offsets into the text given with it, End exclusive. Runs are given
 // in ascending order and do not overlap; one that does is cut where the one
-// before it ends. A character belongs to the run its first byte is in. Zero
-// everywhere but Start and End changes nothing.
+// before it ends, and one of which that leaves nothing (it starts before that
+// end and does not reach past it) is left out and said:
+// ImTypesetError_DescriptionCut. A character belongs to the run its first
+// byte is in. Zero everywhere but Start and End changes nothing.
 struct ImTypesetRun {
     int Start;
     int End;
@@ -531,7 +535,7 @@ enum ImTypesetBlockKind_ {
     // what a copy that covers it gives.
     ImTypesetBlockKind_Host = 5,
     // RESERVED. Tables are not laid out yet: the block is set as an empty
-    // Host block and the call says ImTypesetError_InvalidArgument.
+    // Host block and the call says ImTypesetError_DescriptionCut.
     ImTypesetBlockKind_Table = 6
 };
 
@@ -617,7 +621,9 @@ struct ImTypesetBlockStyle {
 struct ImTypesetContainer {
     ImTypesetContainerKind Kind;
     // The container this one is inside: 1 + its index, which must be lower
-    // than this one's. 0 is none.
+    // than this one's. 0 is none; anything else that is not one is none, and
+    // said (ImTypesetError_DescriptionCut). So is a Kind that is not a kind:
+    // the container is then a quote.
     int Parent;
     // Quote: where its bar stands, in pixels from the document's left edge
     // (the indent in force where the quote opens). List: the gutter it gives
@@ -653,7 +659,9 @@ struct ImTypesetBlock {
     int RunCount;
     // The list marker, as bytes of the same buffer ("1.", a bullet). Set
     // right-aligned in the gutter left of the first line, MarkerGap from the
-    // text. Empty is none. Not part of the block's text: never selected.
+    // text. Empty is none. Not part of the block's text: never selected. At
+    // most 256 bytes of it are set; a longer one is cut before the character
+    // that crosses that, and said (ImTypesetError_DescriptionCut).
     int MarkerStart;
     int MarkerEnd;
     // Pixels from the document's left edge to the block's left edge: what
@@ -873,6 +881,11 @@ IMTYPESET_API ImTypesetContext* CreateContext();
 IMTYPESET_API void DestroyContext(ImTypesetContext* ctx = NULL);
 IMTYPESET_API ImTypesetContext* GetCurrentContext();
 IMTYPESET_API void SetCurrentContext(ImTypesetContext* ctx);
+// A number no other context of this process has had or will have; never
+// zero. Zero with no current context. A pointer cannot tell a context from
+// one made later at its address; code that keeps handles and does not own
+// the context (ShowDemoWindow() is such code) keeps this beside them.
+IMTYPESET_API ImU64 GetContextSerial();
 
 // IMTYPESET_VERSION as compiled into the library.
 IMTYPESET_API const char* GetVersion();
@@ -929,8 +942,11 @@ IMTYPESET_API ImFont* AddFontFromMemoryTTF(ImTypesetFace face, const void* font_
 // Takes a role's font away and removes its ImFont from the atlas. False if the
 // role had none. Outside a frame, like any change to the atlas. A host that
 // removes the ImFont itself (ImFontAtlas::RemoveFont, ImFontAtlas::Clear) need
-// not call this: the role is found empty at the next frame and text that names
-// it reports ImTypesetError_NoFont. [E]
+// not call this: the role is found empty by the next call that looks, whatever
+// the host has put in the atlas since (as many fonts as it held, one at the
+// same address), and text that names it reports ImTypesetError_NoFont. A host
+// that empties the atlas to load its fonts again adds the roles' fonts again
+// too. [E]
 IMTYPESET_API bool RemoveFont(ImTypesetFace face);
 // The ImFont drawing a role, or null. CodeBold answers Bold's until it has
 // its own, and Default answers Regular's.
@@ -1038,7 +1054,8 @@ IMTYPESET_API void DestroyParagraph(ImTypesetParagraph* paragraph);
 // space are one space wherever they fall, across runs too, and white space at
 // either end is dropped. `text_end` null: `text` is zero-terminated. `runs`
 // points at `runs_count` runs, or is null. False if something was wrong: the
-// text is still set, as far as it could be. [E]
+// text is still set, as far as it could be (ImTypesetError_TextTooLong, or
+// ImTypesetError_DescriptionCut for a run out of order). [E]
 IMTYPESET_API bool SetParagraphText(ImTypesetParagraph* paragraph, const char* text,
                                     const char* text_end = NULL, const ImTypesetRun* runs = NULL,
                                     int runs_count = 0, ImTypesetTextFlags flags = 0);
@@ -1160,6 +1177,13 @@ IMTYPESET_API int AppendParagraphRangeText(const ImTypesetParagraph* paragraph,
 // shows. LayoutDocumentWindow() with the whole height settles all of it, at
 // the cost of laying all of it out.
 //
+// BLOCKS OF NO HEIGHT (a host block of Extent 0, a code block with no lines)
+// with no space between them all stand at one height. A window that shows
+// that height shows every one of them, and visits each every frame; a window
+// that starts just below it lays them out with what it shows, once. A million
+// of them in a row is a million steps, where a million paragraphs are a
+// screenful.
+//
 // EDITS COST WHAT CHANGED. A block that an edit does not name keeps its layout
 // and the meaning of every position in it. AppendDocumentText() and
 // SetDocumentBlockExtent() touch one block and visit no other. An edit that
@@ -1175,8 +1199,10 @@ IMTYPESET_API int AppendParagraphRangeText(const ImTypesetParagraph* paragraph,
 //
 // WHAT A COPY GIVES (AppendDocumentRangeText): within a block what
 // AppendParagraphRangeText gives; a code block's source bytes as they were
-// handed in; a host block's text whole when the range covers any of it;
-// nothing for a rule or a marker; and between two blocks `block_separator`.
+// handed in, tabs and "\r\n" included, as far as its text goes (see
+// POSITIONS: not the line end after its last character); a host block's text
+// whole when the range covers any of it; nothing for a rule or a marker; and
+// between two blocks `block_separator`.
 //
 // A document belongs to the context that was current when it was created.
 
@@ -1188,9 +1214,14 @@ IMTYPESET_API void DestroyDocument(ImTypesetDocument* document);
 // Replaces everything the document holds. False, with
 // ImTypesetError_DescriptionCut, if anything was wrong with what was handed
 // over; the blocks are still set, as far as they could be (an offset outside
-// the text is cut to it, a style or container that is not there is none). A block's own trouble --
-// a refused formula, a face without a font -- is found when it is laid out:
-// GetDocumentBlockError(). [E]
+// the text is cut to it, a style or container that is not there is none, a
+// run out of order is left out), and the message names the first block or
+// container it was. ImTypesetError_TextTooLong likewise, for a block whose
+// text was cut at the limit. What a block's text holds that cannot be set as
+// asked -- a refused formula, a face without a font -- is found when it is
+// laid out: GetDocumentBlockError(). Nothing is done, and the document holds
+// what it held, only for more than 4,194,304 blocks
+// (ImTypesetError_InvalidArgument). [E]
 IMTYPESET_API bool SetDocumentBlocks(ImTypesetDocument* document,
                                      const ImTypesetDocumentContent* content);
 // Replaces blocks [first, first + count) by content's blocks: an insertion
@@ -1199,15 +1230,23 @@ IMTYPESET_API bool SetDocumentBlocks(ImTypesetDocument* document,
 // them, so the new blocks name old entries by the index they always had and
 // new ones by indices that go on from GetDocumentStyleCount() and
 // GetDocumentContainerCount(). Entries no block names any more stay until
-// SetDocumentBlocks(). [E]
+// SetDocumentBlocks(). False as SetDocumentBlocks is; and with nothing done
+// (ImTypesetError_InvalidArgument) if [first, first + count) are not blocks
+// of the document or it would hold too many. The selection DocumentView()
+// keeps moves with its blocks: see there. [E]
 IMTYPESET_API bool ReplaceDocumentBlocks(ImTypesetDocument* document, int first, int count,
                                          const ImTypesetDocumentContent* content);
 // Appends bytes to the text of the LAST block, for text that arrives a piece
 // at a time. `runs` are further runs of that block, with offsets into its
 // whole text, starting at or after the end of the runs it has. Only that
 // block is laid out again, and positions in what it already held keep their
-// meaning. False without a last block that holds text. `text_end` null:
-// `text` is zero-terminated. [E]
+// meaning. `text_end` null: `text` is zero-terminated. False, with nothing
+// done, without a last block that holds text (ImTypesetError_InvalidArgument).
+// False with the text appended if THIS call's text was cut at the block's
+// limit (ImTypesetError_TextTooLong) or one of THIS call's runs was out of
+// order and left out (ImTypesetError_DescriptionCut). What an earlier call
+// found wrong with the block is not said again here: it is
+// GetDocumentBlockError()'s. [E]
 IMTYPESET_API bool AppendDocumentText(ImTypesetDocument* document, const char* text,
                                       const char* text_end = NULL, const ImTypesetRun* runs = NULL,
                                       int runs_count = 0);
@@ -1240,7 +1279,9 @@ IMTYPESET_API bool LayoutDocumentWindow(ImTypesetDocument* document, float top, 
 // see LAYOUT IS LAZY.
 IMTYPESET_API ImVec2 GetDocumentSize(ImTypesetDocument* document);
 // What was last found wrong with one block when its text was set and it was
-// laid out. Code is None if nothing, or if it has not been laid out. Never null.
+// laid out: what setting it found (a text cut at the limit, a run left out)
+// from when it is set, the rest once it has been laid out. Code is None if
+// nothing. Never null.
 IMTYPESET_API const ImTypesetErrorInfo* GetDocumentBlockError(const ImTypesetDocument* document,
                                                               int block);
 IMTYPESET_API ImTypesetDocumentStats GetDocumentStats(const ImTypesetDocument* document);
@@ -1296,11 +1337,17 @@ IMTYPESET_API ImTypesetLine GetDocumentBlockLine(ImTypesetDocument* document, in
 // A document in a child window that scrolls it: lays out and draws what is in
 // view, selects with the mouse as SelectableText() does (across blocks), and
 // copies with Ctrl+C. `size` is the child's, as for ImGui::BeginChild(): zero
-// in a direction takes what is left of the window in it, which is NOTHING in a
-// window that sizes itself to its contents (give a height there).
-// `selection`, if given, is the selection, read and written; null keeps it
-// with the document. `draw`'s marks and flags are drawn; its Selection is not
-// read. Returns false when something in view could not be set as asked. [E]
+// in a direction takes what is left of the window in it, which is NEXT TO
+// NOTHING in a window that sizes itself to its contents (ImGui gives such a
+// child a few pixels: give a height there).
+// `selection`, if given, is the selection, read and written: the host's, to
+// move when it edits blocks before it. Null keeps it with the document, and
+// ReplaceDocumentBlocks() then moves it with its blocks: a block replaced one
+// for one keeps what was selected in it (cut to its new text), and where the
+// number of blocks changes, the part of the selection in the blocks replaced
+// is given up. SetDocumentBlocks() clears it. `draw`'s marks and flags are
+// drawn; its Selection is not read. Returns false when something in view
+// could not be set as asked. [E]
 IMTYPESET_API bool DocumentView(const char* str_id, ImTypesetDocument* document,
                                 const ImVec2& size = ImVec2(0.0f, 0.0f),
                                 ImTypesetDocumentRange* selection = NULL,

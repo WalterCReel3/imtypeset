@@ -57,6 +57,7 @@ const Row TABLE[] = {
     BOTH(DestroyContext),
     BOTH(GetCurrentContext),
     BOTH(SetCurrentContext),
+    BOTH(GetContextSerial),
     BOTH(GetVersion),
     BOTH(GetImGuiVersionNum),
     BOTH(GetLastError),

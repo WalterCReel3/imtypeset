@@ -416,6 +416,64 @@ TEST(create_context_makes_the_new_context_current_only_if_none_is)
     ImGui::DestroyContext();
 }
 
+// A context's serial is what tells it from one made later at its address,
+// which a pointer cannot: it is never zero, never another context's, and
+// never used again by this process.
+TEST(a_contexts_serial_is_its_own_and_is_never_used_again)
+{
+    CHECK_EQ(ImTypeset::GetContextSerial(), ImU64{0});
+    ImGui::SetAllocatorFunctions(&counted_alloc, &counted_free, nullptr);
+    ImGui::CreateContext();
+    ImGui::GetIO().IniFilename = nullptr;
+    REQUIRE(IMTYPESET_CHECKVERSION());
+    ImTypesetContext* first = ImTypeset::CreateContext();
+    REQUIRE(first != nullptr);
+    const ImU64 first_serial = ImTypeset::GetContextSerial();
+    CHECK_NE(first_serial, ImU64{0});
+    // It is the CURRENT context's: a second one, not current, changes nothing.
+    ImTypesetContext* second = ImTypeset::CreateContext();
+    REQUIRE(second != nullptr);
+    CHECK_EQ(ImTypeset::GetContextSerial(), first_serial);
+    ImTypeset::SetCurrentContext(second);
+    const ImU64 second_serial = ImTypeset::GetContextSerial();
+    CHECK_NE(second_serial, ImU64{0});
+    CHECK_NE(second_serial, first_serial);
+    ImTypeset::SetCurrentContext(nullptr);
+    CHECK_EQ(ImTypeset::GetContextSerial(), ImU64{0});
+    ImTypeset::SetCurrentContext(first);
+    CHECK_EQ(ImTypeset::GetContextSerial(), first_serial);
+
+    // Destroyed and made again, a context can come back at the address of one
+    // that is gone. Its serial does not.
+    ImTypeset::DestroyContext(second);
+    std::map<ImU64, int> seen;
+    seen[first_serial] = 1;
+    seen[second_serial] = 1;
+    int at_an_old_address = 0;
+    std::vector<const void*> addresses = {second};
+    for (int i = 0; i < 64; ++i) {
+        ImTypesetContext* again = ImTypeset::CreateContext();
+        REQUIRE(again != nullptr);
+        bool reused = false;
+        for (const void* old : addresses)
+            reused = reused || old == again;
+        at_an_old_address += reused ? 1 : 0;
+        addresses.push_back(again);
+        ImTypeset::SetCurrentContext(again);
+        const ImU64 serial = ImTypeset::GetContextSerial();
+        CHECK_NE(serial, ImU64{0});
+        CHECK_EQ(++seen[serial], 1);
+        ImTypeset::DestroyContext(again);
+        CHECK_EQ(ImTypeset::GetContextSerial(), ImU64{0});
+    }
+    std::printf("api: 64 contexts made and destroyed in turn: %d at an address one had before, "
+                "none with a serial one had before\n",
+                at_an_old_address);
+    ImTypeset::SetCurrentContext(first);
+    ImTypeset::DestroyContext(first);
+    ImGui::DestroyContext();
+}
+
 TEST(line_heights_used_alternately_are_each_converted_once)
 {
     Stage stage;
@@ -516,17 +574,19 @@ TEST(the_last_error_is_the_last_calls_and_a_success_clears_it)
     backwards[0].End = 9;
     backwards[1].Start = 2;
     backwards[1].End = 4;
+    // (A run out of order is left out and the text is set: a "done,
+    // differently" code, not one that says nothing was done.)
     CHECK(!ImTypeset::SetParagraphText(p, "Some words.", nullptr, backwards, 2));
-    CHECK_EQ(ImTypeset::GetLastError()->Code, static_cast<int>(ImTypesetError_InvalidArgument));
+    CHECK_EQ(ImTypeset::GetLastError()->Code, static_cast<int>(ImTypesetError_DescriptionCut));
     CHECK(!ImTypeset::LayoutParagraph(p, 200.0f));
     CHECK(!ImTypeset::LayoutParagraph(p, 220.0f));
     CHECK_EQ(ImTypeset::GetParagraphError(p)->Code,
-             static_cast<int>(ImTypesetError_InvalidArgument));
+             static_cast<int>(ImTypesetError_DescriptionCut));
     CHECK(ImTypeset::CreateParagraph() != nullptr);
     CHECK_EQ(ImTypeset::GetLastError()->Code, static_cast<int>(ImTypesetError_None));
     // The paragraph's own is still there.
     CHECK_EQ(ImTypeset::GetParagraphError(p)->Code,
-             static_cast<int>(ImTypesetError_InvalidArgument));
+             static_cast<int>(ImTypesetError_DescriptionCut));
 }
 
 // --- Fonts --------------------------------------------------------------------------
@@ -2318,7 +2378,7 @@ TEST(no_length_a_host_passes_reaches_the_layout_core_unclamped)
     runs[5].Scale = -inf;
     CHECK(!ImTypeset::SetParagraphText(p, text, nullptr, runs, 6));
     CHECK_EQ(ImTypeset::GetParagraphError(p)->Code,
-             static_cast<int>(ImTypesetError_InvalidArgument));
+             static_cast<int>(ImTypesetError_DescriptionCut));
     ImTypeset::GetStyle().EmSize = 16.0f;
     sane(laid_out(p, 300.0f));
     CHECK_EQ(copied_all(p), std::string(text));
@@ -2770,6 +2830,72 @@ TEST(a_font_the_host_removed_from_the_atlas_is_found_missing_not_dereferenced)
     CHECK(frame(true));
     // Inside a frame of a backend that locks the atlas it would be refused;
     // with texture updates the atlas is never locked, and it is allowed.
+}
+
+// Between two frames a host can empty the atlas and fill it again with AS
+// MANY fonts as it held: the count of fonts is what it was and so is the
+// frame. The roles' fonts are gone all the same, and one of the host's new
+// fonts may stand at the address one of them had. Nothing of the library's
+// may then name a font: not GetFont(), not the font AddFont replaces, not the
+// one RemoveFont() removes. The host's fonts must all survive.
+TEST(an_atlas_refilled_with_as_many_fonts_between_two_frames_has_none_of_the_roles)
+{
+    Stage stage(false);
+    REQUIRE(stage.ctx != nullptr);
+    ImFontAtlas* atlas = ImGui::GetIO().Fonts;
+    const std::string path = font_path("Roboto-Regular.ttf");
+    int stale = 0;
+    int lost = 0;
+    int reused = 0;
+    for (int cycle = 0; cycle < 24; ++cycle) {
+        CHECK_CONTEXT("cycle %d", cycle);
+        atlas->Clear();
+        atlas->AddFontDefault();
+        atlas->AddFontDefault();
+        ImFont* regular = ImTypeset::AddFontFromFileTTF(ImTypesetFace_Regular, path.c_str());
+        REQUIRE(regular != nullptr);
+        CHECK(ImTypeset::GetFont(ImTypesetFace_Regular) == regular);
+        CHECK_EQ(atlas->Fonts.Size, 3);
+
+        // The host starts over, with three fonts of its own.
+        atlas->Clear();
+        ImFont* host[3] = {atlas->AddFontDefault(), atlas->AddFontDefault(),
+                           atlas->AddFontDefault()};
+        for (ImFont* font : host)
+            reused += font == regular ? 1 : 0;
+        const auto survive = [&]() {
+            int there = 0;
+            for (ImFont* font : host)
+                there += atlas->Fonts.contains(font) ? 1 : 0;
+            return there;
+        };
+        switch (cycle % 3) {
+        case 0:
+            // Asked for, the role has no font.
+            stale += ImTypeset::GetFont(ImTypesetFace_Regular) != nullptr ? 1 : 0;
+            break;
+        case 1: {
+            // Added again, the role's font is a fourth font.
+            ImFont* again = ImTypeset::AddFontFromFileTTF(ImTypesetFace_Regular, path.c_str());
+            REQUIRE(again != nullptr);
+            lost += 3 - survive();
+            CHECK_EQ(atlas->Fonts.Size, 3 + survive() - 2);
+            CHECK(ImTypeset::GetFont(ImTypesetFace_Regular) == again);
+            break;
+        }
+        default:
+            // Removed, there is nothing to remove.
+            CHECK(!ImTypeset::RemoveFont(ImTypesetFace_Regular));
+            CHECK_EQ(ImTypeset::GetLastError()->Code, static_cast<int>(ImTypesetError_NoFont));
+            lost += 3 - survive();
+            break;
+        }
+    }
+    CHECK_EQ(stale, 0);
+    CHECK_EQ(lost, 0);
+    std::printf("api: 24 refills of the atlas with as many fonts: %d of the host's new fonts at "
+                "the address a role's font had; %d stale answers, %d of the host's fonts lost\n",
+                reused, stale, lost);
 }
 
 // --- Widget semantics -----------------------------------------------------------------

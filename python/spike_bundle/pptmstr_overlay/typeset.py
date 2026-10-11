@@ -9,13 +9,18 @@ The library is a sidecar built for ONE installed imgui_bundle wheel. It is looke
 for only when ``IMTYPESET_LIBRARY`` names it, and ``import imtypeset`` checks it
 against the wheel that is running (its gate: Dear ImGui's version and layout check,
 then a probe of every field the library reads). After a wheel upgrade that import
-raises; ``reason()`` then holds the sentence and the pane says it once.
+raises; ``reason()`` then holds the sentence.
+
+Nothing here is silent. A failure the panes got over is in ``trouble()`` and one
+that switched the library off is in ``reason()``; each is also logged once, as a
+warning, under the name ``pptmstr.typeset``.
 """
 
 from __future__ import annotations
 
 import ctypes
 import importlib
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -23,15 +28,27 @@ from typing import Any
 _ts: Any = None
 _reason = "IMTYPESET_LIBRARY is not set"
 _window_draw_list: Any = None
+_disabled = False
+_trouble = ""
+_logged: set[str] = set()
+_log = logging.getLogger("pptmstr.typeset")
 
 
 def load_fonts() -> None:
     """
     Make the imtypeset context and add its faces. Called at the end of
     ``theme.load_fonts``, which is hello_imgui's ``load_additional_fonts``: the
-    runner empties the atlas before that callback (and again on a DPI change), so
-    a face added anywhere earlier is gone by the first frame. pptmstr's own faces
-    stay first; ``Fonts[0]`` is still Inconsolata.
+    runner empties the atlas before it calls that at start-up, so a face added
+    anywhere earlier is gone by the first frame. pptmstr's own faces stay first;
+    ``Fonts[0]`` is still Inconsolata.
+
+    hello_imgui calls the callback once. Called again (an application that assigns
+    the callback a second time), this gives each role its font again and the font
+    the role had leaves the atlas. If the atlas was emptied in between, the library
+    notices that its fonts are gone by the atlas holding another number of fonts
+    than it did, which is so here: pptmstr's faces are back and imtypeset's are not
+    yet. An atlas refilled to exactly its old count before this runs is what that
+    check cannot see; nothing in pptmstr does that.
 
     The faces are pptmstr's: Inconsolata Medium for prose and code, the vendored
     Bold, and the wheel's Latin Modern Math for formulas. There is no italic, as
@@ -39,7 +56,7 @@ def load_fonts() -> None:
     """
     global _ts, _reason, _window_draw_list
     _ts = None
-    if not os.environ.get("IMTYPESET_LIBRARY"):
+    if _disabled or not os.environ.get("IMTYPESET_LIBRARY"):
         return
     try:
         import imgui_bundle
@@ -65,6 +82,7 @@ def load_fonts() -> None:
         _window_draw_list.argtypes = []
     except Exception as exc:  # noqa: BLE001 -- any failure here means "draw as before"
         _reason = f"{type(exc).__name__}: {exc}"
+        _say(f"imtypeset is not in use: {_reason}")
         return
     _reason = ""
     _ts = ts
@@ -85,8 +103,29 @@ def window_draw_list() -> int:
     return int(_window_draw_list())
 
 
+def trouble() -> str:
+    """The last failure a pane got over without switching the library off; empty if none."""
+    return _trouble
+
+
+def note(why: str) -> None:
+    """Record a failure that was got over: the library stays in use."""
+    global _trouble
+    _trouble = why
+    _say(f"imtypeset: {why}")
+
+
 def disable(why: str) -> None:
     """Stop using the library for the rest of the run, and remember why."""
-    global _ts, _reason
+    global _ts, _reason, _disabled
     _ts = None
+    _disabled = True
     _reason = why
+    _say(f"imtypeset is switched off for this run: {why}")
+
+
+def _say(message: str) -> None:
+    """A warning, once per distinct message: a pane calls this from its draw."""
+    if message not in _logged and len(_logged) < 64:
+        _logged.add(message)
+        _log.warning("%s", message)

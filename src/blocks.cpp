@@ -192,33 +192,22 @@ void Block::clear_content()
     code.clear();
 }
 
-bool set_code(CodeLines& out, std::string_view source, FontSpec font,
-              const Composition& composition, MetricsResolver resolve, std::string* why)
+namespace
 {
-    out.clear();
-    const FontKey key = font.key();
-    const FontMetrics* const metrics = resolve(key);
-    if (metrics == nullptr) {
-        if (why != nullptr)
-            *why = "the resolver does not know the face of " + font_key_text(font.face, font.size);
-        return false;
-    }
-    out.codepoints.clear();
-    decode_utf8(source, out.codepoints);
-    const std::vector<uint32_t>& text = out.codepoints;
 
-    // The reference's `_newlines`, `str.expandtabs` and `split("\n")` in one
-    // walk. The column counts characters and starts again at each newline.
-    const auto character = [&](uint32_t codepoint) {
-        if (metrics->has(codepoint)) {
-            out.nodes.push_back(char_node(key, codepoint));
-            return;
-        }
-        const StandIn shown = stand_in(composition, resolve, key, codepoint);
-        out.nodes.push_back(shown.codepoint == codepoint
-                                ? char_node(shown.font, codepoint)
-                                : replaced_char(shown.font, shown.codepoint, codepoint));
-    };
+// The walk of a code block's characters: the reference's `_newlines`,
+// `str.expandtabs` and `split("\n")` in one. `character(i, codepoint)` is
+// called once for each character a line holds, in order, `i` being the index
+// in `text` of the codepoint it came from: a tab is its spaces, each with the
+// tab's index. `ends` is set to how many characters precede the end of each
+// line. The column counts characters and starts again at each newline. Blank
+// lines at the end are dropped, so the last character is the last line's.
+template<typename Character>
+void walk_code(const std::vector<uint32_t>& text, std::vector<uint32_t>& ends,
+               Character&& character)
+{
+    ends.clear();
+    uint32_t count = 0;
     uint32_t column = 0;
     bool open = false; // characters, or a newline, since the last line ended
     for (size_t i = 0; i < text.size(); ++i) {
@@ -229,7 +218,7 @@ bool set_code(CodeLines& out, std::string_view source, FontSpec font,
             codepoint = '\n';
         }
         if (codepoint == '\n') {
-            out.ends.push_back(static_cast<uint32_t>(out.nodes.size()));
+            ends.push_back(count);
             column = 0;
             open = false;
             continue;
@@ -237,26 +226,82 @@ bool set_code(CodeLines& out, std::string_view source, FontSpec font,
         open = true;
         if (codepoint == '\t') {
             const uint32_t spaces = TAB_WIDTH - column % TAB_WIDTH;
-            for (uint32_t s = 0; s < spaces; ++s)
-                character(0x20);
+            for (uint32_t s = 0; s < spaces; ++s) {
+                character(i, uint32_t{0x20});
+                ++count;
+            }
             column += spaces;
             continue;
         }
-        character(codepoint);
+        character(i, codepoint);
+        ++count;
         ++column;
     }
     // What follows the last newline is a line unless it is empty.
     if (open)
-        out.ends.push_back(static_cast<uint32_t>(out.nodes.size()));
-    // Blank lines at the end are dropped.
-    while (!out.ends.empty()) {
-        const size_t last = out.ends.size() - 1;
-        const uint32_t first = last == 0 ? 0 : out.ends[last - 1];
-        if (out.ends[last] != first)
+        ends.push_back(count);
+    while (!ends.empty()) {
+        const size_t last = ends.size() - 1;
+        const uint32_t first = last == 0 ? 0 : ends[last - 1];
+        if (ends[last] != first)
             break;
-        out.ends.pop_back();
+        ends.pop_back();
     }
+}
+
+} // namespace
+
+bool set_code(CodeLines& out, std::string_view source, FontSpec font,
+              const Composition& composition, MetricsResolver resolve, std::string* why,
+              std::vector<uint32_t>* node_bytes)
+{
+    out.clear();
+    if (node_bytes != nullptr)
+        node_bytes->clear();
+    const FontKey key = font.key();
+    const FontMetrics* const metrics = resolve(key);
+    if (metrics == nullptr) {
+        if (why != nullptr)
+            *why = "the resolver does not know the face of " + font_key_text(font.face, font.size);
+        return false;
+    }
+    out.codepoints.clear();
+    out.offsets.clear();
+    decode_utf8(source, out.codepoints, node_bytes != nullptr ? &out.offsets : nullptr);
+
+    walk_code(out.codepoints, out.ends, [&](size_t i, uint32_t codepoint) {
+        if (node_bytes != nullptr)
+            node_bytes->push_back(out.offsets[i]);
+        if (metrics->has(codepoint)) {
+            out.nodes.push_back(char_node(key, codepoint));
+            return;
+        }
+        const StandIn shown = stand_in(composition, resolve, key, codepoint);
+        out.nodes.push_back(shown.codepoint == codepoint
+                                ? char_node(shown.font, codepoint)
+                                : replaced_char(shown.font, shown.codepoint, codepoint));
+    });
     return true;
+}
+
+CodeExtent code_extent(std::string_view source)
+{
+    std::vector<uint32_t> codepoints;
+    std::vector<uint32_t> offsets;
+    std::vector<uint32_t> ends;
+    decode_utf8(source, codepoints, &offsets);
+    const size_t none = codepoints.size();
+    size_t last = none;
+    walk_code(codepoints, ends, [&](size_t i, uint32_t) { last = i; });
+    CodeExtent extent;
+    extent.lines = static_cast<uint32_t>(std::min<size_t>(ends.size(), 0xFFFFFFFFu));
+    if (last != none) {
+        const size_t limit = 0xFFFFFFFFu;
+        extent.end = last + 1 < offsets.size()
+                         ? offsets[last + 1]
+                         : static_cast<uint32_t>(std::min(source.size(), limit));
+    }
+    return extent;
 }
 
 // --- What the blocks and their containers say -------------------------------------------
@@ -840,10 +885,33 @@ bool DocumentComposer::compose_blocks(NodeArena& arena, const Block* blocks, siz
     return out.ok();
 }
 
+namespace
+{
+
+// Takes an arena back to where it stood when the scope is left, however it is
+// left. What a layout adds to the arena is scratch; and a host can unwind
+// through one (an allocation that fails where exceptions are enabled), which
+// can leave the arena's parallel tables out of step until it is taken back.
+struct Rewound {
+    explicit Rewound(NodeArena& arena_)
+        : arena(arena_)
+        , mark(arena_.mark())
+    {
+    }
+    ~Rewound() { arena.rewind(mark); }
+    Rewound(const Rewound&) = delete;
+    Rewound& operator=(const Rewound&) = delete;
+
+    NodeArena& arena;
+    NodeArena::Mark mark;
+};
+
+} // namespace
+
 void DocumentComposer::layout_block(NodeArena& arena, const Block& block, Scaled indent,
                                     Scaled width, const DocumentRules& rules, BlockLayout& out)
 {
-    const NodeArena::Mark mark = arena.mark();
+    const Rewound rewound(arena);
     _block.block_boxes(arena, block, indent, width, params, measure, rules, _boxes);
     ++blocks_composed;
     out.serial = ++_serial;
@@ -891,7 +959,6 @@ void DocumentComposer::layout_block(NodeArena& arena, const Block& block, Scaled
                 out.item_count = cmd.end;
         }
     }
-    arena.rewind(mark);
 }
 
 // --- Document -----------------------------------------------------------------------------
@@ -1359,7 +1426,7 @@ void Document::assemble(DocumentComposer& composer, size_t u)
     DocumentUnit& unit = _units[u];
     const size_t first = unit.first_block;
     const size_t count = unit.block_count;
-    const NodeArena::Mark mark = _arena.mark();
+    const Rewound rewound(_arena);
 
     composer._line_first.clear();
     composer._lines.clear();
@@ -1404,7 +1471,6 @@ void Document::assemble(DocumentComposer& composer, size_t u)
     set_extent(u, composer._stacked.extent);
     _slots[first].run_extent = unit.extent;
     _slots[first].run_count = unit.block_count;
-    _arena.rewind(mark);
 }
 
 UnitRange Document::layout_window(DocumentComposer& composer, Scaled top, Scaled bottom)

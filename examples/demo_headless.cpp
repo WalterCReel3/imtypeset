@@ -85,6 +85,49 @@ void arrange_demo_window(const Run& run)
     ImGui::End();
 }
 
+// --- Finding a control -------------------------------------------------------------
+// A script acts on controls, and where a control is depends on everything
+// above it in the window. So a script does not know positions: it looks up
+// where ImGui drew a piece of the UI's text in the frame before (a label, a
+// separator's title) and acts beside it. A text that is not on screen fails
+// the run.
+
+bool g_script_failed = false;
+// The font ImGui's own text was set in during the last frame, and its size.
+ImFont* g_ui_font = nullptr;
+float g_ui_font_size = 0.0f;
+
+// Where ImGui drew `text` in the last frame: the top-left corner of its first
+// glyph's quad, in any window. Found in the draw data: a glyph is a quad of
+// four vertices whose first carries the glyph's place in the atlas, and a
+// text is its visible glyphs one after another. `text` is set in ImGui's own
+// font, and should be one nothing drawn before it contains.
+ImVec2 text_drawn(const char* text)
+{
+    ImVector<ImVec2> uvs;
+    ImFontBaked* baked = g_ui_font != nullptr ? g_ui_font->GetFontBaked(g_ui_font_size) : nullptr;
+    for (const char* c = text; baked != nullptr && *c != 0; ++c) {
+        const ImFontGlyph* glyph = baked->FindGlyph((ImWchar)(unsigned char)*c);
+        if (glyph != nullptr && glyph->Visible)
+            uvs.push_back(ImVec2(glyph->U0, glyph->V0));
+    }
+    const ImDrawData* data = ImGui::GetDrawData();
+    for (int n = 0; data != nullptr && uvs.Size > 0 && n < data->CmdLists.Size; ++n) {
+        const ImVector<ImDrawVert>& vertices = data->CmdLists[n]->VtxBuffer;
+        for (int first = 0; first + 4 * uvs.Size <= vertices.Size; ++first) {
+            int matched = 0;
+            while (matched < uvs.Size && vertices[first + 4 * matched].uv.x == uvs[matched].x &&
+                   vertices[first + 4 * matched].uv.y == uvs[matched].y)
+                ++matched;
+            if (matched == uvs.Size)
+                return vertices[first].pos;
+        }
+    }
+    std::fprintf(stderr, "demo_headless: \"%s\" is not on screen: the script cannot go on\n", text);
+    g_script_failed = true;
+    return ImVec2(0.0f, 0.0f);
+}
+
 // One run from context to context. Fills `image` with the last frame.
 bool run_demo(const Run& run, soft_raster::Image& image)
 {
@@ -101,6 +144,8 @@ bool run_demo(const Run& run, soft_raster::Image& image)
     };
     const std::string fonts = IMTYPESET_TEST_DATA_DIR "/fonts/";
 
+    g_script_failed = false;
+    g_ui_font = nullptr;
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -132,6 +177,8 @@ bool run_demo(const Run& run, soft_raster::Image& image)
                 io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
         }
         ImGui::NewFrame();
+        g_ui_font = ImGui::GetFont();
+        g_ui_font_size = ImGui::GetFontSize();
         ImTypeset::ShowDemoWindow();
         if (frame == 1)
             arrange_demo_window(run);
@@ -161,6 +208,12 @@ bool run_demo(const Run& run, soft_raster::Image& image)
         }
     }
 
+    if (g_script_failed) {
+        std::fprintf(stderr, "demo_headless: [%s] its script did not find what it acts on\n",
+                     run.Open.c_str());
+        ok = false;
+    }
+
     ImTypeset::DestroyContext();
     renderer.shutdown();
     ImGui::DestroyContext();
@@ -168,8 +221,15 @@ bool run_demo(const Run& run, soft_raster::Image& image)
 }
 
 // --- The scripts ---------------------------------------------------------------------
-// Positions are in the window as arrange_demo_window() leaves it, with one
-// section open: its header is at y = 77 + 23 * (its index).
+
+// What a script counts on having happened, said when it has not.
+void expect(bool happened, const char* otherwise)
+{
+    if (happened)
+        return;
+    std::fprintf(stderr, "demo_headless: %s\n", otherwise);
+    g_script_failed = true;
+}
 
 void idle(int, ImGuiIO&) {}
 
@@ -178,11 +238,13 @@ void idle(int, ImGuiIO&) {}
 void script_math(int frame, ImGuiIO& io)
 {
     if (frame == 4) {
-        io.AddMousePosEvent(100.0f, 150.0f);
+        // The label stands to the right of the top of its field.
+        io.AddMousePosEvent(100.0f, text_drawn("Source").y + 8.0f);
         io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
     } else if (frame == 5) {
         io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
     } else if (frame == 6) {
+        expect(io.WantTextInput, "the click on the formula's source reached no text field");
         io.AddKeyEvent(ImGuiMod_Ctrl, true);
         io.AddKeyEvent(ImGuiKey_A, true);
     } else if (frame == 7) {
@@ -201,25 +263,33 @@ void script_math(int frame, ImGuiIO& io)
 void script_selection(int frame, ImGuiIO& io)
 {
     if (frame == 4) {
-        io.AddMousePosEvent(60.0f, 545.0f);
+        // The paragraph selected by hand is under the combo of granularities.
+        io.AddMousePosEvent(60.0f, text_drawn("Granularity").y + 116.0f);
         io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
     } else if (frame == 6) {
-        io.AddMousePosEvent(380.0f, 572.0f);
+        expect(ImGui::IsAnyItemActive(),
+               "the press on the paragraph selected by hand took nothing");
+        io.AddMousePosEvent(380.0f, text_drawn("Granularity").y + 143.0f);
     } else if (frame == 8) {
         io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
     } else if (frame == 10) {
-        io.AddMousePosEvent(120.0f, 238.0f);
+        // The selectable text is under the separator that names its function.
+        io.AddMousePosEvent(120.0f, text_drawn("ImTypeset::SelectableText").y + 50.0f);
         io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
     } else if (frame == 12) {
-        io.AddMousePosEvent(300.0f, 305.0f);
+        expect(ImGui::IsAnyItemActive(), "the press on the selectable text took nothing");
+        io.AddMousePosEvent(300.0f, text_drawn("ImTypeset::SelectableText").y + 117.0f);
     }
 }
 
-// Inspector: the pointer over the second line.
+// Inspector: the pointer over the second line of the paragraph, which is
+// under the row of checkboxes.
 void script_inspector(int frame, ImGuiIO& io)
 {
     if (frame == 4)
-        io.AddMousePosEvent(210.0f, 262.0f);
+        io.AddMousePosEvent(210.0f, text_drawn("Line boxes").y + 51.0f);
+    else if (frame == 6)
+        expect(ImGui::IsAnyItemHovered(), "the pointer is on nothing in the Inspector");
 }
 
 // Stress: the slider of copies dragged past its right end, to x1000, then the
@@ -227,14 +297,17 @@ void script_inspector(int frame, ImGuiIO& io)
 void script_stress(int frame, ImGuiIO& io)
 {
     if (frame == 4) {
-        io.AddMousePosEvent(80.0f, 215.0f);
+        // A slider's label stands to its right, on its row.
+        io.AddMousePosEvent(80.0f, text_drawn("Copies of the document").y + 4.0f);
         io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
     } else if (frame == 6) {
-        io.AddMousePosEvent(3000.0f, 215.0f);
+        expect(ImGui::IsAnyItemActive(), "the press on the slider of copies took nothing");
+        io.AddMousePosEvent(3000.0f, text_drawn("Copies of the document").y + 4.0f);
     } else if (frame == 8) {
         io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
     } else if (frame == 9) {
-        io.AddMousePosEvent(400.0f, 420.0f);
+        // The document is the child under the two lines of counters.
+        io.AddMousePosEvent(400.0f, text_drawn("Held now").y + 149.0f);
     } else if (frame >= 10 && frame <= 40) {
         io.AddMouseWheelEvent(0.0f, -40.0f);
     }
@@ -244,21 +317,35 @@ void script_stress(int frame, ImGuiIO& io)
 void script_fonts(int frame, ImGuiIO& io)
 {
     if (frame == 4) {
-        io.AddMousePosEvent(100.0f, 481.0f);
+        // The field for the file is the first thing under the separator.
+        io.AddMousePosEvent(100.0f, text_drawn("ImTypeset::AddFontFromFileTTF").y + 27.0f);
         io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
     } else if (frame == 5) {
         io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
     } else if (frame == 7) {
+        expect(io.WantTextInput, "the click on the font's file reached no text field");
         io.AddInputCharactersUTF8(IMTYPESET_SOURCE_DIR "/CMakeLists.txt");
     } else if (frame == 9) {
-        io.AddMousePosEvent(40.0f, 527.0f);
+        const ImVec2 button = text_drawn("Add font");
+        io.AddMousePosEvent(button.x + 27.0f, button.y + 4.0f);
         io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
     } else if (frame == 10) {
         io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
     } else if (frame == 12) {
+        // The frame of the click ends on the refusal: AddFontFromFileTTF() is
+        // the last call of the section that reports anything.
+        expect(ImGui::IsAnyItemHovered(), "the pointer is not on the button that adds the font");
         io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
     }
 }
+
+// A build with IMTYPESET_DISABLE_DEMO in its flags has a ShowDemoWindow() that
+// draws nothing, so there is nothing for a script to act on.
+#ifdef IMTYPESET_DISABLE_DEMO
+const bool DEMO_WINDOW = false;
+#else
+const bool DEMO_WINDOW = true;
+#endif
 
 struct Page {
     const char* File;
@@ -343,7 +430,7 @@ int main(int argc, char** argv)
         Run run;
         run.Height = page.Height;
         run.Open = page.Section;
-        run.Input = page.Input;
+        run.Input = DEMO_WINDOW ? page.Input : idle;
         run.Frames = page.Frames;
         soft_raster::Image image;
         if (!run_demo(run, image)) {

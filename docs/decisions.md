@@ -45,6 +45,15 @@ the native side of this line and nothing else.
 *Amended by D20:* paragraph assembly, which the reference keeps under
 `advtext/ui` and in `markdown.py`, is ported.
 
+*Amended by D27:* no custom `ImFontLoader` was built; the atlas gets its glyphs
+through an in-memory cmap.
+
+*Amended by D32, D34, D37 and D43 (2026-10-10):* the "not ported" line no longer
+holds for block layout. imtypeset is the product and not a port of a part: the
+block layer (`src/blocks.*`) and a public Document (`include/imtypeset.h`,
+"Documents") are native. Still not here: markdown, diff, tables and columns
+(the table fields of a block are reserved, D43), and the views.
+
 ## D2. Language rules
 
 **Decided.**
@@ -1027,7 +1036,11 @@ are the user's to overrule.*
    it is the only executable specification there is, and the goldens are the
    regression net. That role does not make it the authority on what is
    *right*.
-3. **Where the prototype has a defect, the product does not inherit it.** This
+3. **Where the prototype has a defect, the product does not inherit it.**
+   (*Amended by D41:* no golden was regenerated; each fix is a switch, off under
+   `TexRules::reference()` and on under `TexRules::product()`, and the
+   class-per-line-count formulation listed below as staying is one of them,
+   `easy_line`.) This
    amends D23's "behaviour follows the Python oracle". A departure of the
    reference from `tex.web` is FIXED in imtypeset when (a) it is established
    against `tex.web` by section and line, and (b) the reference's own documents
@@ -1490,7 +1503,8 @@ raised box is an outer bound there, and the bitmap is larger than it need be.
 ## D39. Hardening, second pass: formulas, selection, the draw loop, and a host that unwinds
 
 Task `harden-2`. The items are a reviewer's reading of `src/mathtext`, `src/math_mlist`,
-`src/selection` and `src/draw` (H1 to H8, D3, D4, D6, D7) and five of the lead's (X1 to X5). The
+`src/selection` and `src/draw` (H1 to H8, and the draw review's items D3, D4, D6, D7, which are
+review item numbers here and not decisions) and five of the lead's (X1 to X5). The
 table of what each was, what was observed and what holds it is `docs/hardening.md`, "Second pass".
 
 **Decided**
@@ -1536,16 +1550,19 @@ table of what each was, what was observed and what holds it is `docs/hardening.m
    draw into a list; through the public inline `PrimWriteVtx`/`PrimWriteIdx` 3 % slower, and that
    route still has to read `_VtxCurrentIdx`. Neither is within the 1 % noise of the measurement, so
    by the lead's ruling they stay. Rectangles do go through the public `PrimRect`, which is also
-   what makes them take the white texel of the list's own shared data (D3). `_CmdHeader.ClipRect`
+   what makes them take the white texel of the list's own shared data (review item D3). `_CmdHeader.ClipRect`
    stays because the public `GetClipRectMin()` reads `_ClipRectStack.back()`, which is undefined on
    a list whose clip stack is empty, and `AddText` itself reads `_CmdHeader`.
-9. *Batched reservation stays (D4).* Past 64k vertices with 16-bit indices a draw command ends up
-   to 1,024 quads earlier than with a reservation per glyph. Same vertices, same triangles
-   (tested); a different place where one `ImDrawCmd` stops. Reproducing the reference's boundary
+9. *Batched reservation stays (review item D4).* Past 64k vertices with 16-bit indices a draw
+   command ends up to 1,023 quads earlier than with a reservation per glyph (ImGui starts a new
+   command when a reservation would reach 65,536 vertices; a reservation here is of at most
+   `BATCH_QUADS` = 1,024 quads, so the earliest it can do so is at 65,536 - 4 x 1,024 vertices,
+   where a quad at a time goes on to 65,532; the test allows 1,024 and saw 94). Same vertices,
+   same triangles (tested); a different place where one `ImDrawCmd` stops. Reproducing the reference's boundary
    would need the list's vertex counter before every quad and ImGui's own order of reserve and
    cull, for something no renderer shows.
 10. *`DrawRules`: `reference()` and `product()` for the draw loop* (`src/draw.h`), the same pattern
-    as the layout rules. One rule so far, `rule_joins_span` (D7): under `product()`, which the
+    as the layout rules. One rule so far, `rule_joins_span` (review item D7): under `product()`, which the
     public API draws with (`ImTypesetContext::draw_rules`), a rule inside a formula belongs to the
     formula's rigid span. Its left end is placed from the nearest glyph of the formula placed
     before it, its right end from the nearest placed before or after it (64 glyphs each way, by
@@ -1560,16 +1577,22 @@ table of what each was, what was observed and what holds it is `docs/hardening.m
     radicand's first glyph begins nearer the bar's start than the sign's origin does, and the
     joint that shows is the sign's.
 
-    The rule of this item is under revision in task `d7-fix`: a later review, made by
-    reading with nothing run, found its placement suspect
-    (`.concerns/review-3a--reviewer--findings.md`).
+    *Superseded by D47:* `rule_joins_span` (and `RULE_JOIN_LOOKBACK`, `Drawer::settle_span`) no
+    longer exist. A review made by reading (`.concerns/review-3a--reviewer--findings.md`) found
+    the placement wrong where a formula's rows overlap; all of it reproduced, and the rule was
+    replaced by `formula_placed_whole`. `DrawRules` itself, with `reference()` and `product()`,
+    stands.
 11. *The library is safe to unwind through, without catching anything.* A host's `IM_ASSERT` may
     throw (imgui_bundle's Python build), and with exceptions enabled so may `operator new`. The
     guarantee is the basic one at every public entry: nothing leaks, the draw list holds whole
     quads, the widget cache counts what it holds, and the same call made again does what it would
     have done. Held by ordering and by destructors (`Building` in `src/imtypeset.cpp`,
     `std::unique_ptr` until ownership has passed, the pool's room reserved when the context is
-    made). In the draw loop nothing fallible happens
+    made). There is no `try` or `catch` in `src/` outside
+    `src/imtypeset_c.cpp` (D40) and the macro `IMTYPESET_NO_UNWIND` of `src/context.h`, which under
+    `__cpp_exceptions` swallows what one call throws where the call is itself made while
+    cleaning up (`PopClipRect`, `EndChild`, `PopTextWrapPos`, `ImFontAtlas::RemoveFont`: four
+    uses, added with the Document, D45). In the draw loop nothing fallible happens
     between a `PrimReserve` and its `PrimUnreserve`: every glyph is loaded before anything is
     reserved, so there is nothing to guard there (a guard object was tried and measured, not kept).
 12. *Not done, on purpose (X4):* trusting the content hash instead of comparing the text (the one
@@ -1583,10 +1606,10 @@ table of what each was, what was observed and what holds it is `docs/hardening.m
 - Parsing a run of `x` asks for 208 bytes of heap per byte of source (109 MB at the bound).
 - H1 before the bound: a 100 MB source passed 2.5 GB resident and was still growing when killed
   (the lead's measurement); at 524,289 bytes the unbounded parser simply parsed it.
-- D7 before the rule, 576 draws (6 sizes, 0 to 60 terms before `\sqrt{x}`, 16 sub-pixel origins):
+- Review item D7 before the rule, 576 draws (6 sizes, 0 to 60 terms before `\sqrt{x}`, 16 sub-pixel origins):
   the bar's left edge was from 3 px inside the sign's quad to 3 px clear of it, its top from 1 px
   above the sign's to 1 px below. After: the same offset across in all 576, within a pixel down.
-- D7 on fractions, 144 draws under each set of rules (four fractions, one of them the quadratic
+- Review item D7 on fractions, 144 draws under each set of rules (four fractions, one of them the quadratic
   formula; 13, 17 and 24 px; 0, 13 and 40 terms before; four origins): against the glyph at that
   end as it was drawn, a fraction bar's end is up to 6.00 px from where the commands put it under
   `reference()` and at most 1.00 px under `product()`; a radical's bar inside the numerator 4.91 px
@@ -1596,7 +1619,7 @@ table of what each was, what was observed and what holds it is `docs/hardening.m
   13 px after sixty terms and by a pixel at 24 px after thirteen, and after forty terms the
   quadratic formula's numerator 5 px right of its bar with the sign printed over the `b`; under the
   product's, the same fraction whether nothing or forty terms come before it.
-- D6 by a run: an atlas capped at 512 x 1024, 120 frames each at another size out of 27: 224 bakes
+- Review item D6 by a run: an atlas capped at 512 x 1024, 120 frames each at another size out of 27: 224 bakes
   discarded, the texture replaced under a draw in 24 frames, and all 11,040 quads on a glyph
   rectangle of the atlas as it then stood.
 - X1: allocation-failure sweeps unwound `SetParagraphText` + `LayoutParagraph` from 148 points,
@@ -1665,7 +1688,11 @@ D34 names a C ABI as the seam for every language that is not C++. This is how it
   offsets, FreeType or stb_truetype, whether exceptions are caught, the eight struct sizes. Only
   `int` and `char`, sized by the caller, appended to in later versions. It does not vouch for
   ImGui's own structs (`ImGuiIO`, `ImGuiStyle`): that remains `IMGUI_CHECKVERSION()`'s.
-- **No exception crosses.** Built without
+- **No exception crosses.** `src/imtypeset_c.cpp` holds the library's one `try` with handlers that
+  report, under `#if defined(__cpp_exceptions)`: each entry catches, fails as its return type
+  fails (0, -1 or null), and `ImTypeset_GetLastError()` answers `ImTypeset_Error_Exception` (1000,
+  an enumerator only the C header has) with the exception's message. (The only other `try` in
+  `src/` is the macro `IMTYPESET_NO_UNWIND`, D39 item 11.) Built without
   exceptions nothing catches and nothing throws. The layer adds one other failure of its own, a
   null pointer where a struct is required (`ImTypeset_Error_InvalidArgument`).
 - **`IMTYPESET_C_ABI_VERSION` (1)** is the shape of the ABI itself, raised when a function changes
@@ -1857,6 +1884,8 @@ current context is another one, or one whose `ImTypesetStats::TextBuilds` is low
 saw (a new context at the old address). That second test leans on a debug counter because the
 public API has no way to ask whether a handle's context is still alive.
 
+*Superseded by D49:* the demo keeps its state per context, found by `GetContextSerial()` (D46).
+
 **Decided.** The Stress section submits only the copies of its document that are in view (heights
 from `CalcTextSize`, measured when the width, size or fonts change), so x1000 costs what is on
 screen. The "submit everything" mode is held to 20 copies.
@@ -1886,6 +1915,7 @@ requirement-by-requirement account and what was run.
   (`src/imtypeset_document.h`), which is not public: it selects `DocumentRules` (reference) and
   replaces each resolved length after checking the pixel description came within 2 sp of it.
   Measured on the block goldens: all 2,398 lengths came to the reference's scaled point exactly.
+  (WITHDRAWN by D45: the hook is gone, nothing is replaced and the comparison is `==`.)
 - **Containers are optional and by index**, 1-based so that zero is "none": `Quote` (bar position,
   colour) and `List` (gutter, tight). A block that names none can say only how deeply it is quoted,
   and then the block layer's depth-only behaviour applies (D37). Styles and containers handed to
@@ -1929,7 +1959,8 @@ requirement-by-requirement account and what was run.
   was wrong in part and was cut to what is right: an offset outside the text, a style, a container
   or runs that are not there, a table. Reason: the Python policy raises on "nothing done" codes,
   and with InvalidArgument a pane would have raised on every edit that held a table. An edit at a
-  place that is not the document's is still InvalidArgument and does nothing.
+  place that is not the document's is still InvalidArgument and does nothing. (D45 extends the
+  code to runs out of order, for a paragraph too, and says which call reports what.)
 - **Python sees `(block, index into that block's str)`**, converted per block (an ASCII block for
   free), never across the document.
 - **The two `Text*Offset` functions take `(text, offset, text_end = NULL)`** in C++ (a binding
@@ -2037,3 +2068,571 @@ that need a sibling checkout fail at configure where it is absent.
 
 **Not done.** vcpkg: a manifest and a port sketch exist and have never been run. Clang, MSVC,
 Windows, macOS: nothing was compiled. hello_imgui as a CMake host: not run.
+
+## D45. The Document after its first review: what a call answers for, no tolerance in the replays, one walk over code (task `doc-fixes`)
+
+`.concerns/review-4-document--reviewer--findings.md` read the Document as D43 left it and ran
+nothing. Each finding was first made to fail in a test; `.concerns/doc-fixes--builder--result.md`
+says which did, item by item. What follows is what was DECIDED on the way, with the reason.
+
+**Decided.**
+
+- **A call that was applied never answers with a "nothing done" code, and answers for itself
+  alone.** A run that is out of order (it does not reach past the end of the run before it) is
+  left out and the rest is set; that was reported as `ImTypesetError_InvalidArgument`, which the
+  header files under "nothing done" and the Python policy raises on, and for a document it was
+  reported late, by every later `AppendDocumentText`, for good. It is now
+  `ImTypesetError_DescriptionCut`, from the one place that validates runs (`validate_runs`), so
+  for `SetParagraphText` too: four expectations in `tests/test_api.cpp` moved with it.
+  `SetDocumentBlocks`/`ReplaceDocumentBlocks` say it when the blocks are handed over, naming the
+  block (and `ImTypesetError_TextTooLong` likewise). `AppendDocumentText` reports what THAT call
+  cut or left out and nothing else; what an earlier call found stays readable as
+  `GetDocumentBlockError`, and a draw still answers false for a block in view that has it.
+  Alternative considered: keep reporting the block's standing error from every append. Rejected:
+  a host cannot tell "this append was cut" from "something was once wrong here".
+- **Everything `describe` cuts is said**: a container's `Parent` that is not an earlier
+  container, a container `Kind` that is not one, a marker past 256 bytes (cut before the
+  character that crosses the limit, not inside it). All `DescriptionCut`.
+- **A refused edit leaves the document as it was.** `SetDocumentBlocks` checks the one thing that
+  can refuse (more than 4,194,304 blocks) before it gives anything up.
+- **The selection `DocumentView` keeps is positions, and an edit moves it.** After
+  `ReplaceDocumentBlocks`: below the edit nothing moves; above it a block moves by the
+  difference; a block replaced one for one keeps its number and what was selected in it (offsets
+  are cut to the new text when used), which is what a host that re-describes a streaming block
+  wants; where the number of blocks changes, the part of the selection in the replaced blocks is
+  given up (a start moves to after them, an end to before). A selection the host keeps
+  (`selection` not null) is the host's to move. Alternative considered: clear the selection on any
+  edit that touches it. Rejected for the one-for-one case only, because a pane that replaces its
+  last block every frame would never hold a selection in it.
+- **No tolerance in the golden replays, and no hook in the library.** The two replays compared a
+  resolved length with the golden's "within 2 sp" and then SUBSTITUTED the golden's, and
+  overwrote the interline glue, the strut, the first-line rule and the marker gap wholesale.
+  Measured after removing every substitution: all of it is expressible through the public
+  description as float pixels and equal by `==` (8,967 comparisons over the block goldens, 2,146
+  over the doc goldens, the quote theme through `ImTypesetDocumentOptions` included), and the
+  same 67 of 69 block cases and all three doc replays pass on the commands. So `DocumentHook`,
+  `set_document_hook` and `ImTypesetParagraph::run_fonts` are deleted. What a replay still
+  needs that the header does not offer is the reference's RULES, and that is one `bool`,
+  `ImTypesetDocument::reference_rules` (the reference's `DocumentRules` and its first line
+  narrowed by the indent), of the same standing as `ImTypesetContext::tex_rules`: internal
+  state a test sets, read by no public call. It cannot leave the library without a second build
+  of the sources, because the choice is made where the rules are applied. A run's font is not
+  read back by the replays: it is in every glyph of the commands they compare.
+  `tests/document_reference.h` is the one place both replays do this.
+- **One walk over a code block's characters.** `map_code` (the document's map from nodes to
+  source bytes) walked UTF-8 by lead byte while `set_code` decodes with `decode_utf8`; on
+  ill-formed input the two counted different characters and every position of the block became
+  byte 0. `src/blocks.cpp` `walk_code` is now the only walk: `set_code` returns the byte of each
+  node it makes (`node_bytes`) and `code_extent` counts lines and finds the end of what is set,
+  both through it. There is no "the two walks disagree" branch left to reach.
+- **Views are bounded at 256 and given back.** The cache of block views grew with the number of
+  blocks the last draw showed (2 per block), so a clip rectangle over ten thousand selected
+  blocks kept twenty thousand. It is now between 32 and 256 whatever is shown, and trimmed to
+  the limit after each draw. The price, accepted: a window that really shows more than 256
+  blocks with a selection or marks in them rebuilds the excess views every frame. 256 and not
+  the 64 an earlier test names because a screen of one-line blocks at a small size passes 64.
+- **Blocks of no height are not special-cased.** A run of them with no space between stands at
+  one height; a window that starts just below it lays them all out once (5,000 host blocks of
+  Extent 0: 5,012 layouts in that frame, 0 in the next, 12 blocks drawn a frame), and a window
+  that shows that height visits each every frame. That is linear in what the host handed over
+  and the header now says so (BLOCKS OF NO HEIGHT). Not changed: a second index over units of no
+  height would be a data structure for a document nobody has shown to exist.
+  `GetDocumentStats` stays one step a block for `BlocksDeferred`, as the header already said.
+- **Unwinding through a document** (a host whose `IM_ASSERT` throws, or `std::bad_alloc`):
+  `DocumentView` ends its child and a clipped code block pops its clip rectangle however they are
+  left. A sweep that throws from every allocation of `DocumentView` and `DrawDocument`
+  (`tests/test_exception_safety.cpp`) found four more places where a throw left the document
+  wrong for good, all fixed at the cause: a code block flagged as built before it was; a block
+  flagged as synced before its line index was built; a view leaked when listing it failed; and
+  the document's arena, which unlike a paragraph's is never cleared, left with its two box
+  tables out of step (`NodeArena::add_box` pushes to one and then the other), so the NEXT formula
+  tripped a contract. A layout now rewinds the arena on every exit (`Rewound`) and an unwound
+  material build rewinds to where it started.
+- **The header moved, not the behaviour, for a code block's copy.** It gives the source bytes as
+  handed in as far as the block's text goes, which ends at the last character that is set; the
+  line end after it is not part of the block. The reference drops trailing blank lines the same
+  way (`advtext/markdown.py`, `_code_block`; read, not run).
+- **The C ABI keeps `(text, text_end, offset)` for the two `Text*Offset` functions** (D40, D43);
+  `include/imtypeset_c.h` now says so at the declarations.
+
+**Measured** (GCC 12.2, FreeType 2.12.1, private directories; every binary under a memory guard):
+debug `test_api_document` 24 tests, `test_api_document_golden` 5, `test_api` 40, `test_c_api`
+464 checks, `test_exception_safety` in an ASan + UBSan build with exceptions on: 9 tests, 842
+allocations of `DocumentView` and 65 of `DrawDocument` unwound from, no leak. The result file
+has the full table and what was not run.
+
+**Read, not run.** The pointer formed past the text buffer for a `TextStart` beyond `TextSize`
+(length 0, never dereferenced; now clamped). The clip-rectangle half of the unwinding finding:
+no allocation falls between the push and the pop on the input swept, so the guard is by reading.
+
+**Not done.** A paragraph run that only OVERLAPS the one before it is still cut silently to
+where that one ends, as the header has always said; only a run of which nothing is left is
+reported. The Python package and the pptmstr patch (task `py-fixes`).
+
+## D46. `GetContextSerial`, and a font check that cannot be fooled by an atlas refilled with as many fonts (task `doc-fixes-now`)
+
+Two additions the lead relayed after the Document review: one new public declaration, ruled by
+the lead, and one defect reproduced by `py-fixes` inside both wheels.
+
+**Decided.**
+
+- **`ImU64 ImTypeset::GetContextSerial()`** (C: `ImTypeset_GetContextSerial`, Python:
+  `get_context_serial()`): a number no other context of the process has had or will have, never
+  zero; zero with no current context. Lead's ruling and reason: the demo keeps handles and does
+  not own the context, and showed that it cannot tell a context from a later one at the same
+  address with what the header offered (the review's use-after-free). A liveness query on a raw
+  pointer is unsound once the address is reused, and a destructor callback is excluded from the
+  header (no callbacks: bindings are generated from it). It is a process-wide counter read in
+  `CreateContext`, so it needs no registry and costs nothing. It answers for the CURRENT
+  context, like every context-level getter here. In C it is the one function that returns a
+  64-bit number; `include/imtypeset_c.h` lists the case.
+- **`validate_fonts` keys on what cannot stay the same when a font leaves the atlas.** It
+  skipped its check while the frame count and the NUMBER of fonts in the atlas were what they
+  were at the last check, and said so ("short of being removed and another added between two
+  calls of one frame"). A host that empties the atlas between two frames and adds as many fonts
+  is exactly that: the roles' `ImFont*` were freed, `GetFont` answered one, `RemoveFont` handed
+  one to `ImFontAtlas::RemoveFont` (ImGui's assertion `removed`), and `AddFont…` could remove
+  the HOST's font that now stood at the old address. The key is now the count AND the `FontId`
+  of the atlas's last font (and the atlas itself). Read in the pinned source and in v1.92.0:
+  ImGui assigns `FontId` from `ImFontAtlas::FontNextUniqueID`, which only the constructor sets,
+  and appends each new font, so no font leaves the atlas, alone or replaced, without one of the
+  two changing. Alternative proposed by `py-fixes` and not taken: reset the cache at the three
+  entries that use a role's font. It fixes those three and leaves every draw to the same
+  mistake; the cause is the key. No new ImGui field is read (`Fonts`, `ImFont::FontId` were
+  read already), so the sidecar's layout probes need no new row.
+
+**Measured.** `tests/test_api.cpp`
+`an_atlas_refilled_with_as_many_fonts_between_two_frames_has_none_of_the_roles`: before the
+change it ends in ImGui's assertion; after it, 24 refills, 3 of the host's new fonts at the
+address a role's font had, 0 stale answers, 0 of the host's fonts lost. Inside the wheels
+(`tools/bundle_route/font_lifetime.py`, the sidecar rebuilt from this tree): `same-count-cycle`
+exits 0 with no application font removed in wheel 1.92.900 and in 1.92.801, where it exited 1.
+`a_contexts_serial_is_its_own_and_is_never_used_again`: 64 contexts made and destroyed in turn
+all came back at one address, with 64 distinct serials.
+
+**Not measured.** A host that edits `ImFontAtlas::Fonts` by hand (reorders it) is outside what
+the key sees; the per-frame check still catches it a frame late, as before.
+
+## D47. A formula is drawn whole, from the left edge of its box (task `d7-fix`, 2026-10-10)
+
+Supersedes D39 item 10. *Amended by D50* where it says "nearest pixel".
+
+*Decided.* Under `DrawRules::product()` (the public API) the draw loop does not treat a formula as
+a rigid span. The left edge of the formula's box (the ATOM command's x) is put on the nearest pixel,
+and every glyph and both ends of every rule of the formula go to that pixel plus their own distance
+from the edge in scaled points, converted and rounded once (`DrawRules::formula_placed_whole`,
+`Drawer::place_commands` in `src/draw.cpp`). A rule's top and bottom are taken from the baseline
+the formula's first glyph was put on, and a rule does not end the span. A glyph of the text that
+follows a formula with no glue between is placed from the formula's last glyph, as before.
+`DrawRules::reference()` is untouched and is what every golden replay runs under; no golden changed.
+
+*Why.* The first product rule (`rule_joins_span`, D39 item 10) left the glyphs where the reference
+puts them — each from the glyph shipped before it — and joined each end of a rule to the glyph
+whose origin was nearest along the line. A formula's rows overlap along the line and are shipped
+one after another, so "nearest" picked glyphs of another row (review-3a items 1a to 1c), a
+denominator was placed from the numerator's last glyph and stood off the middle of its bar by half
+the rounding the numerator had gathered (item 2), and past 64 glyphs the join gave out (item 3).
+All four reproduce (below). The advance rule is for a word, where the only relation that shows is
+between a glyph and its neighbour. In a formula the relations that show are between rows, and a
+rounding carried along one row has no way to reach another. Placing every item from one edge
+bounds every one of those relations at once, needs no knowledge of the box structure in the draw
+loop, no second pass and no look-back, and makes a formula the same picture at every sub-pixel
+origin.
+
+*Measured* (`tests/test_harden.cpp`,
+`d7_every_rule_of_a_formula_stands_where_it_should_against_the_ink_of_its_own_box`: 14 formulas,
+7 sizes from 11 to 32 px, 0/13/40 terms before, 8 sub-pixel origins, 168 draws a formula, the
+bundled math face, FreeType; each rule against hand-assigned glyphs of its own box). Worst
+distance, in pixels, of a rule's end from where layout puts it against the glyph at that end as
+drawn, and of the centred part from the middle of its bar:
+
+| | left end | right end | centre |
+|---|---|---|---|
+| the reference's rules | 6.91 | 10.17 | 6.47 |
+| `rule_joins_span` (measured before it was removed, 11 of the 14 formulas) | 1.42 | 1.79 | 4.82 |
+| `formula_placed_whole` | 0.91 | 0.95 | 0.77 |
+
+Under `rule_joins_span`, by review item: 1a `\frac{a+b+c+d+e+f+g+h+i+j}{\sqrt{x}}`, the radical's
+bar 1.42 px from its sign and 1.19 px from the x (the reviewer's hand case, run: sign at 142 so
+ending at 152, bar 156..164, x at 152 — a 4 px hole, exactly as read); 1b
+`\frac{\sqrt{x}}{abcdefghijkl}`, the fraction's bar 1.00 px; 1c `\frac{abcdefghijkl}{\frac{x}{y}}`,
+the inner bar 1.43 px; item 2, centre 2.09 px (1a's formula), 2.23 px (`\frac{1}{11111111111}`),
+4.82 px (seventy letters over 2), 4.18 px (2 over seventy letters); item 3, left end 1.00 px on
+seventy letters over 2 with this face (the worst case the reviewer gave needs every gap to round
+the same way); an overline, right end 1.79 px (its rule is shipped before its glyphs and was
+snapped alone).
+
+By construction, and asserted for every glyph and rule end in those draws: each is within 0.5 px
+of its distance from the formula's edge, so any two are within 1 px of their distance from each
+other, and the offsets are the same at all eight origins.
+
+*What it costs, measured.* (a) Evenness inside a formula. Of 121,408 pairs of glyphs shipped side
+by side on one baseline in those draws, 20,392 (16.8 %) stand more than half a pixel from the
+distance layout gives them, the furthest under 1 px; under the reference's rules none does. This
+is `whole` of `../imgui-adv-text/docs/advance-rule.md` §5 (478 of 3,453 there), which the user
+ranked below `advance` for prose. Looked at, enlarged four times, on `abc...xyz + \sin(2\pi x) +
+1234567890` at 13, 16 and 19 px: at 13 px a wider gap shows between `i` and `j` and the digits'
+gaps are not all alike; at 16 and 19 px I could not tell the two rows apart by spacing. (b) The
+radical's joint. `rule_joins_span` held the bar's start against its sign to 0.42 px and the same at
+every position; now it is within 1 px. Over 576 draws of `a+b+...+\sqrt{x}` (six sizes, 0 to 60
+terms): the bar starts 2, 1 or 0 px inside the sign's quad where it was always 1; in 5 of 36
+formulas it differs by a pixel from the formula with nothing before the sign; never a clear column
+between them. At 11 px after 26 terms the join shows as one lighter pixel.
+
+*Considered and not taken.* (1) Keep the advance rule in a formula and tell the draw loop which
+box a rule belongs to, so a bar follows the glyphs it lies over and a narrower part is centred on
+the bar as drawn. It keeps (a) and (b). It needs the box structure in the command stream: a
+`DrawCmd` has no spare field that golden replays do not compare (`operator==` takes every field,
+and unused ones are zero by contract), so it means a tagged ship under a switch set in
+`src/imtypeset.cpp`, a device-space centring pass over glyphs already placed, and a formula whose
+drawn width differs from its layout width by its widest row's rounding (which is what moves the
+word space after an inline fraction today). (2) Restoring the reference's rule under `product()`:
+6.9 / 10.2 / 6.5 px above. (3) Joining only a radical's bar to the glyph shipped before it: an
+overline that follows a glyph is the same sequence of commands and would start a pixel off its
+first letter in some positions (how often was not measured).
+
+*Not measured.* Faces other than Latin Modern Math; stb_truetype's rasters by eye (the placement
+tests run under it; the pictures were made under FreeType only); display formulas (`$$`), which
+take the same path; sizes above 32 px.
+
+## D48. Word spaces: under `DrawRules::product()` a word is held to its laid-out width and a word after a space is placed from the word before it (task `word-gaps`)
+
+*(D50 amends the second switch below: a word after a formula is led too, and so is a formula's box.)*
+
+**Seen.** In three screenshots of justified prose at 16 and 19 px some word spaces were nearly
+closed beside normal ones ("nodesand,", "howbadthe line", "everyday output").
+
+**Measured** (the three paragraphs of those screenshots and the 8 paragraphs of
+`bench/data/sample.txt` longer than 200 bytes, each at 520 and at 337 px; justified; 13 to 20 px as an em and
+again as a font size; two origins; 37,778 spaces between two words, 150,624 pairs of glyphs side
+by side in a word; FreeType 2.12.1, and stb_truetype with the same pens):
+
+- The cause is in the draw loop and it is the reference's rule working as designed
+  (`../imgui-adv-text/docs/advance-rule.md` sections 1, 3 and 4). A drawn space is
+  `set width + (rounding of the next word's anchor) - (rounding of this word's anchor) - (what
+  this word gathered by rounding each of its gaps)`. The first two terms are at most half a pixel
+  each. The third is not bounded: words up to **5.64 px** wider than they were laid out (em
+  20 px), 2,894 of 42,176 words a pixel or more out.
+- Under the reference's rules 530 spaces (1.4 %) are drawn at under 60 % of the width layout set,
+  4,928 (13 %) more than a pixel from it, the worst 3.10 px narrower, and at font sizes 13 and
+  17 px some are drawn at **less than no width** (-0.22 px of a set 1.92 px).
+- One of them by hand, "nodes and," in the first line of the pane's paragraph at font size 16
+  (em 13.65 px), glue natural 3.38 px, set 2.45 px: `n` belongs at 203.674 and is anchored at 204
+  (+0.326); the gaps n-o 7.533, o-d 7.787, d-e 7.700, e-s 7.233 round to 8, 8, 8, 7 (+0.747
+  together), so `s` is at 235 where it belongs at 233.927; `a` belongs at 243.421 and is anchored
+  at 243 (-0.421). Drawn space: 2.45 - 0.421 - 0.326 - 0.747 = **0.96 px**, one pixel of ink to
+  ink.
+- Layout is not the cause of the closed spaces but it is the cause of tight lines: 1,774 of the
+  37,778 spaces are set by the line breaker at under 75 % of their natural width, the narrowest
+  at 1.83 px (font size 13). No draw rule widens those; see "Not decided here".
+
+**Decided.** Two switches in `DrawRules` (`src/draw.h`), both on in `product()` and off in
+`reference()`, which is byte for byte what it was (every golden replay is unchanged; no golden,
+tolerance or skip was touched):
+
+1. `word_width_held`. A word — the glyphs of a rigid span that are not a formula's — is placed by
+   rounded gaps as before. When the span ends, if its last glyph is more than
+   `WORD_WIDTH_BOUND_PX` (0.5) from where layout has it against its first, as many gaps as it
+   takes whole pixels are rounded the other way: those that were rounded furthest in the
+   direction of the error, the earliest of equals. The choice depends on the word and its size
+   alone, so a word is one picture wherever it stands (asserted at eight sub-pixel origins).
+2. `word_spaces_led`. A word that follows a word and nothing but set glue is placed from that
+   word's last glyph by the distance layout gives them, rounded once, and held to the two pixels
+   either side of its own place. A word that starts a line or follows a formula, a rule or an
+   atom is on the pixel nearest its own place, as before.
+
+**What is promised and tested:** every word within 0.5 px of its laid-out width; every space
+between two words less than 1.5 px from its set width; every glyph on a whole pixel; a word's
+first glyph less than 1 px and its last less than 1.5 px from where layout has it (under the
+reference: 5.7 px), which is also how far a selection rectangle can stand from the ink.
+
+**What it bought, same measurement:** spaces under 60 % of their width 530 -> **11**; more than a
+pixel out 4,928 -> **308** (0.8 %); worst loss 3.10 -> 1.37 px; root mean square error 0.67 ->
+0.36 px; none below 40 % (that one is set at 1.92 px by layout).
+
+**What it costs, and it is a trade the user ranked the other way for a neighbouring rule.**
+- Evenness inside words: 13,348 of 150,624 pairs of glyphs (8.9 %) are more than half a pixel
+  from their laid-out distance, where the reference has none. They are not far past it: 3,632
+  (2.4 %) are more than 0.6 px out, 118 (0.08 %) more than 0.75, the worst 0.85. `whole`, which
+  the user ranked last for prose in advance-rule.md section 6, has 27,680 (18.4 %), 6,494 of
+  them more than 0.75 px out. Looked at three times enlarged at font sizes 13, 16, 17 and 19: I
+  could not pick out the changed gaps; that is one reader on a soft rasteriser, not a judgement.
+- Where a word after a space stands depends, by a pixel, on the words before it on its line. Two
+  lines whose layout starts a word at the same x after different words can start it a pixel
+  apart. Nothing in the tree lines text up that way today (a list marker is its own box), but a
+  host that builds columns out of words and fixed glue would see it.
+- Time: about a tenth of the public draw (`docs/performance.md`, "After `word-gaps`").
+
+**Weighed and not taken.**
+- A looser hold. At 0.75 px: 4.4 % of pairs past half a pixel, 46 spaces under 60 %; at 1.0 px:
+  2.0 % and 93. The hold at 0.5 with the nearest-tie choice costs fewer uneven pairs than `whole`
+  for the same spaces, and the looser ones leave four to eight times as many collapsed spaces.
+- Rounding the gap at which the drift first passes the bound ("greedy"): at 0.5 px it is exactly
+  `whole`.
+- Holding the last glyph to its true place instead of to the word's anchor: one more half pixel
+  off every bound, and a word would be two pictures depending on where its anchor rounds.
+- Leading alone, without the hold: 261 spaces under 60 %; the lead cannot follow a word that is
+  three pixels too wide.
+- Spreading a line's gathered error over all its spaces: letters stay even and spaces come out
+  alike, but words move off their layout places by the running sum, away from selection
+  rectangles, fills and underlines, which are drawn from layout. Not measured.
+
+**Not decided here, and not draw's:** how far the line breaker may shrink a space on a screen. A
+line shrunk by 27 % sets a 3.38 px space at 2.45 px, which is drawn as 2 or 3 px whatever the pen
+rule; `docs/images/demo-paragraph.png` shows such a line under a line stretched to 7.9 px.
+
+**Not measured:** faces other than the bundled Roboto; sizes outside 13 to 20 px; a pixel density
+other than 96; ragged, centred or right-aligned text (the rule is the same; the counts are not
+taken); runs that change face inside a word; anything on a GPU.
+
+## D49. The demo window keeps one state per context, found by the context's serial (task `demo-guard`, 2026-10-10)
+
+Supersedes the second **Decided** of D42.
+
+**Found by review, then reproduced by running** (`.concerns/review-4-draw--reviewer--findings.md`,
+F4a, F4b, F5; `.concerns/demo-guard--builder--result.md`). The demo told "another context" from
+the context's address and a debug counter. (a) A context destroyed and another made at the same
+address, while the window was collapsed, left the demo holding handles of the dead one: with
+ASan's quarantine off, a SEGV in `LayoutParagraph` from `ShowDemoFaces`. (b) Two live contexts
+each showing the demo took the handles for the other's every frame: 5 handles a context expected,
+25 after 6 frames, 125 after 26, and 200 layouts in 20 frames in which nothing changed. (c) The
+demo's controls were file statics, so `tests/test_demo.cpp` depended on the order of its tests:
+one test alone measured 3,894 px of scroll in a fresh host and 9,140 px in a third.
+
+**Decided.** Everything the demo remembers is a `DemoState` found by
+`ImTypeset::GetContextSerial()` (D46) of the context the window is shown in. A handle is used
+only in the context it was made in, and the demo never destroys one: it dies with its context.
+There is no pointer compare, no debug counter and no frame counting, and no remembered file
+static: each section's controls are a `DemoXxxState` with its defaults as member initialisers.
+States are kept for the `DEMO_STATES_MAX` = 8 contexts the window was last shown in, least
+recently used dropped first; a live context that comes back after eight others starts from the
+defaults and makes its handles again beside the old ones, which stay until that context is
+destroyed. Eight is the builder's number, not a measured one.
+
+**Measured** (the builder's runs; `tests/test_demo.cpp`, 14 tests / 176 checks in release, each of
+the 14 also passing alone; the 14 / 176 were seen again by the `docs` task in a clean release
+build): two live contexts hold 5 handles each and lay
+out nothing once settled; a context replaced twelve times with no frame between came back at the
+old address 11 times of 12 in release and got handles of its own each time; 5 handles after
+seven other contexts, 10 after eight. The nine pages `example_demo_headless` writes were
+byte-identical before and after the change, built against the same library.
+
+**Not measured, and said by the builder.** The replaced-between-two-frames test was written after
+the first design was gone, so that it fails without the serial is by reasoning. The result file's
+table of sanitised and debug runs was left with its cells unfilled; the builder's progress file
+has them for the earlier 13-test state (ASan + UBSan with FreeType / 32-bit and with stb / 16-bit,
+debug, and `IMTYPESET_DISABLE_DEMO`: all passing), not for the final sources.
+
+## D50. Where the product's draw rules meet: one leader along a line, and one bound (task `draw-seams`, 2026-10-10)
+
+**Found by review, then reproduced by running** (`.concerns/review-4-draw--reviewer--findings.md`,
+F1 to F3). `formula_placed_whole` and `word_width_held` + `word_spaces_led` were each measured by
+their author on text that never put a letter or a bracket hard against a formula. Where they met:
+
+- Text glued to the END of a formula was placed from the glyph the formula shipped last, by one
+  more rounded gap, with nothing holding it to its own place. A word up to 2 px from its place,
+  and all of it out of the next space: by hand `$x^2$-th a`, pens 11, 17, 22, 27, 32, 39, the
+  3 px space 1.65 px short. A bracket after a fraction was placed from the middle of the
+  denominator and could stand a pixel inside the bar.
+- A formula stood on the pixel nearest its own place whatever the text before it had done. A
+  bracket led to 40 before a box put at 44: 4 px against 5.47, where the reference draws 5.
+  Measured over prose with glued formulas (below): text to formula from -1.83 to +1.75 px, 159
+  of 2,448 over a pixel (reference: 28); across a space -1.87 to +1.91, 601 of 6,822 over a pixel
+  (reference: 380), a justified 2.45 px space drawn 0.48 px wide by hand.
+- So "a space is within a pixel and a half of its laid-out width" held between two words and
+  not beside a formula, and `src/draw.h` said "always".
+
+**Decided.** One mechanism for everything along a line, under `DrawRules::word_spaces_led`
+(`Drawer::place_commands`, the leader):
+
+1. The *leader* is what the next thing on the line is placed from: the last glyph of the word
+   before it, or, after a formula, the formula's **rightmost part** — whichever glyph (by its
+   origin) or rule (by its right-hand end) stands furthest right in the layout. Set glue and the
+   start of a formula keep the leader; a line, a rule that is no formula's and anything else end
+   it.
+2. What is placed from it: the first glyph of a word after a space, the first glyph of text
+   glued to the end of a formula, and **the left edge of a formula's box**. Each goes to the
+   leader's pixel plus the laid-out distance between them rounded once, and is then held to the
+   two pixels either side of its own place.
+3. Everything inside a formula stays where `formula_placed_whole` puts it: at its own rounded
+   distance from the box's edge.
+
+**The bound** (stated in `src/draw.h` at `word_spaces_led`, asserted in
+`tests/test_word_gaps.cpp`). Take a word at its glyph nearest the neighbour and a formula at the
+left edge of its box. Two neighbours on a line — two words across a space; text and a formula
+after it, with a space or with none; a formula and text after it likewise; two formulas — are
+drawn **less than a pixel and a half** from their laid-out distance apart. Why: whatever is led
+stands less than a pixel from its own place; a word's last glyph less than a pixel and a half
+(half a pixel from its laid-out distance to the first, by `word_width_held`); and the hold to its
+own place only moves a thing towards that place, so by less than its leader stands from the
+leader's.
+
+What the bound does not say, and the reader should know:
+
+- A glyph or rule end inside a formula is up to half a pixel from its distance to the box's edge,
+  so text before a formula can be up to 2 px from a *particular glyph* of it (measured worst:
+  1.60). Text after a formula is under 1.5 px from the formula's rightmost part and at most 1 px
+  from the box's edge.
+- A glyph in the middle of a long word is held by nothing (2.80 px measured, as before).
+
+**Why the rightmost part and not the box's edge or the last glyph shipped.** The last glyph
+shipped is an accident of ship-out's order (for a fraction, the denominator's). The box's edge
+was tried first: text after a formula was then two roundings from the ink next to it (the
+superscript of `$x^2$-like`, the `b` of `($a+b$)`), where a letter inside a word is one. From the
+rightmost part it is one rounding from the ink it follows — the bar for a bracket closing a
+fraction, the last letter for one closing a row of letters — unless the hold to its own place
+moves it.
+
+**Measured** (three paragraphs of prose with text glued to formulas on both sides — `$n$-th`,
+`$x$-axis`, `$f$'s`, `($x$)`, `f($x$)`, `is $x$`, `$x$,`, fractions and radicals in brackets —
+justified at 520, 337 and 250 px, 13 to 20 px as an em and as a font size, three origins; 18,990
+joints, 13,227 spaces between words). Drawn distance less laid-out distance, px:
+
+| joint | n | reference, nearest part | product before | product now | now, at the box's edge |
+|---|---|---|---|---|---|
+| text, formula | 2,448 | -1.25 to +1.19; 28 over 1 | -1.83 to +1.75; 159 over 1 | -0.96 to +0.92; 0 over 1 | same |
+| text, space, formula | 6,822 | -1.90 to +1.79; 380 over 1 | -1.87 to +1.91; 601 over 1 | -1.32 to +1.23; 48 over 1 | same |
+| formula, text | 8,208 | -1.00 to +1.00; 0 over 1; 280 over 0.5 | -1.00 to +1.00; 0 over 1; 216 over 0.5 | -1.20 to +1.26; 13 over 1; 673 over 0.5 | -0.97 to +0.99 |
+| formula, space, text | 1,512 | -0.97 to +0.96; 374 over 0.5 | same as reference | -0.89 to +0.90; 103 over 0.5 | same |
+
+"Nearest part" is the glyph origin or rule end of the formula nearest the text in the layout,
+which both rule sets have. Furthest part of the formula from its laid-out distance to the text:
+reference 2.08 / 2.53 / 2.51 / 0.97, now 1.33 / 1.60 / 1.39 / 0.90. Spaces between two words in
+the same prose: reference -2.92 to +2.50 (1,341 over 1 px); before -1.30 to +1.28 (83); now
+-1.30 to +1.33 (97).
+
+**What it costs, plainly.**
+
+- **Text straight after a formula is the one joint the reference draws more evenly.** It places
+  that text one rounded gap from the formula's last glyph and holds it to nothing; here it is
+  held beside its own place, and where the hold moves it, it is a pixel nearer or further: 673
+  of 8,208 (8.2 %) over half a pixel from the nearest part against the reference's 280 (3.4 %),
+  13 (0.16 %) over a pixel against none, worst 1.26 against 1.00. Not holding it gives that back
+  and takes up to 2.5 px out of the space that follows, which is finding F1. The space is where
+  the eye sees it less, but the bound is on the space, so the joint pays.
+- A formula is on one of the two pixels beside its place and not always the nearer: where it
+  stands depends, by a pixel, on the text before it on the line (as a word's place already did).
+- Spaces between two words over a pixel off: 308 -> 314 of 37,778 in word-gaps' corpus, 83 -> 97
+  of 13,227 here. Words after formulas are led now, and a led word can be held.
+- Letter evenness inside words is unchanged: 13,348 of 150,624 pairs (8.9 %) over half a pixel.
+- At 13 px on a line with a formula every third word, spaces are still visibly unequal: a 1.4 px
+  error on a 2.5 px space is inside the bound.
+
+**Also in this task.**
+
+- `Drawer::settle_word` no longer uses `std::nth_element` or a buffer: the smallest rounding
+  that gives is found a byte at a time from the top of its bits (four passes over the word and a
+  fifth to move it, for a word more than a pixel and a half out; one pass otherwise). Linear in
+  the worst case on any standard library, and a megabyte word leaves nothing in the `Drawer`.
+- A rule that lies wholly to the left or right of a formula's box is not the formula's and ends
+  it. Ship-out makes no such list (a formula's rules are in its box and a page's rules follow a
+  line); a hand-built list can, and is now drawn as the reference draws it.
+
+**Not decided here.** Whether the user prefers the joint after a formula exact and the bound on
+the following space loosened to 2.5 px for that one case: it is the `leads ? led_to(...)` choice
+in the "text straight after a formula's glyphs" branch of `Drawer::place_commands`. And a closing
+dollar followed by a letter, digit, `{` or `(` closes nothing (`scan_math`, `src/imtypeset.cpp`,
+after the reference), so `$n$th` is drawn as its source, dollars and all: that is the text layer's
+rule, not draw's, and it is what a reader of the demo sees for that input.
+
+**Amends D47 and D48** in three sentences. D47, "the left edge of the formula's box … is put on the
+nearest pixel": on the nearest pixel when nothing leads it, otherwise on one of the two pixels
+beside its place; a formula is still one picture from its edge. D48, "A word that starts a line
+or follows a formula, a rule or an atom is on the pixel nearest its own place": a word after a
+formula is led from the formula's rightmost part, and a formula's box from the text before it;
+line starts and words after a rule of the page are anchored as before. D48's count of spaces
+more than a pixel out, 308 of 37,778, is 314 on the same corpus now, and the 430 spaces beside
+a formula it left alone are now 4 over a pixel, from -0.97 to +1.23 px (were 27, -1.34 to
++1.56).
+
+**Cost in time** (`docs/performance.md`, "After `draw-seams`"): none the measurement can see.
+
+**Run** by the builder on the final sources: debug, release, stb_truetype, 16-bit `ImWchar` and
+ASan + UBSan, 41 of 41 in each, in private directories; and by the `docs` task from a clean
+`release` and a clean `debug` preset configuration, 41 of 41 and 42 of 42, with
+`test_word_gaps` 19 tests / 23,541 checks. Not run: the `amalgamation` preset, the throwing
+build, clang.
+
+## D51. SDL2 comes from the machine or from `.deps/sdl2`; the tables goldens name the reference's present commit (task `release-gate`, 2026-10-10)
+
+**Decided, SDL2** (the owner's request: no instruction in this tree sends a reader to a sibling
+project). The demo host (`examples/demo_sdl2`) and the self-hosted Python library (`python/`)
+take SDL2, first match wins, from `IMTYPESET_SDL2_DIR` when it is given, from an installed SDL2
+that `find_package(SDL2 CONFIG)` finds, and otherwise from `.deps/sdl2` of this tree, an
+untracked directory laid out as an install prefix, as `.deps/imgui` is the untracked ImGui.
+`tools/vendor_sdl2.sh <install prefix or build tree>` fills it from an SDL2 that is already built
+and writes `PROVENANCE.txt` and SDL2's licence beside it. The `python-host` preset names no
+directory. SDL2 is not in the repository (`THIRD-PARTY.md`).
+
+**Run:** `build/demo` and `build/py-host` from empty directories by the README's lines, and the
+`python-host` preset from an empty directory (42 of 42): each configure reports
+`.deps/sdl2/lib/libSDL2d.a`, and `example-project` occurs nowhere in their `CMakeCache.txt` or
+`build.ninja`. The script, run in scratch copies on the build tree the directory was first
+copied from by hand, gives the same files. **Not run:** a system SDL2 package (the machine has
+none); the script on a shared-library SDL2 or on macOS; a tree with neither SDL2.
+
+**Decided, goldens.** The gate ran all thirteen `tools/oracle/dump_*.py` into a scratch copy.
+Twelve directories were byte for byte what is here. `tests/golden/tables` differed in nine
+comment lines a file, the header that names the reference's commit and its uncommitted files,
+and in no record: the reference had been committed to since (`a3c589a` to `30496e1`; `git diff
+--stat` between them touches `docs/`, `scripts/bench_draw.py` and `tests/`, nothing under
+`advtext/`). The six regenerated files were taken, so that the goldens and `PROVENANCE.md` name
+one commit, and the manifest was written again. They are the reference's output, not the port's.
+`tools/oracle/dump_font_wild.py` could not be started with `-P` (it did not put its own directory
+on `sys.path`, alone among the scripts); it does now.
+
+## D52. SDL2 by the standard chain; `-ffp-contract=off` on the Dear ImGui built here (task `final-touches`, 2026-10-10)
+
+**Decided, SDL2** (amends D51's order; the owner asked whether an SDL2 installed from a
+distribution's packages is found without a scanner). `cmake/sdl2.cmake` holds the one order, for
+`examples/demo_sdl2` and `python/` alike, first match wins:
+
+1. `IMTYPESET_SDL2_DIR`, when given. A directory that holds no SDL2 is an error; nothing else is
+   tried in its place.
+2. `find_package(SDL2 CONFIG)`: the target `SDL2::SDL2`, else `SDL2::SDL2-static`.
+3. The same package when it defines no target: `SDL2_INCLUDE_DIRS` and `SDL2_LIBRARIES`, the
+   second stripped of the trailing space some of those files leave in it.
+4. pkg-config's `sdl2`, as an imported target.
+5. `.deps/sdl2`.
+
+With none, `FATAL_ERROR` names the distribution packages (`libsdl2-dev`, `SDL2-devel`),
+`tools/vendor_sdl2.sh` and the variable. The `STATUS` line names the route taken.
+
+**Why.** 2 to 4 are how CMake projects find a system library, and need nothing of the user. An
+installed SDL2 stays ahead of `.deps/sdl2`, as in D51: the vendored copy is a debug build for
+one platform, and a machine that has a package should not need it. It does mean that installing
+a package changes what an existing checkout links; the configure output says so when it happens.
+
+**Run** (GCC 12.2, CMake 3.25.1, pkg-config 1.8.1; private build directories, since removed):
+route 5 and route 1, demo configured; route 1 on an empty directory, the error; `.deps/sdl2`
+renamed away, the `FATAL_ERROR` for the demo and for `python/`, and the directory back with
+every file's hash as before; routes 2 (each target), 3 and 4 against hand-written
+`SDL2Config.cmake` and `sdl2.pc` files that point at `.deps/sdl2`: each configured, built with no
+warning and ran `demo_sdl2 --frames 3` under SDL's dummy driver; `python/` on its own through the
+`sdl2.pc`: built, `python_binding` passed. **Not run:** any of 2 to 4 against a distribution's
+package, of any version or distribution: the machine has none. In particular nothing here shows
+what a real old-style `sdl2-config.cmake` puts in `SDL2_LIBRARIES` beyond what the stand-in
+copies from memory of them (`-L<dir> -lSDL2` with a trailing space), nor a shared `libSDL2.so`
+on any route, nor SDL2 found both as a package and by pkg-config with different versions.
+
+**Decided, floating point** (amends D12, "None of it is applied to ImGui", for this one flag;
+D16). The Dear ImGui this tree compiles itself is compiled with `-ffp-contract=off`
+(`/fp:precise` in the unrun MSVC branch): the `imgui` target of `cmake/imgui.cmake`, the `imgui`
+and the backends of `examples/demo_sdl2`, the backends inside `python/`'s library, and with them
+the demo host's and the Python host's own file and `tests/test_c_api.c`, which did not carry it
+either. PRIVATE in each case. It is **never** added to an ImGui target that existed before this
+tree's CMake ran (a host's `imgui`, `imgui::imgui` from a package), and the sidecar compiles no
+ImGui at all. The warnings and `-fno-exceptions -fno-rtti` are still not applied to ImGui.
+
+**Why.** The draw goldens compare vertices that ImGui's code computes from what the library
+hands it. With the flags of every preset nothing contracts (no `-march`), which is why all of
+them passed without the flag; a developer who adds `-march=native` to the global flags would
+have had an ImGui that contracts and goldens that may fail on that machine only, which is what
+D16 exists to prevent. For a host's ImGui the library can promise nothing and does not: its own
+results (layout, the positions it hands to ImGui) are computed in its own translation units.
+What a contracted host ImGui does to drawn vertices has not been measured.
+
+**Run:** every compile line of `build.ninja` carries the flag in a demo build (29 of 29) and in
+`python/` on its own (28 of 28); the eleven presets from empty directories afterwards, counts in
+`docs/distribution.md` section 7, with `compile_commands.json` read for the flag. **Not run:**
+any build with `-march` on ImGui; Clang; MSVC.

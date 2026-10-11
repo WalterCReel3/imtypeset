@@ -1,10 +1,13 @@
 # Working in this repository
 
 imtypeset: typeset text for Dear ImGui. A C++17 extension in the shape implot
-has — C++ over ImGui, bindings generated on top — that lays text out on TeX's
-box-and-glue model and draws it through ImGui's font atlas. It is a port of the
-Python library in `../imgui-adv-text`, which stays where it is as the reference
-and the test oracle.
+has — C++ over ImGui, a C ABI and bindings on top — that lays text out on TeX's
+box-and-glue model and draws it through ImGui's font atlas. It began as a port
+of the Python library in `../imgui-adv-text` and is now the product (D32, D34);
+that library stays where it is as the prototype it grew from, the reference and
+the test oracle. The first users are two Python applications on stock
+`imgui_bundle` wheels, `../imgui-adv-text` itself and `../pptmstr`
+(`docs/advtext-rework-plan.md`).
 
 Read first:
 
@@ -14,7 +17,13 @@ Read first:
   task.** Where a literal transcription of the reference goes wrong, module by
   module, and the rulings taken. Where it disagrees with a task's specification,
   it wins: the specifications were written first and cannot be edited.
-- `../imgui-adv-text/docs/cpp-extension.md` — the design note this starts from.
+- [docs/divergences.md](docs/divergences.md) — where this, the reference and
+  `tex.web` differ, and which differences are switches.
+- [docs/distribution.md](docs/distribution.md) — how the library reaches a
+  program, the ImGui version floor, every preset.
+- `../imgui-adv-text/docs/cpp-extension.md` — the design note this starts from,
+  and [docs/spec-status.md](docs/spec-status.md), which says what became of each
+  of its claims. Several are refuted.
 - `../imgui-adv-text/docs/tex.web` — the TeX82 source, which the layout core
   transcribes, and `../imgui-adv-text/docs/tex-notes.md`, an audited digest of
   it. Read the digest's "CORRECTIONS" section first: it overrides its own body.
@@ -63,12 +72,23 @@ conversion) and never `std::round`, `lround` or `(int)(x + 0.5)` (D18).
 **Floating point is never contracted or relaxed** (D16). Everything is built
 with `-ffp-contract=off`, and `-ffast-math`, `-Ofast` and
 `-funsafe-math-optimizations` are never used — benchmarks included. A fused
-multiply-add rounds once where the reference rounds twice.
+multiply-add rounds once where the reference rounds twice. `src/units.h`
+refuses to compile under fast-math. The one exception is deliberate: the
+`fp-host` preset compiles the generated drop-in files without the flag, to test
+the pragma that stands in for it in a host's build (D44).
 
-Nothing is ever written into `../imgui-adv-text`. Run it with
+**The goldens run under the reference's rules; the public API does not.** Where
+the reference was found wanting, the improvement is a switch, off in
+`reference()` and on in `product()`: `TexRules` (layout, D41), `DrawRules`
+(the draw loop, D47, D48, D50), `DocumentRules` (blocks, D37). A golden replay
+selects `reference()`. A test of a product rule has no oracle: it states a
+bound and asserts it, or is worked by hand, and says which.
+
+Nothing is ever written into `../imgui-adv-text` or `../pptmstr`. Run the
+reference with
 
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
-        ../imgui-adv-text/.venv/bin/python -B <script>
+        ../imgui-adv-text/.venv/bin/python -P -B <script>
 
 ### `tex.web` for structure, the oracle for behaviour (D23)
 
@@ -84,9 +104,11 @@ can follow it.
   because the reference leaves a part out — the comment says so in the present
   tense and names the section.
 - **Where `tex.web` and the Python reference disagree, the port does what the
-  reference does.** Cite the section, add the disagreement to
-  `docs/divergences.md`, and tell whoever coordinates. Do not "fix" the port
-  toward TeX: the goldens hold it to the oracle.
+  reference does under `TexRules::reference()`.** Cite the section, add the
+  disagreement to `docs/divergences.md`, and tell whoever coordinates. Do not
+  "fix" the port toward TeX in place: the goldens hold it to the oracle. A fix
+  that has been ruled on is a switch of `TexRules::product()` (D41, which
+  amends D32.3), with a hand-worked test.
 - Cite; do not paste. No runs of `tex.web` in sources or documents, and
   nothing here is named `tex.web` or calls itself TeX.
 
@@ -113,6 +135,20 @@ It has already earned its place here, in the first day:
   was an open question that took one probe to close for the cases probed (D7) —
   and the entry says which cases were not.
 
+And since:
+
+- The design note's deciding finding, a font capability "structurally
+  unreachable from Python", is refuted: no custom `ImFontLoader` was built, and
+  the bytes that replace it reach an unmodified wheel (D27,
+  `docs/spec-status.md`).
+- The board said pptmstr runs on imgui_bundle 1.92.900. Its environment holds
+  1.92.801, a different ImGui; the exact pin had to become a floor (D44).
+- "hello_imgui calls the font callback again on a DPI change", written in a
+  result file and three comments. It does not, in the versions the wheels pin;
+  found by reading the tagged commits and running 60 frames.
+- A reviewer's findings made by reading are claims too: each was made to fail
+  in a test before it was fixed, and some did not reproduce as written.
+
 ### Fresh reads beat recall
 
 APIs, struct layouts and option spellings change. `ImFontLoader` changed
@@ -138,16 +174,20 @@ the next reader has to take again without your evidence.
 
 ---
 
-## Scope (D1)
+## Scope (D1, as amended by D20, D27, D32, D34, D37, D43)
 
-Native: the OpenType subset reader, the custom `ImFontLoader`, the layout core
-(`units`, `badness`, `nodes`, `pack`, `linebreak`, `shipout`), the style
-subset, `draw_runs`, selection and hit-testing geometry, the math list and the
-`mathtext` subset, and a narrow public API.
+Native: the OpenType reader, an in-memory `cmap` rewrite that hands each face
+to ImGui's own font loader (no custom `ImFontLoader` was built, D27), the
+layout core (`units`, `badness`, `nodes`, `pack`, `linebreak`, `shipout`), the
+style subset, paragraph assembly (`src/paragraph.*`, D20), the draw loop,
+selection and hit-testing geometry, the math list and the `mathtext` subset,
+the block layer (`src/blocks.*`, D37), a public API with widgets, paragraphs
+and a `Document` (D36, D43), the demo window (D42), a C ABI (D40) and a
+`ctypes` Python package over it.
 
-Not ported: markdown, stream, diff, columns / block layout / tables, the views.
-Paragraph assembly is the exception: it lives with the views in the reference
-and is ported as `src/paragraph.*` (D20).
+Not here: markdown, diff, find, tables and columns (a block's table fields are
+reserved and unused), the views. Dear ImGui Bundle binding the library the
+bundle's way (`bindings/imgui_bundle/`) is an outline that has never been built.
 
 No HarfBuzz, no fontTools equivalent, no third-party test or benchmark
 framework (D3, D9). FreeType is optional (D7).
@@ -176,20 +216,34 @@ tree compatible with a permissive, MIT-style one.
 
 | path | what it is |
 |---|---|
-| `include/imtypeset.h` | the whole public surface |
-| `src/` | the implementation; one `snake_case` pair per reference module |
-| `tests/` | `test_*.cpp`, `check.h` (harness), `golden.h` (golden reader), `data/`, `golden/` |
+| `include/imtypeset.h` | the whole public C++ surface |
+| `include/imtypeset_c.h` | the same as a C99 ABI; `tests/test_c_api_map.cpp` fails the build on a declaration without a counterpart |
+| `src/` | the implementation; one `snake_case` pair per reference module, plus `imtypeset*.cpp` (the API, the Document, the C ABI, the demo window) |
+| `tests/` | `test_*.cpp`, `check.h` (harness), `golden.h` (golden reader), `support/`, `data/`, `golden/`, `consumer/`, `python/` |
 | `tools/oracle/` | Python scripts that dump goldens from the reference, and the record formats |
+| `tools/amalgamate.py` | writes the drop-in files into `dist/` (git-ignored; generated, never edited) |
+| `tools/shot.sh` | runs a command on an X display (Xvfb in a private namespace when the session has none) |
 | `bench/`, `examples/` | `bench_*.cpp`; `*.cpp` |
-| `cmake/imgui.cmake` | builds the `imgui` target and holds the pin |
-| `.deps/imgui/` | untracked copy of the pinned ImGui, so configuring needs no network |
+| `examples/demo_sdl2/` | the windowed host of the demo window: a CMake project of its own |
+| `python/imtypeset/`, `python/host/` | the `ctypes` package; the self-hosted library and the one built for an `imgui_bundle` wheel |
+| `python/spike_*`, `examples/python/` | spikes for pptmstr and advtext; the Python examples |
+| `cmake/imgui.cmake`, `cmake/imgui_version.cmake` | build the `imgui` target when this is the top-level project; read the version floor from the header |
+| `.deps/imgui/` | untracked copy of the tested ImGui (v1.92.9), so configuring needs no network |
+| `cmake/sdl2.cmake` | the one SDL2 search order the demo and the Python host share: `IMTYPESET_SDL2_DIR`, the CMake package, pkg-config, then `.deps/sdl2` |
+| `.deps/sdl2/` | untracked SDL2 (static, debug, x86-64 Linux) for the demo and the Python host; `tools/vendor_sdl2.sh` fills it |
 
 ---
 
 ## C++ rules (D2, D5)
 
-- **C++17**, and it must build with **`-fno-exceptions -fno-rtti`**. No `throw`,
-  `try`, `dynamic_cast`, `typeid`. The build passes both flags.
+- **C++17**, and it must build with **`-fno-exceptions -fno-rtti`**, which the
+  build passes, and also with exceptions on, because a host's `IM_ASSERT` may
+  throw (presets `exceptions`, `bundle-config`; D39 item 11). No `throw`,
+  `dynamic_cast`, `typeid`. `try` and `catch` are in two places only, both
+  under `#if defined(__cpp_exceptions)`: the entry guard of
+  `src/imtypeset_c.cpp`, and the macro `IMTYPESET_NO_UNWIND` of
+  `src/context.h` for a call made while cleaning up. Everywhere else the
+  library is safe to unwind through by ordering and destructors.
 - **Errors** (D17). `IM_ASSERT` for a contract the caller broke on an internal
   entry point. A status with a reason for anything reachable from data: a
   malformed font, a formula outside the subset, hostile text, a hand-built node
@@ -215,8 +269,13 @@ tree compatible with a permissive, MIT-style one.
 - **Zero warnings** under `-Wall -Wextra -Wpedantic -Wshadow -Wconversion
   -Werror` (D12). Fix a conversion warning by deciding what the conversion
   should be, not by casting until it is quiet.
-- **ImGui is pinned exactly** to v1.92.9 (D6). Only `src/` may include
-  `imgui_internal.h`.
+- **ImGui has a floor and a tested version** (D44, which supersedes D6's exact
+  pin): 1.92.0 or later, tested against v1.92.9, both numbers stated in
+  `include/imtypeset.h` and read from it by CMake. `.deps/imgui` is the tested
+  tag. Nothing in `include/` or `src/` includes `imgui_internal.h`; the library
+  uses four members of `ImDrawList` that `imgui.h` marks `[Internal]`. A test
+  may include `imgui_internal.h`. A new ImGui struct field read in `src/` must
+  be added to the sidecar's probe (`python/imtypeset/_bundle.py`).
 - **`ImWchar` may be 16 or 32 bits** (D15). Ours is 32 by default; a host's is
   whatever it is. Layout carries the reference's codepoints, plane 15 included,
   in our own 32-bit type; only the font loader and the draw loop convert, through
@@ -263,13 +322,20 @@ cmake --preset debug && cmake --build --preset debug && ctest --preset debug
 
 | preset | what |
 |---|---|
-| `debug` | unoptimised, ImGui's assertions live |
+| `debug` | unoptimised, ImGui's assertions live; also the consumer-project test |
 | `release` | optimised; the only one to take a timing from |
 | `asan` | debug with ASan + UBSan over the library, ImGui and the tests |
 | `stb` | debug with stb_truetype in place of FreeType |
 | `wchar16` | debug with ImGui's default 16-bit `ImWchar` (D15) |
+| `amalgamation` | debug with the library built from the generated drop-in files |
+| `fp-host` | release, the drop-in files at `-O3 -march=native` without `-ffp-contract=off` |
+| `exceptions` | ASan + UBSan with exceptions on and an `IM_ASSERT` that throws |
+| `bundle-config` | exceptions on, Dear ImGui Bundle's configuration header (needs `../imgui_bundle`) |
+| `imgui-next` | the Dear ImGui checked out in `../imgui` (1.93 WIP) |
+| `python-host` | debug plus `python/` and the `python_binding` test (needs an SDL2) |
 
-All but `stb` use FreeType where it is installed (D7). Anything that compares
+`docs/distribution.md` section 7 says what each gave when last run. All but
+`stb` use FreeType where it is installed (D7). Anything that compares
 what the rasteriser produced is valid only under FreeType and must say so when
 it skips under `stb`.
 
@@ -300,9 +366,18 @@ cmake --build build/<task-id> && ctest --test-dir build/<task-id> --output-on-fa
   for what the `asan` preset does, in a second directory (`build/<task-id>-asan`).
 - With modules narrowed, benchmarks and examples are built only if named:
   `-DIMTYPESET_BENCHES=bench_draw`, `-DIMTYPESET_EXAMPLES=minimal`.
-- `build/debug`, `build/release`, `build/asan`, `build/stb`, `build/wchar16`
-  belong to the presets. For the 16-bit build in a private directory, add
-  `-DIMTYPESET_IMGUI_WCHAR32=OFF`. Leave them alone while the tree is in motion.
+- The directory named after each preset (`build/debug`, `build/release`,
+  `build/asan`, … `build/python-host`) belongs to that preset. For the 16-bit
+  build in a private directory, add `-DIMTYPESET_IMGUI_WCHAR32=OFF`. Leave
+  them alone while the tree is in motion. A preset can be configured into a
+  private directory instead: `cmake --preset release -B build/<task-id>`.
+- When another agent saves a header while your build is compiling, ninja can
+  finish an object whose compile started before the save and ended after it.
+  The object is then newer than the header and is never rebuilt, and the link
+  mixes two layouts of one struct: a crash that makes no sense right after
+  somebody else's header changed is this first. `ninja -C build/<task-id> -t
+  clean imtypeset` and a rebuild cures it.
+- Remove your own `build/<task-id>*` directories when you finish.
 - Never delete `.deps/`. Without it a configure needs GitHub.
 
 Do not hand-edit anything under `build/`.
@@ -374,7 +449,26 @@ the repository takes the destination as an argument.
 
 Benchmarks are built by every preset and run by none. Take timings from
 `release` only, and print `IMTYPESET_BENCH_COMPILER`,
-`IMTYPESET_BENCH_BUILD_TYPE` and `IMTYPESET_BENCH_CXX_FLAGS` with them.
+`IMTYPESET_BENCH_BUILD_TYPE` and `IMTYPESET_BENCH_CXX_FLAGS` with them. A
+timing taken while other builds are running is not a result: say what the load
+average was, and compare two builds by running them alternately. Neither is one
+taken cold: on this machine the first seconds of a benchmark started after an
+idle spell run about 1.7 times slow (`docs/performance.md`, "A benchmark
+started cold"), so warm the processor first or discard the first run.
+
+`examples/demo_sdl2/` is a project of its own and not found by the glob; the
+Python hosts are behind `IMTYPESET_BUILD_PYTHON_HOST` or their own
+`python/CMakeLists.txt`. README.md, "Running the demos and examples", has the
+commands for each, and is where a new runnable thing is added.
+
+### A window, when the session has no display
+
+`tools/shot.sh -- <command>` runs a command with an X display it can open a
+window on: the caller's `DISPLAY` when that answers, otherwise an Xvfb started
+for the command in a private namespace, with OpenGL by llvmpipe. A file the
+command must leave behind is written outside `/tmp`. Look at every image you
+make and say that you did; say also what it does not show (no GPU, no real
+mouse, no HiDPI).
 
 ---
 
@@ -383,6 +477,10 @@ Benchmarks are built by every preset and run by none. Take timings from
 - Work on the files your task names. If you need a change in a file you do not
   own, say so to whoever coordinates and work around it.
 - Do not `git add` or commit (D4).
+- No Claude attribution on anything, ever: no `Co-Authored-By` trailer in a
+  commit message, no "Generated with" line in a pull request, a document or a
+  source file. The repository owner's instruction, and it overrides any tool's
+  default.
 - The dot-files in the repository root that `ls -la` shows as character devices
   (`.bashrc`, `.gitconfig`, `.mcp.json`, `.idea`, …) are sandbox artefacts, not
   project files. Do not touch, add or ignore-list them.

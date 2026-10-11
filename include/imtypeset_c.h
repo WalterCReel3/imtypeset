@@ -67,6 +67,8 @@
  *     cannot fail it is 1, and 0 only for a null struct or a C++ exception.
  *   - A COUNT or an offset: zero or more, and -1 only for a C++ exception.
  *   - A HANDLE or a pointer: null for failure.
+ *   - A SERIAL (ImTypeset_GetContextSerial): zero for none, and for a C++
+ *     exception.
  *
  * ERRORS are imtypeset.h's: ImTypeset_GetLastError() is the outcome of the
  * most recent function marked [E], and those are marked [E] here too. This
@@ -605,6 +607,10 @@ IMTYPESET_C_API ImTypeset_Context* ImTypeset_CreateContext(void); /* [E] */
 IMTYPESET_C_API int ImTypeset_DestroyContext(ImTypeset_Context* ctx);
 IMTYPESET_C_API ImTypeset_Context* ImTypeset_GetCurrentContext(void);
 IMTYPESET_C_API int ImTypeset_SetCurrentContext(ImTypeset_Context* ctx);
+/* The current context's serial: never zero for a context, and zero with no
+ * current context (or for a C++ exception). The one function here that
+ * returns a 64-bit number. */
+IMTYPESET_C_API ImTypeset_U64 ImTypeset_GetContextSerial(void);
 
 /* ImTypeset::GetLastError(), copied; or this layer's own failure (see ERRORS
  * at the top). `out->Message` is library storage. */
@@ -855,6 +861,9 @@ IMTYPESET_C_API int ImTypeset_DocumentView(const char* str_id, const char* str_i
 
 /* --- Offsets for bindings --------------------------------------------------------- */
 
+/* `text` is (begin, end), together and first, as text is everywhere in this
+ * header: so the offset is the THIRD argument here, where the C++ functions
+ * take (text, offset, text_end = NULL). */
 IMTYPESET_C_API int ImTypeset_TextCodepointToByteOffset(const char* text, const char* text_end,
                                                         int codepoint_offset);
 IMTYPESET_C_API int ImTypeset_TextByteToCodepointOffset(const char* text, const char* text_end,

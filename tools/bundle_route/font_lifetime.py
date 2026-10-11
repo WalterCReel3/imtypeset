@@ -6,7 +6,9 @@ fonts a second time, run inside the installed wheel.
 
 One scenario a process (some of them are expected to be able to crash), one
 JSON line per event on stdout, flushed, so that a crash shows how far it got.
-The last line is {"event": "done", ...} when the process survived.
+The last line is {"event": "done", ...} when the process survived. Exit 0, or 1
+when a font of the application's left the atlas (same-count-add and
+same-count-cycle look).
 
     once        nothing is provoked: counts how often hello_imgui calls
                 load_additional_fonts by itself, and what is in the atlas
@@ -68,7 +70,7 @@ def main() -> int:
         ts.Face.Code: "Inconsolata-Medium.ttf",
         ts.Face.Math: "latinmodern-math.otf",
     }
-    state = {"frame": 0, "loads": 0, "doc": None, "draws": [0, 0], "errors": {}}
+    state = {"frame": 0, "loads": 0, "doc": None, "draws": [0, 0], "errors": {}, "removed": 0}
     runner = hello_imgui.RunnerParams()
     runner.app_window_params.window_title = "font lifetime"
     runner.app_window_params.window_geometry.size = (640, 400)
@@ -105,6 +107,7 @@ def main() -> int:
                     atlas.add_font_default()
                 first = order[cycle % len(order)]
                 ts.add_font(first, os.path.join(FONT_DIR, faces[first]))
+                state["removed"] += atlas_size() != count + 1
                 say(event="cycle", cycle=cycle, first_role=first.name, stale_pointer=stale[first.name],
                     atlas_fonts=atlas_size(), expected_atlas_fonts=count + 1,
                     application_font_removed=atlas_size() != count + 1)
@@ -117,6 +120,7 @@ def main() -> int:
             say(event="application fonts back", atlas_fonts=atlas_size(), imtypeset_holds=held())
             if scenario == "same-count-add":
                 ts.add_font(ts.Face.Regular, os.path.join(FONT_DIR, faces[ts.Face.Regular]))
+                state["removed"] += atlas_size() != before + 1
                 say(event="one imtypeset font added", atlas_fonts=atlas_size(),
                     expected_atlas_fonts=before + 1, imtypeset_holds=held())
             return
@@ -168,8 +172,9 @@ def main() -> int:
         imgui=imgui.get_version(), headers=ts.host_info()["bundle"]["headers"])
     immapp.run(runner)
     say(event="done", scenario=scenario, load_additional_fonts_calls=state["loads"],
-        frames=state["frame"], errors=state["errors"])
-    return 0
+        frames=state["frame"], errors=state["errors"],
+        application_fonts_removed=state["removed"])
+    return 1 if state["removed"] else 0
 
 
 if __name__ == "__main__":

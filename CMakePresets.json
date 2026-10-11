@@ -124,11 +124,10 @@
             "name": "python-host",
             "inherits": "debug",
             "displayName": "Debug, with python/",
-            "description": "As debug, plus python/: the self-hosted shared library (ImGui, SDL2 and imtypeset in one) and the python_binding test. SDL2 is taken from ../example-project's build tree; configuring fails where that is absent. Position-independent throughout: take no timing here.",
+            "description": "As debug, plus python/: the self-hosted shared library (ImGui, SDL2 and imtypeset in one) and the python_binding test. SDL2 is an installed one, else the untracked .deps/sdl2 of this tree (tools/vendor_sdl2.sh fills it); configuring fails where there is neither. Position-independent throughout: take no timing here.",
             "binaryDir": "${sourceDir}/build/python-host",
             "cacheVariables": {
                 "IMTYPESET_BUILD_PYTHON_HOST": "ON",
-                "IMTYPESET_SDL2_DIR": "${sourceDir}/../example-project/build/desktop-debug",
                 "IMTYPESET_BUILD_CONSUMER_TESTS": "OFF"
             }
         }

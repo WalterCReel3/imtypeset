@@ -4,7 +4,7 @@
 # window itself, by xwd and by ImageMagick's import). Needs an X display, so it
 # is run under tools/shot.sh:
 #
-#   tools/shot.sh -- examples/demo_sdl2/grab.sh build/shot-rig/demo_sdl2 OUT-PREFIX \
+#   tools/shot.sh -- examples/demo_sdl2/grab.sh build/demo/demo_sdl2 OUT-PREFIX \
 #       [demo_sdl2 options: --backend, --size, --page, ...]
 #
 # Writes OUT-PREFIX.app.png (the host's own read-back), OUT-PREFIX.xwd.png and

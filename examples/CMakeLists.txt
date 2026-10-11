@@ -26,9 +26,11 @@ foreach(_source IN LISTS _imtypeset_examples)
 endforeach()
 
 # The windowed host of the demo window needs SDL2 and ImGui's backends, which
-# nothing else here does, so it is asked for: -DIMTYPESET_BUILD_DEMO_SDL2=ON,
-# with -DIMTYPESET_SDL2_DIR=<prefix or build tree> where find_package(SDL2)
-# finds none. examples/demo_sdl2/CMakeLists.txt is also a project of its own,
+# nothing else here does, so it is asked for: -DIMTYPESET_BUILD_DEMO_SDL2=ON.
+# SDL2 is an installed one (its CMake package, then pkg-config), else .deps/sdl2
+# of this tree, and -DIMTYPESET_SDL2_DIR=<prefix or build tree> names another
+# over both (cmake/sdl2.cmake).
+# examples/demo_sdl2/CMakeLists.txt is also a project of its own,
 # which is the shorter way to just run the demo.
 option(IMTYPESET_BUILD_DEMO_SDL2 "Build examples/demo_sdl2, the SDL2 host of the demo window" OFF)
 if(IMTYPESET_BUILD_DEMO_SDL2)

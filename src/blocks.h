@@ -220,6 +220,7 @@ struct CodeLines {
 
     // Scratch, kept so that setting code again does not allocate.
     std::vector<uint32_t> codepoints;
+    std::vector<uint32_t> offsets;
 };
 
 // Sets `out` to the lines of `source`, as the reference's `code_block` does:
@@ -229,8 +230,24 @@ struct CodeLines {
 // src/style's `stand_in` gives for a character the face lacks; blank lines at
 // the end are dropped and others kept. False, with a reason and no lines, if
 // the resolver does not know the font's face.
+//
+// `node_bytes`, if given, is set to one entry per node: the byte of `source`
+// its character starts at, as src/style's `decode_utf8` finds characters. The
+// several spaces of a tab all have the tab's byte.
 bool set_code(CodeLines& out, std::string_view source, FontSpec font,
-              const Composition& composition, MetricsResolver resolve, std::string* why = nullptr);
+              const Composition& composition, MetricsResolver resolve, std::string* why = nullptr,
+              std::vector<uint32_t>* node_bytes = nullptr);
+
+// How much of a source `set_code` sets, found without a font and by the same
+// walk: for a block whose lines are made late (Block::length_hint).
+struct CodeExtent {
+    // How many lines there are once blank ones at the end are dropped.
+    uint32_t lines = 0;
+    // One past the last byte of the last character that is set: the line end
+    // after it and whatever follows are no part of what is set.
+    uint32_t end = 0;
+};
+CodeExtent code_extent(std::string_view source);
 
 // One block before it meets a width.
 struct Block {

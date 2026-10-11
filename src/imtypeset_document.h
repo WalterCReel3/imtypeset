@@ -30,10 +30,13 @@
 // touches, not the document.
 //
 // REFERENCE RULES. A document lays out under DocumentRules::product() and the
-// context's TexRules. `DocumentHook` is how a test replays the reference's
-// goldens through the public calls: it selects the reference's rules and may
-// replace each block's resolved lengths by exact scaled points, which a float
-// number of pixels cannot always carry.
+// context's TexRules. `ImTypesetDocument::reference_rules` selects the
+// reference's stacking rules and first-line shape instead, as
+// ImTypesetContext::tex_rules selects its line breaking: a test that replays
+// the reference's goldens through the public calls sets both, and no public
+// call sets either. Every length of such a replay goes in through the public
+// description, as float pixels, and is held to the golden's scaled points
+// exactly (tests/document_reference.h).
 
 namespace ImTypeset::detail
 {
@@ -56,20 +59,6 @@ struct BlockSpec {
     // RULE: the thickness. A host block: its height.
     Scaled extent = 0;
     uint32_t quote_depth = 0;
-};
-
-struct DocumentHook {
-    // The reference's DocumentRules and TexRules, and the reference's theme
-    // values in place of ImTypesetDocumentOptions'.
-    bool reference_rules = false;
-    Scaled quote_indent = 0;
-    Scaled quote_rule_thickness = 0;
-    // Called for each block as its description is resolved, to adjust it.
-    void (*block)(void* user, int number, BlockSpec& spec) = nullptr;
-    // Called for each run of a block as its material is built: the font the
-    // public description came to, to replace by the exact one.
-    void (*run)(void* user, int number, int run_index, FontSpec& font) = nullptr;
-    void* user = nullptr;
 };
 
 struct DocBlock {
@@ -146,10 +135,11 @@ struct ImTypesetDocument {
     // Per container: its id among the block layer's quotes or lists.
     std::vector<int32_t> container_quote;
     std::vector<int32_t> container_list;
-    std::vector<ImTypeset::detail::FontSpec> run_fonts;
     uint64_t spec_visits = 0;
     ImTypesetDocumentOptions options;
-    ImTypeset::detail::DocumentHook hook;
+    // See REFERENCE RULES above. Read when the rules are next applied and a
+    // block's description next resolved: set it before the blocks.
+    bool reference_rules = false;
 
     // --- As of the last LayoutDocument
     bool has_style = false;
@@ -189,9 +179,6 @@ struct ImTypesetDocument {
 namespace ImTypeset::detail
 {
 
-// Installs what a test replays the reference with: see DocumentHook. Every
-// block is described and laid out again.
-void set_document_hook(ImTypesetDocument& document, const DocumentHook& hook);
 // The block layer under a document, for a test to compare: flatten() it.
 Document& block_document(ImTypesetDocument& document);
 DocumentComposer& block_composer(ImTypesetDocument& document);

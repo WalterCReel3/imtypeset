@@ -26,13 +26,16 @@ IMTYPESET_LIBRARY=$HOME/Source/imtypeset/build/pptmstr-bundle/libimtypeset_bundl
 PYTHONPATH=$HOME/Source/imtypeset/python  make run        # CONTEXT -> "rich", or DETAIL on a question
 ```
 
-The patch (551 lines added, 5 removed; `git apply --check` passes against `../pptmstr` at 851978e):
+The patch (750 lines added, 19 removed by `git apply --numstat`, of which 672 are not blank, the
+figure `make_patch.sh` prints; `git apply --check` passes against `../pptmstr` at 4974657;
+`sh python/spike_bundle/pptmstr_overlay/make_patch.sh` writes it again from the overlay files and
+ends with that check):
 
 | file | change |
 |---|---|
-| `pptmstr/ui/typeset.py` | NEW, 92 lines. `load_fonts()` imports imtypeset only if `IMTYPESET_LIBRARY` is set, makes its context, adds Inconsolata Medium (prose and code), the vendored Bold and the wheel's Latin Modern Math. `module()` is the imtypeset module or `None`; `reason()` says why not. Any failure, the import gate's included, means `None`. |
+| `pptmstr/ui/typeset.py` | NEW, 131 lines. `load_fonts()` imports imtypeset only if `IMTYPESET_LIBRARY` is set, makes its context, adds Inconsolata Medium (prose and code), the vendored Bold and the wheel's Latin Modern Math. `module()` is the imtypeset module or `None`; `reason()` says why not. Any failure, the import gate's included, means `None`. `trouble()` is the last failure a pane got over; both are logged once as a warning (`pptmstr.typeset`). |
 | `pptmstr/theme.py` | `load_fonts()`: two lines at its end, `from .ui import typeset; typeset.load_fonts()`. After pptmstr's faces, so `Fonts[0]` is still Inconsolata. |
-| `pptmstr/ui/rich_pane.py` | `draw()` asks `typeset.module()`. `None`: `_draw_classic()`, which is today's body, renamed, untouched. Otherwise `_draw_typeset()`: the blocks are described into ONE `imtypeset.Document` kept on `RichState` when they change (`_sync`: one library call per change), and a frame is `layout` + `draw` + a hit test while the mouse is over it. If that path raises, the library is switched off for the run and the classic renderer draws. `RichState` gains `find` and `typeset`. |
+| `pptmstr/ui/rich_pane.py` | `draw()` asks `typeset.module()`. `None`: `_draw_classic()`, which is today's body, renamed, untouched. Otherwise `_draw_typeset()`: the blocks are described into ONE `imtypeset.Document` kept on `RichState` when they change (`_sync`: one library call per change), and a frame is `layout` + `draw` + a hit test while the mouse is over it. Exactly one renderer draws a frame: `_draw_typeset` never raises, ends in a `finally` whatever it began in ImGui (the table's child, the menu's popup; `_draw_table`'s own table and popup too), and answers whether the frame is its own. It is not only when it failed BEFORE drawing (describing, layout, marks), and then the classic renderer draws that frame; a failure after drawing began leaves the frame as far as it got. Either way the failure is in `typeset.trouble()` and the document is described again next frame; three failing frames in a row in one pane switch the library off for the run, with the reason in `typeset.reason()`. A copy that fails is noted and nothing else. `RichState` gains `find`, `typeset` and `typeset_failures`. |
 
 Without the environment variable nothing is imported and pptmstr is what it is today. With it, the
 same call `rich_pane.draw(rich, blocks, live)` serves its three callers unchanged:
@@ -56,8 +59,34 @@ It reported `pptmstr.app` from `../pptmstr`, `rich_pane` from the overlay, `imty
 `python/spike_bundle/shots/pptmstr-app-imtypeset.png` beside `pptmstr-app-today.png` (looked at: the
 same pane, the same face and colours, the text about 5 % narrower, see 5.1). A copy of pptmstr with
 the patch applied passes its own gate: `mypy --strict` as configured, `ruff`, `black --check`, and
-`pytest tests`: 2,567 passed, 2 failed, the same 2 (`tests/test_launcher.py`, the model catalogue)
-that fail on the unpatched tree today.
+`pytest tests`: 2,569 passed, 3 xfailed, none failed (pptmstr at 4974657; at the commit this was
+first written against, 2,567 passed and the same 2 failed as on the unpatched tree).
+
+**What it does when something goes wrong, run:** `python/spike_bundle/pptmstr_patch_faults.py`
+puts a fault into the pane at frame 30 in pptmstr's wheel and watches ImGui's current window
+before and after `rich_pane.draw`, which renderers drew, and what the patch says:
+
+```sh
+IMTYPESET_LIBRARY=$PWD/build/pptmstr-bundle/libimtypeset_bundle.so \
+sh tools/shot.sh -- ../pptmstr/.venv/bin/python -P -B python/spike_bundle/pptmstr_patch_faults.py \
+    --scenario table-raises    # or table-raises-once, table-cell-raises, menu-copy-raises,
+                               #    key-copy-raises, describe-raises-once, draw-raises-once,
+                               #    soft-standing, find, stream-find, stream-table
+```
+
+Eight fault scenarios (`none` among them), one for an outcome that is not a fault, and three for
+find marks and streaming tables; each exits 0 when its verdict holds. `soft-standing` describes a
+paragraph with its runs out of order, which the library applies and reports as `DescriptionCut`:
+`Document.draw` then answers False in every frame the block is in view (70 of 70), and none of
+them counts as a failing frame: the library stays in use and the classic renderer draws nothing. With the patch as first written (before these guards) a raising table left the
+window `##table_2` open, drew the frame twice and ended the application on ImGui's "Must call
+EndChild() and not End()!".
+
+**Fonts are loaded once.** hello_imgui at the commits both wheels pin calls
+`load_additional_fonts` once, at start-up, and never again by itself (there is no reload on a
+DPI change in 1.92: fonts are scaled at draw time). An application that assigns the callback a
+second time gets a second call; `tools/bundle_route/font_lifetime.py` runs that, with and without
+the atlas emptied first, in both wheels.
 
 **The check that it is on:** drag across two blocks in the pane and they highlight; a right-click
 then offers "copy selection". If it is not, `pptmstr.ui.typeset.reason()` holds the sentence.
@@ -340,8 +369,9 @@ Not measured here and unchanged by any of this: advtext's `difflib` and `DiffVie
     arise in pptmstr as shipped by this plan: ragged-right sets every space at its natural width.
 11. **Fonts.** imtypeset adds its own copies of the faces to the atlas (Inconsolata twice over,
     Latin Modern Math); in `load_additional_fonts`, after pptmstr's, never in `post_init`
-    (hello_imgui empties the atlas between the two). Not tested: a DPI change mid-run, which calls
-    the callback again.
+    (hello_imgui empties the atlas between the two). A DPI change mid-run does not call the
+    callback again: hello_imgui at the commits these wheels pin calls it once (read, and run for
+    60 frames; `tools/bundle_route/font_lifetime.py`).
 
 ### 5.2 advtext
 
@@ -470,8 +500,8 @@ application needs it.
 | what | command (from the repository root; every process under `ulimit -v 6000000` and a timeout) |
 |---|---|
 | sidecars, once, from the source state recorded beside the results | `IMTYPESET_BUNDLE_OUT=build/advtext-rework-plan-pptmstr sh python/host/build_bundle_library.sh ../imgui_bundle ../pptmstr/.venv/bin/python`; `IMTYPESET_BUNDLE_OUT=build/advtext-rework-plan-advtext sh python/host/build_bundle_library.sh` |
-| pptmstr census | `../pptmstr/.venv/bin/python -P -B python/spike_bundle/pptmstr_census.py --source sessions` (and `repo`) |
-| pptmstr panes | `sh python/spike_bundle/measure_pptmstr.sh`; one run is `sh tools/shot.sh -- ../pptmstr/.venv/bin/python -P -B python/spike_bundle/pptmstr_real_panes.py --pane today|document [--mode wrap] --pick median|p90|max --scenario steady|scroll|stream|resize|find|select [--profile] [--lazy-copy] [--settle]` |
+| pptmstr census | `../pptmstr/.venv/bin/python -P -B python/spike_bundle/pptmstr_census.py` (this repository's reports, the default) and `… --sessions DIR` (session logs: read only when their directory is named; the plan's numbers used this project's) |
+| pptmstr panes | `sh python/spike_bundle/measure_pptmstr.sh [out.jsonl] [sessions-dir]` (the `--pick` rows run only with a sessions directory); one run is `sh tools/shot.sh -- ../pptmstr/.venv/bin/python -P -B python/spike_bundle/pptmstr_real_panes.py --pane today|document [--mode wrap] [--sessions DIR --pick median|p90|max] --scenario steady|scroll|stream|resize|find|select [--profile] [--lazy-copy] [--settle]` |
 | the real application | `python/spike_bundle/pptmstr_app_shot.py` as in "Start here" |
 | advtext census, parse | `../imgui-adv-text/.venv/bin/python -P -B python/spike_advtext/census.py`; `…/parse_cost.py` |
 | advtext views | `sh python/spike_advtext/measure.sh`; one run is `…/views.py --pane today|document --repeat N --scenario …` |

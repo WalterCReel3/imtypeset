@@ -4,8 +4,9 @@
 //
 // The reference's blocks are described through ImTypesetBlock and its
 // companions, as tests/test_api_document.cpp describes tests/golden/blocks,
-// and laid out under the DocumentHook (the reference's rules, exact scaled
-// points). Every layout is first held to the golden's commands, exactly; the
+// and laid out under the reference's rules (tests/document_reference.h); every
+// length goes in as float pixels and is held to the golden's scaled points
+// exactly. Every layout is first held to the golden's commands, exactly; the
 // questions are asked only of a layout that is the reference's.
 //
 // TWO SPACES. The golden speaks reading-order indices and beside each the
@@ -32,6 +33,7 @@
 
 #include "blocks_golden.h"
 #include "core_golden.h"
+#include "document_reference.h"
 #include "golden.h"
 
 #include "imtypeset.h"
@@ -157,8 +159,8 @@ struct Content {
 // Everything that is counted, by what it is. Printed whole.
 struct Tally {
     std::map<std::string, int> n;
+    // Lengths of the description held to the golden's scaled points, by ==.
     int lengths = 0;
-    int lengths_exact = 0;
     // The furthest a point's float pixels are from its scaled points.
     Scaled furthest = 0;
     // And the furthest a point asked instead of one that crossed a block's edge is.
@@ -171,9 +173,9 @@ struct Tally {
     }
     void print_precision() const
     {
-        std::printf("  %d of %d lengths of the description came to the reference's scaled point "
-                    "exactly, the rest within 2 sp\n",
-                    lengths_exact, lengths);
+        std::printf("  %d lengths of the description held to the reference's scaled points by "
+                    "==\n",
+                    lengths);
         std::printf("  a point's float pixels are at most %lld sp from its scaled points; and the "
                     "points moved back across a block's edge are at most %lld sp from the "
                     "golden's\n",
@@ -414,88 +416,7 @@ BlocksIn read_doc_blocks(core_golden::Reader& reader)
     return out;
 }
 
-// --- The hook: as tests/test_api_document.cpp installs it --------------------------------
-
-struct HookData {
-    const std::vector<DocBlockIn>* inputs = nullptr;
-    const blocks_golden::ThemeIn* theme = nullptr;
-    std::vector<std::vector<FontSpec>> run_fonts;
-    Tally* tally = nullptr;
-};
-
-// One length as the public description resolved it against the golden's: the
-// two are within two scaled points, which is what a float of pixels carries,
-// and the golden's is the one laid out with.
-void take(HookData& data, Scaled& resolved, Scaled exact, const char* what)
-{
-    ++data.tally->lengths;
-    if (resolved == exact)
-        ++data.tally->lengths_exact;
-    const Scaled apart = resolved > exact ? resolved - exact : exact - resolved;
-    if (apart > 2)
-        FAIL("%s: the description came to %lld sp and the reference has %lld", what,
-             static_cast<long long>(resolved), static_cast<long long>(exact));
-    resolved = exact;
-}
-
-void golden_block(void* user, int number, BlockSpec& spec)
-{
-    HookData& data = *static_cast<HookData*>(user);
-    if (number < 0 || static_cast<size_t>(number) >= data.inputs->size())
-        return;
-    const DocBlockIn& block = (*data.inputs)[static_cast<size_t>(number)];
-    const blocks_golden::BlockIn& in = block.in;
-    CHECK_CONTEXT("block %d (line %d)", number, in.line);
-    take(data, spec.left_indent, in.left_indent, "left indent");
-    take(data, spec.space_above, in.space_above, "space above");
-    take(data, spec.space_below, in.space_below, "space below");
-    if (in.type == BlockType::RULE || block.hosted) {
-        // A host block is, in the block layer, a rule's sort of thing: a
-        // height and no material.
-        CHECK(spec.type == BlockType::RULE);
-        take(data, spec.extent, in.thickness, block.hosted ? "height" : "thickness");
-        return;
-    }
-    CHECK(spec.type == in.type);
-    const FontSpec font = blocks_golden::spec_of(in.font);
-    CHECK(spec.font.face == font.face);
-    take(data, spec.font.size, font.size, "size");
-    take(data, spec.interline.baselineskip.width, in.interline.baselineskip.width, "leading");
-    take(data, spec.interline.lineskip.width, in.interline.lineskip.width, "lineskip");
-    spec.interline = in.interline;
-    spec.strut = in.strut;
-    if (in.type == BlockType::TEXT) {
-        CHECK(spec.align == in.align);
-        take(data, spec.first_line_indent, in.first_line_indent, "first-line indent");
-        // The reference narrows the first line by the indent as well as
-        // putting the box there (docs/divergences.md); the product does not.
-        spec.first_line = FirstLineIndent::BOX_AND_SHAPE;
-        CHECK_EQ(spec.quote_depth, in.quote_depth);
-    }
-    take(data, spec.marker_gap, data.theme->marker_gap, "marker gap");
-    if (in.has_marker) {
-        CHECK(spec.marker_font.face == in.marker_font.face);
-        take(data, spec.marker_font.size, in.marker_font.size, "marker size");
-    }
-}
-
-void golden_run(void* user, int number, int run_index, FontSpec& font)
-{
-    HookData& data = *static_cast<HookData*>(user);
-    if (number < 0 || static_cast<size_t>(number) >= data.run_fonts.size())
-        return;
-    const std::vector<FontSpec>& fonts = data.run_fonts[static_cast<size_t>(number)];
-    if (!CHECK(run_index >= 0 && static_cast<size_t>(run_index) < fonts.size()))
-        return;
-    const FontSpec exact = fonts[static_cast<size_t>(run_index)];
-    CHECK(font.face == exact.face);
-    take(data, font.size, exact.size, "run size");
-}
-
-float px_float(Scaled length, double ppi)
-{
-    return static_cast<float>(px_from_sp(length, ppi));
-}
+using document_reference::px_float;
 
 bool space_at(const std::string& text, bool at_end)
 {
@@ -519,7 +440,7 @@ bool all_space(const std::string& text)
 
 // The golden's blocks as the public structs. Returns why they cannot be
 // described, or null. `style` is the document's.
-const char* describe(const BlocksIn& doc, Content& content, HookData& data, ImTypesetStyle& style)
+const char* describe(const BlocksIn& doc, Content& content, ImTypesetStyle& style)
 {
     const blocks_golden::ThemeIn& theme = doc.theme;
     if (theme.composition.regular != Face::PROSE || theme.composition.code != Face::CODE)
@@ -547,8 +468,6 @@ const char* describe(const BlocksIn& doc, Content& content, HookData& data, ImTy
             ? ImTypesetSpacing_French
             : (theme.composition.spacing == Spacing::NONFRENCH ? ImTypesetSpacing_TeX
                                                                : ImTypesetSpacing_Sentence);
-    data.run_fonts.assign(doc.blocks.size(), std::vector<FontSpec>());
-
     for (size_t i = 0; i < doc.blocks.size(); ++i) {
         const DocBlockIn& block = doc.blocks[i];
         const blocks_golden::BlockIn& in = block.in;
@@ -650,7 +569,6 @@ const char* describe(const BlocksIn& doc, Content& content, HookData& data, ImTy
                                                static_cast<double>(font.size));
             if (!piece.breakable)
                 run.Flags |= ImTypesetRunFlags_NoBreak;
-            data.run_fonts[i].push_back(piece.font);
         }
         if (in.has_marker)
             content.marker(in.marker_text);
@@ -941,7 +859,6 @@ LayoutIn read_layout(core_golden::Reader& reader, core_golden::Context& context,
 struct Replayed {
     BlocksIn doc;
     Content content;
-    HookData hook_data;
     ImTypesetStyle style;
     ResolvedStyle resolved;
     ImTypesetDocument* document = nullptr;
@@ -985,7 +902,7 @@ struct Replayed {
 
 // Reads a case's INPUT rows and its `blocks`, and hands them to a document.
 // Returns why it could not, or null; the reader is left at the first layout.
-const char* open_case(Stage& stage, core_golden::Reader& reader, Replayed& out, Tally& tally)
+const char* open_case(Stage& stage, core_golden::Reader& reader, Replayed& out)
 {
     struct Fence {
         std::string language;
@@ -1018,22 +935,13 @@ const char* open_case(Stage& stage, core_golden::Reader& reader, Replayed& out, 
         }
     }
     out.ppi = out.doc.theme.px_per_inch;
-    out.hook_data.inputs = &out.doc.blocks;
-    out.hook_data.theme = &out.doc.theme;
-    out.hook_data.tally = &tally;
-    if (const char* why = describe(out.doc, out.content, out.hook_data, out.style))
+    if (const char* why = describe(out.doc, out.content, out.style))
         return why;
     out.document = ImTypeset::CreateDocument();
     if (out.document == nullptr)
         return "no document";
-    DocumentHook hook;
-    hook.reference_rules = true;
-    hook.quote_indent = out.doc.theme.theme.quote_indent;
-    hook.quote_rule_thickness = out.doc.theme.theme.quote_rule_thickness;
-    hook.block = &golden_block;
-    hook.run = &golden_run;
-    hook.user = &out.hook_data;
-    set_document_hook(*out.document, hook);
+    if (const char* why = document_reference::use_reference(out.document, out.doc.theme))
+        return why;
     const ImTypesetDocumentContent view = out.content.view();
     CHECK(ImTypeset::SetDocumentBlocks(out.document, &view));
     CHECK_EQ(ImTypeset::GetDocumentBlockCount(out.document),
@@ -1061,6 +969,11 @@ bool lay_out(Replayed& replay, const LayoutIn& layout, core_golden::Context& con
     Document& inner = block_document(*replay.document);
     if (!CHECK(inner.settled()))
         return false;
+    document_reference::hold_theme(*replay.document, replay.doc.theme, tally.lengths);
+    for (size_t b = 0; b < replay.doc.blocks.size(); ++b)
+        document_reference::hold_block(*replay.document, b, replay.doc.blocks[b].in,
+                                       replay.doc.blocks[b].hosted, replay.doc.theme,
+                                       tally.lengths);
     std::vector<DrawCmd> all;
     std::vector<BlockSpan> spans;
     if (!CHECK(inner.flatten(all, &spans)) || !CHECK_EQ(spans.size(), replay.doc.blocks.size()))
@@ -1726,7 +1639,7 @@ TEST(selection_and_copy_across_blocks_through_the_public_calls)
         core_golden::Context context;
         core_golden::Reader reader(file, c);
         Replayed replay;
-        if (const char* why = open_case(stage, reader, replay, tally)) {
+        if (const char* why = open_case(stage, reader, replay)) {
             ++tally.n[std::string("SKIPPED cases, not expressible: ") + why];
             continue;
         }
@@ -1808,7 +1721,7 @@ TEST(host_blocks_stack_hit_copy_and_resize_as_the_references_do)
         core_golden::Context context;
         core_golden::Reader reader(file, c);
         Replayed replay;
-        if (const char* why = open_case(stage, reader, replay, tally)) {
+        if (const char* why = open_case(stage, reader, replay)) {
             ++tally.n[std::string("SKIPPED cases, not expressible: ") + why];
             continue;
         }
@@ -1973,7 +1886,7 @@ TEST(find_hits_links_and_marks_are_where_the_reference_has_them)
         core_golden::Context context;
         core_golden::Reader reader(file, c);
         Replayed replay;
-        if (const char* why = open_case(stage, reader, replay, tally)) {
+        if (const char* why = open_case(stage, reader, replay)) {
             ++tally.n[std::string("SKIPPED cases, not expressible: ") + why];
             continue;
         }

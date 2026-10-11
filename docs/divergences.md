@@ -15,7 +15,9 @@ and a classification:
 
 - **deliberate in the prototype** — the Python prototype's own documents say
   so, at the file and line given (`../imgui-adv-text`). These stay
-  (`docs/decisions.md` D32.3).
+  (`docs/decisions.md` D32.3), except where an entry says **switch**: B3, the
+  class per line count, is deliberate in the prototype and a switch all the
+  same (D41.2).
 - **undeclared in the prototype** — the prototype does it and no document of
   its says so, or says the opposite. Task `tex-fixes` made nine of them
   switches (`src/tex_rules.h`, `docs/decisions.md` D41): the port does what
@@ -41,7 +43,7 @@ states the departure, the file is named.
 | B2 | §822–§824 l.16193, §832, §837–§844, §860 | keeps the width from each active node to the current node as `active_width` and delta nodes | every candidate line is measured by `hpack` when tried (laid out, or from running totals, B17) | deliberate: `advtext/linebreak.py:18-23, 35-40`, `docs/decisions.md:527-530` |
 | B2a | §837 l.16519-16534, §879 l.17297 | `break_width` discounts every discardable after a break; a line that ends inside that run is judged at a width it will not have (the "anomalous case") | the candidate judged is the line that will be built | deliberate, as a consequence of B2 (`linebreak.py:18-23`: the line scored and the line emitted cannot disagree) |
 | B3 | §848 l.16717, §850 l.16741, §835 l.16464 | `easy_line`: all line numbers past `last_special_line` are one class, so one active node per fitness class per breakpoint | every line number is its own class | deliberate in the prototype (`advtext/linebreak.py:41-45`); **switch** `easy_line`, ON in `product()` (D41.2) |
-| B3a | §854 l.16824-16829 | the last resort is taken from the one active node left | the same test, but with B3 several nodes for one breakpoint can be left and the last in order — the highest line number — gets it, whatever its demerits | deliberate for ragged text only (`advtext/linebreak.py:74-77`), undeclared for justified; **switch** `easy_line`. Hand-worked case: `easy_line_the_last_resort_is_forced_from_the_cheapest_chain` (reference 2, 2, 2, 1 at 1,452 demerits; `tex.web` 3, 3, 1 at 200) |
+| B3a | §854 l.16824-16829 | the last resort is taken from the one active node left | the same test, but with B3 several nodes for one breakpoint can be left and the last in order — the highest line number — gets it, whatever its demerits | deliberate for ragged text only (`advtext/linebreak.py:74-77`), undeclared for justified; **switch** `easy_line`. Hand-worked case: `easy_line_the_last_resort_is_forced_from_the_one_active_node_left` (reference 2, 2, 2, 1 at 1,452 demerits; `tex.web` 3, 3, 1 at 200) |
 | B3b | §851 l.16769, §854 l.16825 | the free break is taken for any forced break, not only an overfull line, when `minimum_demerits` is still `awful_bad`; with one class of line numbers that means no feasible break to this point was found at all | `minimum_demerits` starts afresh for each line count, so at a forced break (a hard line break, the paragraph's end) the last line count's lone node gets the free break although a chain with fewer lines was feasible | undeclared, found by `tex-fixes`; a consequence of B3 and gone under **switch** `easy_line`. `hard-breaks-after-space-justify` at 45 pt: 7 lines at 152,542 demerits, 5 at 10,661 under the switch, no overfull line in either |
 | B4 | §845 l.16658, §836 l.16485, §855 l.16849, §874 l.17209 | new active nodes are linked in ahead of the next class; with `easy_line` unshaped lines are one class in order of creation; first of the fewest wins | active nodes are met in order of line number, then of becoming active; first of the fewest wins: fewest lines, then lowest fitness | undeclared; **switch** `easy_line`. Hand-worked case: `easy_line_of_two_breakings_with_equal_demerits_the_later_node_wins` |
 | B5 | §827 l.16309, §868 l.17119, §826 l.16293 | `check_shrinkage` on `left_skip`, `right_skip` and every glue of the list (the par-fill glue is one), with an error once | list glue only, silently; `left_skip`, `right_skip`, `par_fill_skip` go into lines as given, and a line holding infinite shrink always fits | undeclared; **switch** `skips_made_shrink_finite`. §826's error is still not reported |
@@ -406,8 +408,9 @@ the reference does not, each on purpose.
   outside the clip rectangle are not appended. Off, which is the default, the
   port's output is the reference's.
 - **The buffer output** (`DrawBuffers`) has no counterpart. It holds the same
-  quads as the draw list; the debug overlay's line boxes and baselines, which
-  are ImGui's own anti-aliased outlines, are left out of it.
+  quads as the draw list, the debug overlay's line boxes and baselines
+  included since they became rectangles of the port's own (the bullet after
+  the next).
 - **Colours per block role** (`Palette.roles`, `ink_for`, `with_roles`) and
   the diff palette are not ported (decision D19): a run arrives with its ink.
 - **The debug overlay's outlines are rectangles, not `AddRect` and `AddLine`.** The reference
@@ -423,20 +426,22 @@ the reference does not, each on purpose.
   made (the port's lists have 136 and 1,324 vertices). Their `stats`, `keys`, `boxes` and `ops`
   records (`text`, `rectfilled`, `rect`, `linesegment`) are compared as before, and so is every
   record of the other twenty cases.
-- **Under `DrawRules::product()`, a rule inside a rigid span belongs to the span.** The reference
-  snaps every rule by its own corners and lets it end the span, so the glyphs of a formula —
-  placed by adding rounded gaps from the span's first — drift from its fraction bars and radical
-  bars: a radical sign 3 px from its bar after sixty terms at 13 px to the em, a numerator 5 px
-  off its fraction bar after forty at 17. With the rule on (the public API), a rule in a formula
-  is placed from the formula's glyphs — its left end from the nearest one placed before it, its
-  right end from the nearest one — by the gap in scaled points rounded once, and from the span's
-  baseline, and the span goes on through it; so the glyphs after a rule in a formula are also not
-  where the reference puts them (it starts a new span there). With it off (`reference()`, the
-  default of `DrawArgs`, every golden replay) the port does what the reference does. Worked by
-  hand in `tests/test_harden.cpp`.
-
-  The rule of this item is under revision in task `d7-fix`: a later review, made by reading
-  with nothing run, found its placement suspect (`.concerns/review-3a--reviewer--findings.md`).
+- **Under `DrawRules::product()`, a formula is placed whole.** The reference places a formula's
+  glyphs as a word's (each from the glyph shipped before it, gap rounded once) and snaps each rule
+  alone. The product places a formula whole (`DrawRules::formula_placed_whole`, `docs/decisions.md`
+  D47). Goldens replay under `reference()`. (The first product rule here, `rule_joins_span`, joined
+  each end of a rule to the glyph nearest along the line; it is gone.)
+- **Under `DrawRules::product()`, a word is held to its laid-out width and a word after a space
+  is placed from the word before it** (`word_width_held`, `word_spaces_led`, `src/draw.h`). The
+  reference rounds every gap of a span and anchors every span on the pixel nearest its own
+  place, so what a word gathers comes out of the space after it: measured, spaces drawn at less
+  than no width. The product gives back whole pixels through the gaps that were nearest to
+  rounding the other way, and anchors a word a rounded space after the last, within a pixel of
+  its place. `reference()` is unchanged and is what every golden replays under;
+  `tests/test_word_gaps.cpp` measures both. Since task `draw-seams`, `word_spaces_led` also places
+  the left edge of a formula's box from the text before it and the text glued to a formula's end
+  from the formula's rightmost part (`docs/decisions.md` D50); one joint, text straight after a
+  formula, is drawn less evenly than the reference draws it, and D50 says by how much.
 - **Rectangles take the white texel of the list they are written to** (`PrimRect`), as the
   reference's `AddRectFilled` does; glyph quads are written directly.
 
@@ -1026,8 +1031,10 @@ What the product's rules were checked against, and what they were not.
 ## api-document
 
 `include/imtypeset.h`, "Documents", over `src/blocks.*` (`src/imtypeset_document.*`). Under the
-test-only `DocumentHook` (reference `DocumentRules`, reference `TexRules`, exact scaled points) the
-layout is the reference's: `tests/test_api_document.cpp` replays 67 of the 69 block goldens through
+reference's rules (`ImTypesetContext::tex_rules` and `ImTypesetDocument::reference_rules`, internal
+state a test sets; no public call selects either) the layout is the reference's, with every length
+handed over as float pixels through the public structs and held to the golden's scaled points by
+`==` (`tests/document_reference.h`; `docs/decisions.md` D45): `tests/test_api_document.cpp` replays 67 of the 69 block goldens through
 `SetDocumentBlocks` (211 compositions, 34,647 commands), and `tests/test_api_document_golden.cpp`
 the 22 layouts of `tests/golden/doc` (selection 10, hosts 8, decorations 4), all equal. What follows
 is where the PUBLIC behaviour is the product's and not the prototype's. None has a reference
@@ -1050,3 +1057,36 @@ The stream goldens are replayed as a property of the product, not differentially
 `blocks` group for a stream, so the reference's layouts and digests cannot be rebuilt. 1,583 steps
 as edits (1,172 `AppendDocumentText`, 293 `ReplaceDocumentBlocks`): every block before the edit
 keeps its commands and its top, and no step lays out more blocks than its edit names.
+
+## d7-fix: layout findings seen while fixing draw, none of them changed
+
+Recorded by `d7-fix`'s builder for whoever takes up the layout rules next. Where a sentence says
+`rule_joins_span`, that rule has since been replaced (D47).
+
+Three things the demo's builder saw by eye at 19 px, measured (`ImTypeset::DrawParagraph`, FreeType,
+origin (3, 40); the numbers are the same under both draw rule sets unless said):
+
+- `\sqrt{\frac{a}{b}}`, "the rule touches the a". Layout. The radical's rule ends at y 44.41 and
+  the `a` (script size) has its baseline at 51.75; drawn, the rule is the row 44 and the `a`'s
+  quad starts at row 46: one clear row. The clearance is what §737 gives in text style with this
+  face; nothing in draw moves it. Whether a product layout rule should give a radical over a
+  fraction more room is a `tex-fixes`-kind question.
+- `\int f(x) dx`, "12 px between the sign and the integrand". Layout. The `f` starts 22.1 px after
+  the integral's origin: its advance (665/1000 em = 12.6 px), plus its italic correction (332/1000
+  em = 6.3 px, read from the face's MATH table), plus a thin space (3.2 px). The sign's ink ends
+  609/1000 em along. §749 adds the italic correction to an operator with no subscript, which is
+  right for a TFM, where the width stops short of the slant; an OpenType advance already covers
+  the glyph. The reference does the same, so the port is faithful and the result is wide. The same
+  correction pushes the upper limit of `\int_0^1` far to the right. To check against a current
+  engine before changing: I believe OpenType-aware engines do not widen the operator, but I did
+  not verify it.
+- "About 2 px of word space after an inline formula ending in a fraction, 5 px before." Partly this
+  rule, partly layout. Not reproduced at 2 px on the sentences I tried (unjustified, 16 and 19 px:
+  3 to 6 px after, 4 to 7 before). What is there: (i) under the reference's rules and under
+  `rule_joins_span` the formula's glyphs gather rounding, and the ink of
+  `\sum_{i=1}^{n} i = \frac{n(n+1)}{2}` at 16 px ends at 138 where its box ends at 136.66, taking a
+  pixel and a half out of the space after it; placed whole it ends at 137. (ii) A fraction's bar
+  runs to the very edge of its box (the reference sets no null delimiter space around a fraction,
+  §748), so the space after it has no side bearing in it, while the space before a formula that
+  starts with a letter or a sum sign has that glyph's bearing added: 7 against 5 px at 19 px from
+  that alone. (iii) In a justified line the glue may also be shrunk. (ii) and (iii) are layout.

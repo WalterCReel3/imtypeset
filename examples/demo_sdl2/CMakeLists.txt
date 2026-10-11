@@ -2,16 +2,18 @@
 # its SDL_Renderer and OpenGL 3 renderer backends, the library, and
 # ImTypeset::ShowDemoWindow(). A project of its own:
 #
-#   cmake -S examples/demo_sdl2 -B build/demo -G Ninja \
-#       -DIMTYPESET_SDL2_DIR=../example-project/build/desktop-debug
+#   cmake -S examples/demo_sdl2 -B build/demo -G Ninja
 #   cmake --build build/demo -j4
 #   build/demo/demo_sdl2
 #
-# With an SDL2 that find_package(SDL2 CONFIG) finds, IMTYPESET_SDL2_DIR is not
-# needed. It builds ImGui itself, backends and imgui_demo.cpp included, with
-# the two choices the root build makes (ImWchar width, rasteriser), and then
-# adds the library on top of that same `imgui` target: the root CMakeLists.txt
-# leaves an existing `imgui` alone and, not being top level, brings no tests.
+# SDL2 is an installed one (the distribution's libsdl2-dev or SDL2-devel, found
+# by its CMake package or by pkg-config), else this tree's untracked .deps/sdl2
+# (tools/vendor_sdl2.sh fills it), and -DIMTYPESET_SDL2_DIR=<prefix or build
+# tree> names another over both (cmake/sdl2.cmake). It builds ImGui itself,
+# backends and imgui_demo.cpp included, with the two choices the root build
+# makes (ImWchar width, rasteriser), and then adds the library on top of that
+# same `imgui` target: the root CMakeLists.txt leaves an existing `imgui` alone
+# and, not being top level, brings no tests.
 #
 # It is also reached from the root build, with -DIMTYPESET_BUILD_DEMO_SDL2=ON
 # (examples/CMakeLists.txt). There the `imgui` and `imtypeset` targets exist
@@ -32,7 +34,7 @@ get_filename_component(_demo_repo "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 set(IMTYPESET_IMGUI_DIR "" CACHE PATH
     "The Dear ImGui checkout to build, backends included. Empty: .deps/imgui of this tree.")
 set(IMTYPESET_SDL2_DIR "" CACHE PATH
-    "An SDL2 to use when find_package(SDL2 CONFIG) finds none: an install prefix, or a build tree laid out as example-project's (lib/libSDL2[d].a, _deps/sdl2-build/include*)")
+    "The SDL2 to use, over an installed one and over .deps/sdl2: an install prefix (lib/, include/SDL2/), or a CMake build tree of SDL2 fetched as a dependency (lib/libSDL2[d].a, _deps/sdl2-build/include*)")
 option(IMTYPESET_DEMO_WCHAR32 "Build ImGui with IMGUI_USE_WCHAR32" ON)
 find_package(Freetype QUIET)
 option(IMTYPESET_DEMO_FREETYPE "Build ImGui with misc/freetype" ${FREETYPE_FOUND})
@@ -61,51 +63,16 @@ if(NOT EXISTS "${_demo_imgui}/backends/imgui_impl_sdl2.cpp")
 endif()
 
 # --- SDL2 -----------------------------------------------------------------------
-# An installed SDL2 first. Then IMTYPESET_SDL2_DIR, read as an install prefix and
-# then as a build tree that was never installed and so has no SDL2Config.cmake:
-# its headers are split between the generated include/ and the per-configuration
-# SDL_config.h, and its static library is linked by path.
-add_library(demo_sdl2_sdl INTERFACE)
-set(_sdl_found "")
-if(NOT IMTYPESET_SDL2_DIR)
-    find_package(SDL2 CONFIG QUIET)
-    if(TARGET SDL2::SDL2)
-        target_link_libraries(demo_sdl2_sdl INTERFACE SDL2::SDL2)
-        set(_sdl_found "find_package(SDL2 CONFIG): SDL2::SDL2")
-    elseif(TARGET SDL2::SDL2-static)
-        target_link_libraries(demo_sdl2_sdl INTERFACE SDL2::SDL2-static)
-        set(_sdl_found "find_package(SDL2 CONFIG): SDL2::SDL2-static")
-    endif()
-else()
-    find_library(_sdl_lib NAMES SDL2 SDL2d SDL2-static
-        PATHS "${IMTYPESET_SDL2_DIR}/lib" NO_DEFAULT_PATH)
-    find_path(_sdl_inc SDL.h PATHS
-        "${IMTYPESET_SDL2_DIR}/include/SDL2"
-        "${IMTYPESET_SDL2_DIR}/_deps/sdl2-build/include/SDL2"
-        NO_DEFAULT_PATH)
-    file(GLOB _sdl_cfg "${IMTYPESET_SDL2_DIR}/_deps/sdl2-build/include-config-*/SDL2")
-    if(_sdl_lib AND _sdl_inc)
-        target_include_directories(demo_sdl2_sdl SYSTEM INTERFACE "${_sdl_inc}" ${_sdl_cfg})
-        target_link_libraries(demo_sdl2_sdl INTERFACE "${_sdl_lib}")
-        if(_sdl_lib MATCHES "\\.a$")
-            # A static SDL2 on Linux opens X11, Wayland, GL, ALSA and the rest
-            # with dlopen at run time, so this is all it needs at link time.
-            find_package(Threads REQUIRED)
-            target_link_libraries(demo_sdl2_sdl INTERFACE Threads::Threads ${CMAKE_DL_LIBS} m)
-        endif()
-        set(_sdl_found "${_sdl_lib}, headers ${_sdl_inc}")
-    endif()
-endif()
-if(NOT _sdl_found)
-    message(FATAL_ERROR
-        "demo_sdl2: no SDL2. Install one that find_package(SDL2 CONFIG) finds, or pass "
-        "-DIMTYPESET_SDL2_DIR=<install prefix or build tree>.")
-endif()
-message(STATUS "demo_sdl2: SDL2 from ${_sdl_found}")
+# cmake/sdl2.cmake has the order: IMTYPESET_SDL2_DIR when it is given; else an
+# installed SDL2, by its CMake package and then by pkg-config; else .deps/sdl2
+# of this tree, as .deps/imgui is used for ImGui (cmake/imgui.cmake).
+include("${_demo_repo}/cmake/sdl2.cmake")
+imtypeset_find_sdl2(demo_sdl2_sdl "demo_sdl2")
 
 # --- Dear ImGui -----------------------------------------------------------------
 # Named `imgui`, with the root build's properties, so that the library can sit
 # on it. The backends are a separate target: the library must not see them.
+set(_demo_fp_targets "")
 if(NOT TARGET imgui)
     add_library(imgui STATIC
         "${_demo_imgui}/imgui.cpp"
@@ -124,6 +91,7 @@ if(NOT TARGET imgui)
         target_compile_definitions(imgui PUBLIC IMGUI_ENABLE_FREETYPE)
         target_link_libraries(imgui PUBLIC Freetype::Freetype)
     endif()
+    list(APPEND _demo_fp_targets imgui)
 else()
     # The root build's target has everything but ImGui's own demo window.
     set(_demo_imgui_demo "${_demo_imgui}/imgui_demo.cpp")
@@ -144,6 +112,18 @@ target_link_libraries(demo_sdl2 PRIVATE demo_sdl2_backends)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(demo_sdl2 PRIVATE -Wall -Wextra -Wpedantic -Wshadow -fno-exceptions -fno-rtti)
 endif()
+
+# Floating point is not contracted in anything compiled here, as in the root
+# build (cmake/imgui.cmake, D16): the ImGui made above, its backends, the host.
+# Never an `imgui` target that existed before this file was read.
+list(APPEND _demo_fp_targets demo_sdl2_backends demo_sdl2)
+foreach(_target IN LISTS _demo_fp_targets)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${_target} PRIVATE -ffp-contract=off)
+    elseif(MSVC)
+        target_compile_options(${_target} PRIVATE /fp:precise)
+    endif()
+endforeach()
 
 if(NOT TARGET imtypeset::imtypeset)
     # Not top level there, so no tests, benchmarks or examples come with it.

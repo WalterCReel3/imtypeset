@@ -25,7 +25,10 @@ if(_imtypeset_c_api_test IN_LIST _imtypeset_tests)
         C_STANDARD 99 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF LINKER_LANGUAGE CXX)
     target_include_directories(test_c_api PRIVATE "${PROJECT_SOURCE_DIR}/include")
     if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(test_c_api PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        # -ffp-contract=off as on every C++ source here (D16): imtypeset_build_flags
+        # carries C++-only options and is not linked to a C target.
+        target_compile_options(test_c_api PRIVATE -Wall -Wextra -Wpedantic -Werror
+            -ffp-contract=off)
     endif()
     target_link_libraries(test_c_api PRIVATE c_api_host)
     add_test(NAME test_c_api COMMAND test_c_api)

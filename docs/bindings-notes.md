@@ -1,5 +1,7 @@
 # imtypeset and Dear ImGui Bundle: what Python use would look like
 
+**Read with what came after it (note added 2026-10-10).** Two of this file's conclusions have been overtaken. Section 6B ends by saying a separately built library could not be driven inside the installed wheel; task `bundle-route` did it, for the probe-gated case, and the paragraph there now says how (`docs/distribution.md` section 1). And section 5 lists the header as it was before the Document, the demo window and `GetContextSerial` were added (D42, D43, D46): the list of declarations to trust is `tests/test_c_api_map.cpp`. Binding the library the bundle's own way (sections 2 to 4, `bindings/imgui_bundle/`) is backlog; nothing of it has been built.
+
 Task `bundle-research`, 2026-10-09. Three kinds of statement are kept apart:
 
 - **READ**: taken from a file that was opened; the file and line are given. Bundle paths are relative to `../imgui_bundle` (the clone, `v1.92.900-723-gf639fda4`, commit `f639fda4`), wheel paths to `../imgui-adv-text/.venv/lib/python3.11/site-packages/imgui_bundle` (the installed `imgui-bundle 1.92.900`, `cp311-manylinux_2_28_x86_64`).
@@ -418,6 +420,8 @@ No header was edited to make the check pass. One could be: the diagnosis below s
 | vertices in the frame, with / without | 1,132 / 104 |
 
 The 10 µs includes the ctypes call itself, which was not separated out. It is a statement about this library called from Python, not about the bundle: a nanobind call has a different overhead and the bundle's ImGui is a different build.
+
+**Superseded for the probe-gated case by task `bundle-route` (2026-10-10).** What follows in this paragraph is what this experiment concluded, and it stopped at ImGui's failed check. `bundle-route` went on from there without editing a header: it enumerated every ImGui field the library touches, probes each against the live wheel at import (`python/imtypeset/_bundle.py`, 22 probe rows; a mutation test of the probe leaves no shifted offset undetected), and accepts a library built against upstream's docking tag of the same version when the probe passes and `sizeof(ImGuiStyle)` is the only size ImGui's own check refuses. On that basis the sidecar library runs inside both stock wheels on this machine (imgui_bundle 1.92.801 and 1.92.900), linked with the wheel's module as `DT_NEEDED`, with no `RTLD_GLOBAL`. It is still one library per interpreter, Linux x86-64 only, and a library that passes ImGui's own check still needs the fork's headers: `docs/distribution.md` section 1, `.concerns/bundle-route--builder--result.md`.
 
 **This is an experiment on one Linux machine against one wheel. It is not a distribution route**, and its result is that it could not be one: a separately built extension would have to be compiled against the fork's headers at the exact commit of each wheel, with the wheel's defines, for each platform, and loaded with `RTLD_GLOBAL` tricks, and the wheel ships no headers.
 

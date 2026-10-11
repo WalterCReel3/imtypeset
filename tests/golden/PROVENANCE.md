@@ -12,20 +12,17 @@ before that describes the tree as it was then. A regenerated golden that
 differs is looked at before the manifest is rewritten (CLAUDE.md, "The golden
 format").
 
-- Date written: 2026-10-09
-- SHA-256 of `MANIFEST.sha256`: `8fb255eb58d7b9982814edd6865a53a3b3f5fccc760274627e6885cfca5fa8f6`
+- Date written: 2026-10-10
+- SHA-256 of `MANIFEST.sha256`: `357e5ba3b27d3282bf6791e568a1d510a41f2504d3e341106e0ea020758f5198`
 - Files listed: 157
 
 ## The reference
 
 `../imgui-adv-text`, the Python prototype (D32), read and never written.
 
-- Commit: `a3c589a1ea150182cc7d7deefa0eccff680a5b7b`
-- Uncommitted files at the time (4), as `git status --porcelain` prints them:
-  - ` M docs/cpp-extension.md`
-  - ` M docs/guide/README.md`
-  - ` M tests/test_docs.py`
-  - `?? docs/postmortem-2026-10-adoption-and-demo.md`
+- Commit: `30496e15fa68911f564a3ae5fec5dd0d0a53ec57`
+- Uncommitted files at the time (1), as `git status --porcelain` prints them:
+  - `?? CLAUDE.md`
 
 The commit and the list are those of the moment this file was written, not
 of the moment each directory was dumped: nothing records that per directory.

@@ -39,19 +39,8 @@ namespace ImTypeset::detail::core
 
 ImTypesetContext* g_context = nullptr;
 
-// A statement run from a destructor, which must not unwind: where exceptions
-// are enabled a host's IM_ASSERT may throw from inside ImGui, and an exception
-// leaving a destructor ends the program. What the statement was undoing is
-// then left as it is. Without exceptions this is the statement.
-#if defined(__cpp_exceptions)
-#define IMTYPESET_NO_UNWIND(statement) \
-    try {                              \
-        statement;                     \
-    } catch (...) {                    \
-    }
-#else
-#define IMTYPESET_NO_UNWIND(statement) statement
-#endif
+// How many contexts this process has made: the last one's serial.
+ImU64 g_contexts_made = 0;
 
 // What ImTypeset::GetLastError() answers from: the outcome of the last call
 // of a reporting entry, whichever context it was made in, or none.
@@ -229,8 +218,9 @@ void validate_runs(std::vector<StyledRun>& out, const ImTypesetRun* runs, int ru
             if (start >= end) {
                 if (given.Start < static_cast<int>(floor) && given.End > given.Start &&
                     error.code == ImTypesetError_None)
-                    error.set(ImTypesetError_InvalidArgument,
-                              "runs must be in ascending order and must not overlap",
+                    error.set(ImTypesetError_DescriptionCut,
+                              "runs must be in ascending order and must not overlap: one that "
+                              "does not reach past the end of the run before it is left out",
                               std::max(given.Start, 0));
                 continue;
             }
@@ -736,8 +726,6 @@ void build_material_now(ImTypesetContext& ctx, ImTypesetParagraph& p, const Reso
                     round_to_scaled(static_cast<double>(style.em) * styled->scale), 1, MAX_EM);
             breakable = styled->breakable;
             colour = styled->colour;
-            if (p.run_fonts != nullptr)
-                font = p.run_fonts[run_index];
         }
 
         while (formula < found.size() && found[formula].end <= offs[i])
@@ -1309,19 +1297,27 @@ bool no_textures()
 // nothing below dereferences it. The role is then as if nothing had been added
 // for it. Call with the context bound.
 //
-// Looked at once a frame, and again whenever the atlas holds another number
-// of fonts than it did: a paragraph is drawn thousands of times a frame, and
-// a font cannot leave the atlas without one or the other changing, short of
-// being removed and another added between two calls of one frame.
+// Looked at once a frame, and again whenever the atlas's fonts are not the
+// ones it had: a paragraph is drawn thousands of times a frame. What tells is
+// how many fonts the atlas holds and the FontId of the last of them. ImGui
+// gives each font it adds the next number of a counter that nothing sets back
+// (ImFontAtlas::FontNextUniqueID: ClearFonts() leaves it) and adds it at the
+// end, so no font leaves the atlas, alone or with another put in its place,
+// without one of the two changing: a host that empties the atlas between two
+// frames and fills it with as many fonts is seen.
 void validate_fonts(ImTypesetContext& ctx)
 {
     const ImFontAtlas* atlas = ImGui::GetIO().Fonts;
     const int frame = ImGui::GetFrameCount();
     const int count = atlas != nullptr ? atlas->Fonts.Size : -1;
-    if (frame == ctx.fonts_checked_frame && count == ctx.fonts_checked_count)
+    const ImGuiID newest = count > 0 ? atlas->Fonts.back()->FontId : 0;
+    if (frame == ctx.fonts_checked_frame && count == ctx.fonts_checked_count &&
+        newest == ctx.fonts_checked_newest && atlas == ctx.fonts_checked_atlas)
         return;
     ctx.fonts_checked_frame = frame;
     ctx.fonts_checked_count = count;
+    ctx.fonts_checked_newest = newest;
+    ctx.fonts_checked_atlas = atlas;
     bool lost = false;
     for (int i = 0; i < FACE_COUNT; ++i) {
         ImFont* font = ctx.added[i];
@@ -2303,6 +2299,7 @@ ImTypesetContext* CreateContext()
     made->pool.reserve(POOL_LIMIT);
     ImTypesetContext* ctx = made.release();
     ctx->imgui = ImGui::GetCurrentContext();
+    ctx->serial = ++g_contexts_made;
     if (g_context == nullptr)
         g_context = ctx;
     succeed();
@@ -2323,6 +2320,11 @@ void DestroyContext(ImTypesetContext* ctx)
 ImTypesetContext* GetCurrentContext()
 {
     return g_context;
+}
+
+ImU64 GetContextSerial()
+{
+    return g_context != nullptr ? g_context->serial : 0;
 }
 
 void SetCurrentContext(ImTypesetContext* ctx)

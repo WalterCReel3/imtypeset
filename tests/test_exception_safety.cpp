@@ -670,6 +670,143 @@ TEST(a_throw_from_creating_a_context_or_a_paragraph_leaves_nothing_behind)
     ImGui::DestroyContext();
 }
 
+// --- Documents ---------------------------------------------------------------------------
+
+namespace
+{
+
+// A document of `count` paragraphs of TEXT and one code block whose line is
+// far longer than any column here.
+ImTypesetDocument* a_document(int count)
+{
+    std::string text;
+    std::vector<ImTypesetBlock> blocks;
+    for (int i = 0; i <= count; ++i) {
+        ImTypesetBlock block;
+        block.Kind = i < count ? ImTypesetBlockKind_Paragraph : ImTypesetBlockKind_Code;
+        block.Flags = i < count ? ImTypesetBlockFlags_Math : 0;
+        block.TextStart = static_cast<int>(text.size());
+        text += i < count ? std::string(TEXT) : std::string(400, 'w');
+        block.TextEnd = static_cast<int>(text.size());
+        blocks.push_back(block);
+    }
+    ImTypesetDocumentContent content;
+    content.Text = text.data();
+    content.TextSize = static_cast<int>(text.size());
+    content.Blocks = blocks.data();
+    content.BlockCount = static_cast<int>(blocks.size());
+    ImTypesetDocument* document = ImTypeset::CreateDocument();
+    if (document != nullptr)
+        ImTypeset::SetDocumentBlocks(document, &content);
+    return document;
+}
+
+} // namespace
+
+// DocumentView() opens a child window. Unwound from anywhere inside it, the
+// child is ended: the host's window is the current one again and its own End()
+// is the one that matches.
+TEST(a_throw_from_anywhere_in_a_document_view_leaves_the_hosts_window_current)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    long thrown = 0;
+    long n = 0;
+    for (; n < SWEEP_LIMIT; ++n) {
+        CHECK_CONTEXT("the allocation that throws is number %ld", n);
+        ImTypesetDocument* document = a_document(6);
+        REQUIRE(document != nullptr);
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+        ImGui::SetNextWindowSize(ImVec2(500.0f, 400.0f));
+        ImGui::Begin("host", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings);
+        ImGuiContext& g = *ImGui::GetCurrentContext();
+        const ImGuiWindow* const host = g.CurrentWindow;
+        const int depth = g.CurrentWindowStack.Size;
+        const ImTypesetDocumentRange all = {{0, 0}, {6, 400}};
+        ImTypesetDocumentRange selection = all;
+        bool completed = false;
+        try {
+            const FailAfter armed(n);
+            ImTypeset::DocumentView("doc", document, ImVec2(0.0f, 300.0f), &selection);
+            completed = true;
+        } catch (const std::bad_alloc&) {
+            ++thrown;
+        }
+        const bool ended = CHECK_EQ(g.CurrentWindowStack.Size, depth);
+        CHECK(g.CurrentWindow == host);
+        // So that the frame can be ended whatever was found.
+        while (g.CurrentWindowStack.Size > depth)
+            ImGui::EndChild();
+        check_list_is_whole(*ImGui::GetWindowDrawList());
+        // Called again in the same frame, it is a view: blocks are laid out
+        // and drawn (below the first call's, where that got as far as taking
+        // its place in the child), and what it answers is what it answers
+        // when nothing was thrown (false: TEXT holds a formula that is refused).
+        if (ended && !completed) {
+            const ImU64 drawn = ImTypeset::GetDocumentStats(document).BlocksDrawn;
+            CHECK(!ImTypeset::DocumentView("doc", document, ImVec2(0.0f, 300.0f), &selection));
+            CHECK_EQ(ImTypeset::GetLastError()->Code, static_cast<int>(ImTypesetError_MathRefused));
+            CHECK(ImTypeset::GetDocumentStats(document).BlocksDrawn > drawn);
+        }
+        CHECK_EQ(g.CurrentWindowStack.Size, depth);
+        ImGui::End();
+        ImGui::Render();
+        ImTypeset::DestroyDocument(document);
+        if (completed)
+            break;
+    }
+    std::printf("    unwound from %ld allocations of DocumentView\n", thrown);
+    CHECK(thrown >= 10);
+    CHECK(n < SWEEP_LIMIT);
+}
+
+// A code block whose lines are clipped is drawn inside a clip rectangle of its
+// own. Unwound from the draw, the draw list has the clip rectangles it had.
+TEST(a_throw_from_anywhere_in_drawing_a_clipped_code_block_leaves_the_clip_stack_as_it_was)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    long thrown = 0;
+    long n = 0;
+    for (; n < SWEEP_LIMIT; ++n) {
+        CHECK_CONTEXT("the allocation that throws is number %ld", n);
+        ImTypesetDocument* document = a_document(0);
+        REQUIRE(document != nullptr);
+        ImTypesetDocumentOptions options;
+        options.CodeOverflow = ImTypesetCodeOverflow_Clip;
+        ImTypeset::SetDocumentOptions(document, &options);
+        ImTypeset::LayoutDocument(document, 200.0f);
+        ImGui::NewFrame();
+        ImDrawList* list = ImGui::GetBackgroundDrawList();
+        const int clips = list->_ClipRectStack.Size;
+        bool completed = false;
+        try {
+            const FailAfter armed(n);
+            ImTypeset::DrawDocument(document, list, ImVec2(8.0f, 8.0f));
+            completed = true;
+        } catch (const std::bad_alloc&) {
+            ++thrown;
+        }
+        CHECK_EQ(list->_ClipRectStack.Size, clips);
+        while (list->_ClipRectStack.Size > clips)
+            list->PopClipRect();
+        check_list_is_whole(*list);
+        const int before = list->VtxBuffer.Size;
+        CHECK(ImTypeset::DrawDocument(document, list, ImVec2(8.0f, 8.0f)));
+        CHECK(list->VtxBuffer.Size > before);
+        CHECK_EQ(list->_ClipRectStack.Size, clips);
+        ImGui::Render();
+        ImTypeset::DestroyDocument(document);
+        if (completed)
+            break;
+    }
+    std::printf("    unwound from %ld allocations of DrawDocument\n", thrown);
+    CHECK(thrown >= 5);
+    CHECK(n < SWEEP_LIMIT);
+}
+
 #else // !TEST_UNWINDING
 
 TEST(skipped_outside_a_build_whose_im_assert_throws)
