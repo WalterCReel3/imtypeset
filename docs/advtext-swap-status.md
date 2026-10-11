@@ -7,15 +7,15 @@ States: **done**, **in progress**, **queued**, **declined** (with the reason),
 **needs the user**. A decision an agent took is marked *agent decision*; the
 user is the only one who moves the border.
 
-Last updated: 2026-10-11, after commit `7a7bc36`: every numbered item is committed, with the fixes
-from the reviews. Next: all presets from clean (task `swap-gate`).
+Last updated: 2026-10-11, after commit `c9f8902`: every numbered item is committed, with the fixes
+from the reviews, and all eleven presets pass from clean on it.
 
 ## Build from
 
 | | |
 |---|---|
-| commit | **`7a7bc36`** on `main` ("Fix the position layer of tables and columns"). Before it: `92847e6`, `0b21807` (columns), `be40444` (tables, DiffView requests), `12d77ac`, `5654eee` (the tree the release gate passed) |
-| what it is | `5654eee` (every preset from clean) plus items 2 to 7 and the fixes of D59 to D64. On `7a7bc36` an export of the commit was built in debug and passed 50 of 50; its builder ran debug, ASan+UBSan, release, stb and 16-bit in private directories. The eleven presets have not been run from clean since `5654eee`: that run is next. Library and package must come from one commit |
+| commit | **`c9f8902`** on `main` ("Gate the swap work: every preset from clean, one memory error fixed"). Before it: `7a7bc36` (table and column fixes), `92847e6`, `0b21807` (columns), `be40444` (tables, DiffView requests), `12d77ac`, `5654eee` |
+| what it is | Every preset configured, built and run from clean directories on this tree (GCC 12.2, Linux x86-64): `debug` 51 of 51, `python-host` 52 of 52, `release`, `asan`, `stb`, `wchar16`, `amalgamation`, `fp-host`, `exceptions`, `bundle-config`, `imgui-next` 50 of 50 each, no warning from our sources. Both wheel sidecars rebuilt and accepted (24 probe rows). **Fixed since `7a7bc36`, relevant to you:** after an allocation failure partway through `set_blocks`, the NEXT `set_blocks` wrote past the end of an array (`Document::splice`); reachable only where exceptions are on and `bad_alloc` is survived, which is the sidecar's configuration. Not swept for unwinding: appending table cells, appending text into a cell, setting table columns, `DocumentView` over columns. Library and package must come from one commit |
 | how | `python/host/build_bundle_library.sh` as before; one library per interpreter |
 | pushed? | no — the session cannot reach the network; the local repository has it |
 
