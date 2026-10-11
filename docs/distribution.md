@@ -72,8 +72,11 @@ atlas after `post_init`.
    `-O2 -fPIC -fvisibility=hidden -ffp-contract=off -fexceptions`, the bundle's
    configuration (`IMGUI_USER_CONFIG`, `IMGUI_BUNDLE_BUILD_PYTHON`,
    `IMGUI_USE_WCHAR32`, `ImTextureID=int`, `IMGUI_DISABLE_OBSOLETE_FUNCTIONS`,
-   `IMGUI_ENABLE_FREETYPE`) and `IMTYPESET_DISABLE_DEMO` (the demo window calls
-   two `InputText` forms the wheel does not export).
+   `IMGUI_ENABLE_FREETYPE`). The demo window is in the library. Its two text
+   fields call `ImGui::InputTextMultiline` and `InputTextWithHint`, whose
+   callback the wheel's fork takes as a `std::function`; under stand-in headers
+   (`IMTYPESET_BUNDLE_STAND_IN`) the shim defines upstream's two names and
+   hands over to the wheel's (D55).
 3. One link line against the wheel's module with `-Wl,--no-undefined` and a
    version script, so the library exports `ImTypeset_*` and `ImTypesetBundle_*`
    and nothing else.
@@ -159,7 +162,7 @@ python3 -I -B tools/amalgamate.py --check     # exit 1 if dist/ is missing, stal
 |---|---|---|
 | `imtypeset.h` | the public header, unchanged | yes |
 | `imtypeset.cpp` | every source but the two below and every private header, as one translation unit (about 29,000 lines) | yes |
-| `imtypeset_demo.cpp` | `ImTypeset::ShowDemoWindow()`; `IMTYPESET_DISABLE_DEMO` compiles it to an empty function | optional, as `imgui_demo.cpp` is |
+| `imtypeset_demo.cpp` | `ImTypeset::ShowDemoWindow()`, `ShowDemoSection()`, `GetDemoSectionName()`; `IMTYPESET_DISABLE_DEMO` compiles them to functions that draw nothing | optional, as `imgui_demo.cpp` is |
 | `imtypeset_c.h`, `imtypeset_c.cpp` | the C ABI, for bindings | optional |
 
 Add them next to ImGui's files and compile them as ImGui's are compiled:

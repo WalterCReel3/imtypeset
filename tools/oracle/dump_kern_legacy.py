@@ -4,8 +4,8 @@ reads it, for the C++ reader's `kern` extension.
 
 Run from the repository root, with the reference's interpreter:
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_kern_legacy.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_kern_legacy.py
 
 Writes tests/golden/font-wild-kern/kern.golden. Reads the system fonts and the
 corpus digests in tests/golden/font-wild (for the list of faces: path, face
@@ -61,6 +61,11 @@ from urllib.parse import unquote_to_bytes
 
 import fontTools
 import fontTools.ttLib
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pinned_reference  # noqa: E402
+
+pinned_reference.require()
 
 from advtext import fontlib
 

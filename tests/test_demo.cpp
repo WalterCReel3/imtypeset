@@ -28,11 +28,11 @@ namespace
 {
 
 const char* const SECTIONS[] = {
-    "Paragraph", "Faces and sizes", "Math",         "Selection", "Inspector",
-    "Stress",    "Fonts",           "Known limits", "Document",
+    "Paragraph", "Faces and sizes", "Specimen", "Math",         "Formula gallery", "Selection",
+    "Inspector", "Stress",          "Fonts",    "Known limits", "Document",
 };
-const char ALL[] =
-    "Paragraph,Faces and sizes,Math,Selection,Inspector,Stress,Fonts,Known limits,Document";
+const char ALL[] = "Paragraph,Faces and sizes,Specimen,Math,Formula gallery,Selection,Inspector,"
+                   "Stress,Fonts,Known limits,Document";
 
 // A headless host: an ImGui context, optionally an ImTypeset context in it,
 // optionally the six test fonts. Several can be alive at once: each makes its
@@ -120,6 +120,15 @@ struct Host {
         ImGui::NewFrame();
         if (show)
             ImTypeset::ShowDemoWindow(closable ? &show : nullptr);
+        // Sections shown the other way, in a window of the host's.
+        if (alone_first < alone_end) {
+            ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+            ImGui::SetNextWindowSize(size);
+            ImGui::Begin("Pages of the host's");
+            for (int section = alone_first; section < alone_end; ++section)
+                ImTypeset::ShowDemoSection(section);
+            ImGui::End();
+        }
         if (show && arrange) {
             // From outside, through the window's name: a collapsing header
             // keeps whether it is open in its window's storage, under the ID
@@ -181,6 +190,9 @@ struct Host {
     bool closable = false; // Whether it hands `show` over as p_open.
     int collapse = 0;      // +1 collapses the demo window in the next frame, -1 expands it.
     int own_lines = 0;     // Paragraphs of the host's own, new ones every frame.
+    // The sections [alone_first, alone_end) are shown by ShowDemoSection().
+    int alone_first = 0;
+    int alone_end = 0;
     int own_serial = 0;
     std::string wanted = ",";
     ImVec2 size = ImVec2(900.0f, 720.0f);
@@ -234,7 +246,10 @@ TEST(all_sections_open_together_lay_nothing_out_once_they_have_settled)
 {
     Host host;
     REQUIRE(host.library);
-    host.resize(900.0f, 4000.0f); // Tall enough that every section is in view.
+    // Tall, so that several sections are in view at once; not so tall that
+    // one window holds more vertices than a 16-bit index reaches, which
+    // ImGui asserts on under a backend without ImGuiBackendFlags_RendererHasVtxOffset.
+    host.resize(900.0f, 4000.0f);
     ImGui::GetIO().DisplaySize = ImVec2(900.0f, 4000.0f);
     host.open(ALL);
     host.run(6);
@@ -353,7 +368,7 @@ TEST(a_thousand_copies_of_the_document_cost_what_is_in_view)
     // The slider of copies, dragged past its right end: x1000. Where it is
     // depends on everything above it in the window, so that the pointer is on
     // it is checked before the button goes down.
-    io.AddMousePosEvent(80.0f, 215.0f);
+    io.AddMousePosEvent(80.0f, 261.0f);
     host.frame();
     ImGuiID copies = 0;
     host.in_demo_window = [&copies]() { copies = ImGui::GetID("Copies of the document"); };
@@ -361,7 +376,7 @@ TEST(a_thousand_copies_of_the_document_cost_what_is_in_view)
     REQUIRE_EQ(ImGui::GetHoveredID(), copies);
     io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
     host.frame();
-    io.AddMousePosEvent(3000.0f, 215.0f);
+    io.AddMousePosEvent(3000.0f, 261.0f);
     host.run(2);
     io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
     host.run(2);
@@ -428,8 +443,13 @@ size_t handles_of(const Host& host)
     return host.typeset->paragraphs.size() + host.typeset->documents.size();
 }
 
-// With every section open the demo keeps four paragraphs and one document.
-const size_t DEMO_HANDLES = 5;
+// With every section open the demo keeps 25 paragraphs (Faces and sizes 1,
+// Specimen 1, Math 1 and the 3 of its stream, the Formula gallery's 17 panels,
+// Selection 1, Inspector 1) and two documents (Math, Document).
+const size_t DEMO_HANDLES = 27;
+// With no font added the Specimen section has nothing to measure and makes no
+// paragraph.
+const size_t DEMO_HANDLES_WITHOUT_FONTS = 26;
 
 TEST(a_context_made_at_the_address_of_a_dead_one_gets_handles_of_its_own)
 {
@@ -507,7 +527,7 @@ TEST(a_context_replaced_between_two_frames_that_show_the_demo_gets_handles_of_it
     REQUIRE(host.library);
     host.open(ALL);
     host.run(6);
-    CHECK_EQ(handles_of(host), DEMO_HANDLES);
+    CHECK_EQ(handles_of(host), DEMO_HANDLES_WITHOUT_FONTS);
     int same_address = 0;
     const int rounds = 12;
     for (int round = 0; round < rounds; ++round) {
@@ -519,7 +539,7 @@ TEST(a_context_replaced_between_two_frames_that_show_the_demo_gets_handles_of_it
         same_address += host.typeset == before ? 1 : 0;
         CHECK_EQ(handles_of(host), size_t(0));
         host.run(3);
-        CHECK_EQ(handles_of(host), DEMO_HANDLES);
+        CHECK_EQ(handles_of(host), DEMO_HANDLES_WITHOUT_FONTS);
     }
     std::printf("    %d of %d contexts were at the address of the one before\n", same_address,
                 rounds);
@@ -596,6 +616,135 @@ TEST(a_context_shown_again_after_eight_others_starts_over_and_after_seven_does_n
         host.run(4);
         CHECK_EQ(handles_of(host), others == 7 ? DEMO_HANDLES : 2 * DEMO_HANDLES);
     }
+}
+
+TEST(the_sections_have_the_titles_the_window_shows_and_nothing_else_has_one)
+{
+    REQUIRE_EQ(int(ImTypesetDemoSection_COUNT), int(IM_ARRAYSIZE(SECTIONS)));
+    for (int section = 0; section < ImTypesetDemoSection_COUNT; ++section)
+        CHECK_EQ(std::string(ImTypeset::GetDemoSectionName(section)),
+                 std::string(SECTIONS[section]));
+    CHECK_EQ(std::string(ImTypeset::GetDemoSectionName(-1)), std::string());
+    CHECK_EQ(std::string(ImTypeset::GetDemoSectionName(ImTypesetDemoSection_COUNT)), std::string());
+}
+
+TEST(each_section_shown_alone_in_a_window_of_the_host_draws_and_settles)
+{
+    Host host;
+    REQUIRE(host.library);
+    host.show = false;
+    for (int section = 0; section < ImTypesetDemoSection_COUNT; ++section) {
+        CHECK_CONTEXT("section %s", ImTypeset::GetDemoSectionName(section));
+        host.alone_first = section;
+        host.alone_end = section + 1;
+        host.run(4);
+        const ImTypesetStats before = ImTypeset::GetStats();
+        host.run(4);
+        const ImTypesetStats after = ImTypeset::GetStats();
+        CHECK(after.DrawCalls > before.DrawCalls);
+        CHECK(after.VerticesEmitted > before.VerticesEmitted);
+        CHECK_EQ(after.Layouts - before.Layouts, ImU64(0));
+        CHECK_EQ(after.TextBuilds - before.TextBuilds, ImU64(0));
+    }
+}
+
+TEST(a_value_that_is_not_a_section_draws_nothing)
+{
+    Host host;
+    REQUIRE(host.library);
+    host.show = false;
+    host.alone_first = ImTypesetDemoSection_COUNT;
+    host.alone_end = ImTypesetDemoSection_COUNT + 3;
+    host.run(3);
+    const int empty = vertices_of_the_last_frame();
+    CHECK_EQ(ImTypeset::GetStats().DrawCalls, ImU64(0));
+    CHECK_EQ(handles_of(host), size_t(0));
+    host.alone_first = ImTypesetDemoSection_Specimen;
+    host.alone_end = ImTypesetDemoSection_Specimen + 1;
+    host.run(3);
+    CHECK(vertices_of_the_last_frame() > empty);
+}
+
+// A host that shows the window and embeds every section as well has two demos
+// that know nothing of each other: here at two sizes of type, in windows of two
+// widths. Each keeps its own handles, and once both have settled nothing is
+// laid out, whichever section it is.
+TEST(the_window_and_the_sections_shown_alone_each_keep_their_own_state)
+{
+    Host host;
+    REQUIRE(host.library);
+    host.resize(900.0f, 3000.0f);
+    ImGui::GetIO().DisplaySize = ImVec2(900.0f, 3000.0f);
+    host.open(ALL);
+    host.run(6);
+    CHECK_EQ(handles_of(host), DEMO_HANDLES);
+    host.alone_first = 0;
+    host.alone_end = ImTypesetDemoSection_COUNT;
+    host.run(6);
+    CHECK_EQ(handles_of(host), 2 * DEMO_HANDLES);
+    const ImU64 settled = ImTypeset::GetStats().Layouts;
+    host.run(4);
+    CHECK_EQ(ImTypeset::GetStats().Layouts - settled, ImU64(0));
+    CHECK_EQ(handles_of(host), 2 * DEMO_HANDLES);
+}
+
+TEST(shown_alone_with_no_context_a_section_says_so_and_typesets_nothing)
+{
+    Host host(false);
+    host.show = false;
+    host.alone_first = 0;
+    host.alone_end = ImTypesetDemoSection_COUNT;
+    host.run(3);
+    CHECK(vertices_of_the_last_frame() > 0);
+    CHECK_EQ(ImTypeset::GetStats().DrawCalls, ImU64(0));
+}
+
+// What the Specimen section reads its numbers off: the extent of the one line
+// of a paragraph object is the width layout set the text to, in fractions of a
+// pixel. Held to the widths the Python reference's specimen
+// (advtext.ui.specimen.build_specimen, tag advtext-reference) reports for the
+// same faces, printed there to four decimals of a pixel: so the comparison is
+// to half of the last printed digit plus a float's own step at 500, and it is
+// not a golden replay.
+TEST(the_width_of_a_line_is_the_set_width_the_reference_measures)
+{
+    Host host;
+    REQUIRE(host.library);
+    ImTypesetParagraph* paragraph = ImTypeset::CreateParagraph();
+    REQUIRE(paragraph != nullptr);
+    const auto width = [&](const char* text, ImTypesetFace face, float em) {
+        ImTypesetStyle style;
+        style.Face = face;
+        style.EmSize = em;
+        style.Align = ImTypesetAlign_Left;
+        ImTypeset::SetParagraphText(paragraph, text);
+        ImTypeset::LayoutParagraph(paragraph, 4096.0f, &style);
+        const ImTypesetLine line = ImTypeset::GetParagraphLine(paragraph, 0);
+        return double(line.Max.x - line.Min.x);
+    };
+    const double step = 0.0001;
+    static const char PANGRAM[] = "The quick brown fox jumps over the lazy dog";
+    CHECK_NEAR(width(PANGRAM, ImTypesetFace_Regular, 24.0f), 473.4376, step);
+    CHECK_NEAR(width(PANGRAM, ImTypesetFace_Bold, 24.0f), 480.5627, step);
+    CHECK_NEAR(width(PANGRAM, ImTypesetFace_Italic, 24.0f), 464.2618, step);
+    CHECK_NEAR(width(PANGRAM, ImTypesetFace_BoldItalic, 24.0f), 471.1994, step);
+    CHECK_NEAR(width(PANGRAM, ImTypesetFace_Code, 24.0f), 516.0001, step);
+    CHECK_NEAR(width(PANGRAM, ImTypesetFace_Math, 24.0f), 479.4241, step);
+    CHECK_NEAR(width("Hamburgefonstiv", ImTypesetFace_Regular, 31.25f), 240.7532, step);
+    // A pair set as one text, and letter by letter: the difference is the
+    // font's kern for the pair at this size, with its sign.
+    CHECK_NEAR(width("AV", ImTypesetFace_Regular, 44.0f), 54.8281, step);
+    CHECK_NEAR(width("A", ImTypesetFace_Regular, 44.0f) + width("V", ImTypesetFace_Regular, 44.0f),
+               56.6973, step);
+    CHECK_NEAR(width("rt", ImTypesetFace_Regular, 44.0f), 30.3359, step);
+    CHECK_NEAR(width("r", ImTypesetFace_Regular, 44.0f) + width("t", ImTypesetFace_Regular, 44.0f),
+               29.2617, step);
+    // What CalcTextSize() answers for the same text is whole pixels, rounded up.
+    ImTypesetStyle style;
+    style.EmSize = 44.0f;
+    style.Align = ImTypesetAlign_Left;
+    CHECK_EQ(ImTypeset::CalcTextSize("AV", nullptr, 0.0f, 0, &style).x, 55.0f);
+    ImTypeset::DestroyParagraph(paragraph);
 }
 
 TEST(without_a_context_the_window_says_so_and_typesets_nothing)

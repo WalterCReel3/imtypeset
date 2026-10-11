@@ -8,8 +8,8 @@ refused and with what words, what may follow \\left -- is data in
 holds as C++ arrays, so the port's tables are the reference's and not a
 retyping of them. Run from the imtypeset repository root:
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \\
-        ../imgui-adv-text/.venv/bin/python -B tools/gen_mathtext_tables.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \\
+        ../imgui-adv-text/.venv/bin/python -P -B tools/gen_mathtext_tables.py
 
     ... gen_mathtext_tables.py --check   exit 1 if the file on disk is not what
                                          this would write
@@ -28,7 +28,13 @@ import argparse
 import sys
 from pathlib import Path
 
-from advtext import mathtext as T
+# The reference is the pinned tree and nothing else (tools/oracle/pinned_reference.py).
+sys.path.insert(0, str(Path(__file__).resolve().parent / "oracle"))
+import pinned_reference  # noqa: E402
+
+pinned_reference.require()
+
+from advtext import mathtext as T  # noqa: E402
 from advtext.math.atoms import Atom, AtomType, Limits, MathChar, MuGlue, SubList
 
 ROOT = Path(__file__).resolve().parents[1]

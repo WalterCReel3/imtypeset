@@ -12,23 +12,32 @@ before that describes the tree as it was then. A regenerated golden that
 differs is looked at before the manifest is rewritten (CLAUDE.md, "The golden
 format").
 
-- Date written: 2026-10-10
-- SHA-256 of `MANIFEST.sha256`: `357e5ba3b27d3282bf6791e568a1d510a41f2504d3e341106e0ea020758f5198`
-- Files listed: 157
+- Date written: 2026-10-11
+- SHA-256 of `MANIFEST.sha256`: `691f847b1d55099a2c769b9b5c3fabb02c82457a8182a62d753682badaca96dd`
+- Files listed: 159
 
 ## The reference
 
-`../imgui-adv-text`, the Python prototype (D32), read and never written.
+The Python prototype (D32), frozen: one commit of `../imgui-adv-text`, extracted
+read-only into `build/advtext-reference` by `tools/oracle/pin_reference.sh` (`git archive`
+from that repository's object store; its working tree is not read and nothing
+is written there). `tools/oracle/REFERENCE.lock` holds what is below, and
+`tools/oracle/pinned_reference.py` makes every dump script and this one exit 2
+unless the extracted tree matches it and `advtext` is imported from it.
 
-- Commit: `30496e15fa68911f564a3ae5fec5dd0d0a53ec57`
-- Uncommitted files at the time (1), as `git status --porcelain` prints them:
-  - `?? CLAUDE.md`
+- Tag: `advtext-reference`
+- Commit: `32e395346551cac82c7a6dd6e9b6d8e47feeac8e`
+- Tree: `7a591a485818c85fd6c6c43df75271a477c9d612`
+- Files: 179
+- SHA-256 over the listing of their SHA-256s: `cae5c698082ef77bcb96cbe3fa691ef0d6ef60809d511ebfd8db0f55625f7e56`
 
-The commit and the list are those of the moment this file was written, not
-of the moment each directory was dumped: nothing records that per directory.
-A directory dumped earlier in the session was dumped from the same commit
-only if the reference did not move in between; `--verify` of its script is
-what shows it still agrees.
+This is the reference this file was written against. Nothing records, per
+directory, which reference a golden was dumped from; `--verify` of a script,
+or a re-run that leaves its directory byte-identical, is what shows a
+directory agrees with the pinned tree.
+
+The interpreter and its libraries are not pinned by that commit: they are
+those of `../imgui-adv-text/.venv`, a virtual environment no commit holds.
 
 ## The interpreter and libraries
 
@@ -60,7 +69,7 @@ what shows it still agrees.
 
 Each command is run from the repository root; the prefix is
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text ../imgui-adv-text/.venv/bin/python -B
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference ../imgui-adv-text/.venv/bin/python -P -B
 
 `REFERENCE_PATCHES` is what a script changed in the reference **in memory**
 before dumping (D32.3), as the script itself declares it.
@@ -70,6 +79,7 @@ before dumping (D32.3), as the script itself declares it.
 | `blocks` | 8 | `... tools/oracle/dump_blocks.py` | none (the script declares no REFERENCE_PATCHES) |
 | `core` | 7 | `... tools/oracle/dump_core.py` | none (the script declares no REFERENCE_PATCHES) |
 | `doc` | 4 | `... tools/oracle/dump_doc_extras.py` | none |
+| `doc-tables` | 2 | `... tools/oracle/dump_doc_tables.py` | none |
 | `draw` | 3 | `... tools/oracle/dump_draw.py` | none (the script declares no REFERENCE_PATCHES) |
 | `font` | 23 | `... tools/oracle/dump_font.py` | none (the script declares no REFERENCE_PATCHES) |
 | `font-synth` | 1 | `... tools/oracle/dump_font_synth.py` | none (the script declares no REFERENCE_PATCHES) |

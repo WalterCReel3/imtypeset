@@ -6,8 +6,9 @@ Writes two files:
 
     tests/golden/MANIFEST.sha256   `<sha256>  <path under tests/golden>` for
                                    every golden file, sorted by path
-    tests/golden/PROVENANCE.md     the reference's commit and uncommitted files,
-                                   the interpreter and library versions, the
+    tests/golden/PROVENANCE.md     the pinned reference (commit, tree, digest:
+                                   tools/oracle/REFERENCE.lock), the
+                                   interpreter and library versions, the
                                    font files' hashes, the date, the command
                                    that regenerates each directory, and the
                                    in-memory patches each oracle script applied
@@ -16,8 +17,8 @@ Writes two files:
 Run from the repository root. To WRITE, use the reference's interpreter, since
 the versions recorded are the ones the goldens were dumped under:
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \\
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/manifest.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \\
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/manifest.py
 
 To CHECK, any Python 3 will do, and nothing outside this repository is read:
 
@@ -33,8 +34,9 @@ Re-runnable: a run that finds nothing changed leaves both files byte-identical
 goldens are regenerated late in a session, so the LAST gate of a session runs
 this once more; a manifest written before that is expected to be stale.
 
-Only read-only git commands are run against the reference, and nothing is
-written outside tests/golden.
+Writing requires the pinned reference (tools/oracle/pin_reference.sh,
+pinned_reference.py) and refuses without it; ../imgui-adv-text's working tree
+and its git history are not read. Nothing is written outside tests/golden.
 """
 
 from __future__ import annotations
@@ -43,19 +45,21 @@ import argparse
 import ast
 import datetime
 import hashlib
-import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 GOLDEN = ROOT / "tests" / "golden"
 ORACLE = ROOT / "tools" / "oracle"
-REFERENCE = ROOT.parent / "imgui-adv-text"
+# The reference's interpreter lives here; its sources are NOT read from here.
+VENV_HOME = ROOT.parent / "imgui-adv-text"
 MANIFEST = GOLDEN / "MANIFEST.sha256"
 PROVENANCE = GOLDEN / "PROVENANCE.md"
 OURS = {MANIFEST.name, PROVENANCE.name}
 
-INVOCATION = "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text ../imgui-adv-text/.venv/bin/python -B"
+INVOCATION = (
+    "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference ../imgui-adv-text/.venv/bin/python -P -B"
+)
 
 # Which script writes which directory, and with what arguments. A directory
 # under tests/golden that is not named here is reported, not guessed at.
@@ -63,6 +67,7 @@ WRITERS: dict[str, tuple[str, ...]] = {
     "blocks": ("dump_blocks.py",),
     "core": ("dump_core.py",),
     "doc": ("dump_doc_extras.py",),
+    "doc-tables": ("dump_doc_tables.py",),
     "draw": ("dump_draw.py",),
     "font": ("dump_font.py",),
     "font-synth": ("dump_font_synth.py",),
@@ -128,13 +133,6 @@ def check() -> int:
     return 0
 
 
-def git(*args: str) -> str:
-    done = subprocess.run(
-        ["git", "--no-optional-locks", "-C", str(REFERENCE), *args], capture_output=True, text=True, check=False, cwd=ROOT
-    )
-    return done.stdout if done.returncode == 0 else f"(git {' '.join(args)} failed: {done.stderr.strip()})\n"
-
-
 def patches_of(script: str) -> str:
     """
     A script's module-level `REFERENCE_PATCHES`, read from its source and not by importing it.
@@ -180,7 +178,7 @@ def font_rows() -> list[str]:
             rows.append(f"| reference `{face.value}` | no file: {type(error).__name__} |")
             continue
         try:
-            shown = "../imgui-adv-text/" + path.resolve().relative_to(REFERENCE.resolve()).as_posix()
+            shown = "../imgui-adv-text/" + path.resolve().relative_to(VENV_HOME.resolve()).as_posix()
         except ValueError:
             shown = str(path)
         rows.append(f"| reference `{face.value}`: `{shown}` | `{sha256(path)}` |")
@@ -188,8 +186,11 @@ def font_rows() -> list[str]:
 
 
 def provenance_text(manifest: str, date: str) -> str:
-    commit = git("rev-parse", "HEAD").strip()
-    dirty = [line for line in git("status", "--porcelain").splitlines() if line.strip()]
+    # Found beside this file whether or not the interpreter was started with -P.
+    sys.path.insert(0, str(ORACLE))
+    import pinned_reference
+
+    locked = pinned_reference.require()
     directories = sorted(path.name for path in GOLDEN.iterdir() if path.is_dir())
     counts: dict[str, int] = {}
     for line in manifest.splitlines():
@@ -216,17 +217,26 @@ def provenance_text(manifest: str, date: str) -> str:
         "",
         "## The reference",
         "",
-        "`../imgui-adv-text`, the Python prototype (D32), read and never written.",
+        "The Python prototype (D32), frozen: one commit of `../imgui-adv-text`, extracted",
+        f"read-only into `{pinned_reference.SHOWN}` by `tools/oracle/pin_reference.sh` (`git archive`",
+        "from that repository's object store; its working tree is not read and nothing",
+        "is written there). `tools/oracle/REFERENCE.lock` holds what is below, and",
+        "`tools/oracle/pinned_reference.py` makes every dump script and this one exit 2",
+        "unless the extracted tree matches it and `advtext` is imported from it.",
         "",
-        f"- Commit: `{commit}`",
-        f"- Uncommitted files at the time ({len(dirty)}), as `git status --porcelain` prints them:",
-        *([f"  - `{line}`" for line in dirty] or ["  - none"]),
+        f"- Tag: `{locked['tag']}`",
+        f"- Commit: `{locked['commit']}`",
+        f"- Tree: `{locked['tree']}`",
+        f"- Files: {locked['files']}",
+        f"- SHA-256 over the listing of their SHA-256s: `{locked['sha256']}`",
         "",
-        "The commit and the list are those of the moment this file was written, not",
-        "of the moment each directory was dumped: nothing records that per directory.",
-        "A directory dumped earlier in the session was dumped from the same commit",
-        "only if the reference did not move in between; `--verify` of its script is",
-        "what shows it still agrees.",
+        "This is the reference this file was written against. Nothing records, per",
+        "directory, which reference a golden was dumped from; `--verify` of a script,",
+        "or a re-run that leaves its directory byte-identical, is what shows a",
+        "directory agrees with the pinned tree.",
+        "",
+        "The interpreter and its libraries are not pinned by that commit: they are",
+        "those of `../imgui-adv-text/.venv`, a virtual environment no commit holds.",
         "",
         "## The interpreter and libraries",
         "",

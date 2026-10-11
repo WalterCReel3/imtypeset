@@ -422,3 +422,18 @@ line breaker shrinking spaces at screen sizes) — the most visible flaw in ever
 stand-in-headers policy for the wheel sidecar; the letter-evenness trade; text-after-formula joint;
 licence. Git: one commit pushed by the user (abad89c), amended locally to drop an attribution trailer
 (5310ff3, needs the user's force-push); everything since is uncommitted. No attribution, ever.
+
+## advtext FULL SWAP — the core's half (user direction relayed 2026-10-10 late; lead)
+
+The request, the border ruling and the eight items are summarised in `docs/advtext-swap-status.md`
+(the file the other session reads; keep it current) — the border: imtypeset owns everything TeX does
+(line breaking, packing, math, ALIGNMENT = tables, vsplit = COLUMNS), fonts, selection and drawing of
+what it set, and the specimen and formula galleries; advtext owns markdown, streaming, DiffView, find,
+themes, view interaction, hosted blocks. Committed base: `5654eee` (local; the user pushes).
+Board (specs are the board details): RUNNING oracle-freeze, swap-api-answers, galleries;
+THEN tables-core -> columns-core; diffview primitives when
+`../imgui-adv-text/.concerns/FS-S1--builder--result.md` exists (also FS-S2 = table/column
+requirements, FS-S3 = inventory: check for them); a reviewer after tables-core; a terminal gate
+(all presets from clean) and a commit named in the status file after each landed stage.
+Git: the LEAD commits at stage boundaries, no attribution; stage by explicit file list — the repo
+root holds sandbox device dot-files (.idea .vscode .zprofile .zshrc …) that `git add -A` trips on.

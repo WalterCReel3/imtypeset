@@ -5,7 +5,7 @@ the reference branches on, as range tables the port can look a codepoint up in.
 Run with the reference's interpreter, so the Unicode version is the one the
 goldens were dumped under (tests/golden/math/unicode.golden names it):
 
-    PYTHONDONTWRITEBYTECODE=1 ../imgui-adv-text/.venv/bin/python -B \
+    PYTHONDONTWRITEBYTECODE=1 ../imgui-adv-text/.venv/bin/python -P -B \
         tools/oracle/gen_unicode_tables.py src/unicode_tables.h
 
 The script refuses to write under any other Unicode version: a table from a

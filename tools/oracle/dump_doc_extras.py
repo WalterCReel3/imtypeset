@@ -18,8 +18,8 @@ dump_draw.py are imported and not edited.
 
 Run from the imtypeset repository root, with the reference's interpreter:
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \\
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_doc_extras.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \\
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_doc_extras.py
 
     ... dump_doc_extras.py --verify   re-reads every golden; rebuilds each case
                                       from its INPUT records alone (the rows
@@ -80,6 +80,10 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import pinned_reference  # noqa: E402
+
+pinned_reference.require()
+
 import dump_blocks as blk  # noqa: E402
 import dump_core as core  # noqa: E402
 from dump_core import Rng, emit_cmds, q, unq  # noqa: E402
@@ -101,7 +105,7 @@ from advtext.units import px_from_sp, sp_from_px  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "tests" / "golden" / "doc"
-REFERENCE = ROOT.parent / "imgui-adv-text"
+REFERENCE = pinned_reference.ROOT_DIR
 FORMAT_VERSION = 1
 
 # Patches applied to the reference in memory before dumping (D32.3). None.
@@ -361,63 +365,80 @@ def build_doc(inputs: Sequence[Row]) -> Doc:
     return Doc(theme, document, capture, contents)
 
 
-def emit_blocks(w: Writer, doc: Doc) -> None:
-    """
-    The block list in host-neutral terms: FORMAT-blocks.md's headers, plus text and pieces.
-    """
+def emit_theme(w: Writer, doc: Doc) -> None:
     theme = doc.theme
     theme_in = blk.ThemeIn.of(theme)
     w.r("theme", theme_in.px_per_inch, theme_in.spacing, theme_in.marker_gap, theme_in.quote_indent,
         theme_in.quote_rule_thickness, theme_in.list_indent, theme_in.rule_thickness)  # fmt: skip
     w.r("faces", *[q(face) for face in theme_in.faces])
     w.r("decor", theme.table_rule_thickness)
+
+
+def emit_pieces(w: Writer, content: Content) -> None:
+    for kind, b0, b1, m0, m1, extra, flag in content.pieces:
+        if kind == "run":
+            w.r("piece", "run", b0, b1, m0, m1, q(extra), bool(flag))
+        elif kind == "hardbreak":
+            w.r("piece", "hardbreak", b0, b1, m0, m1)
+        else:
+            w.r("piece", "formula", b0, b1, m0, m1, bool(flag), q(extra))
+
+
+def emit_spans(w: Writer, content: Content, links: Sequence[Any], formulas: Sequence[Any]) -> None:
+    for index, link in enumerate(links):
+        b0, b1 = content.span(link.start, link.end)
+        w.r("link", index, b0, b1, link.start, link.end, q(link.target))
+    for index, formula in enumerate(formulas):
+        b0, b1 = content.span(formula.start, formula.end)
+        w.r("formula", index, b0, b1, formula.start, formula.end, formula.display,
+            bool(formula.refusal), q(formula.text))  # fmt: skip
+
+
+def emit_block(w: Writer, doc: Doc, number: int, block: Any) -> None:
+    """
+    One text, code or rule block in host-neutral terms: FORMAT-blocks.md's headers, plus text and pieces.
+    """
+    theme = doc.theme
+    style = block.style
+    quoted = block.quote_depth if isinstance(block, TextBlock) else 0
+    depth = U._list_depth(block, quoted, theme.list_indent, theme.quote_indent)
+    if isinstance(block, TextBlock):
+        content = doc.contents[number]
+        w.r("text", number, block.kind, style.align, q(style.font.key), block.left_indent,
+            style.first_line_indent, block.quote_depth, style.space_above, style.space_below)  # fmt: skip
+        blk.emit_style(w, style)
+        if block.marker:
+            (marker,) = [text for nodes, text in doc.capture.markers if nodes is block.marker]
+            w.r("marker", q(marker[0]), q(marker[1]), U._numbered(block))
+        w.r("nest", -1 if depth is None else depth)
+        w.r("content", len(content.text.encode("utf-8")), len(block.material), q(content.text))
+        emit_pieces(w, content)
+        emit_spans(w, content, block.links, block.formulas)
+        w.r("endtext")
+    elif isinstance(block, CodeBlock):
+        content = doc.contents[number]
+        (source,) = [text for made, text in doc.capture.codes if made is block]
+        w.r("code", number, q(style.font.key), block.left_indent, style.space_above,
+            style.space_below, len(block.lines), q(source))  # fmt: skip
+        blk.emit_style(w, style)
+        w.r("nest", -1 if depth is None else depth)
+        w.r("language", q(block.language))
+        w.r("content", len(content.text.encode("utf-8")), sum(map(len, block.lines)), q(content.text))
+        w.r("endcode")
+    else:
+        assert isinstance(block, RuleBlock)
+        w.r("rule", number, block.left_indent, block.thickness, style.space_above, style.space_below)
+        blk.emit_style(w, style)
+        w.r("nest", -1 if depth is None else depth)
+        w.r("endrule")
+
+
+def emit_blocks(w: Writer, doc: Doc) -> None:
+    emit_theme(w, doc)
     blocks = doc.document.blocks
     w.r("blocks", len(blocks))
     for number, block in enumerate(blocks):
-        style = block.style
-        quoted = block.quote_depth if isinstance(block, TextBlock) else 0
-        depth = U._list_depth(block, quoted, theme.list_indent, theme.quote_indent)
-        if isinstance(block, TextBlock):
-            content = doc.contents[number]
-            w.r("text", number, block.kind, style.align, q(style.font.key), block.left_indent,
-                style.first_line_indent, block.quote_depth, style.space_above, style.space_below)  # fmt: skip
-            blk.emit_style(w, style)
-            if block.marker:
-                (marker,) = [text for nodes, text in doc.capture.markers if nodes is block.marker]
-                w.r("marker", q(marker[0]), q(marker[1]), U._numbered(block))
-            w.r("nest", -1 if depth is None else depth)
-            w.r("content", len(content.text.encode("utf-8")), len(block.material), q(content.text))
-            for kind, b0, b1, m0, m1, extra, flag in content.pieces:
-                if kind == "run":
-                    w.r("piece", "run", b0, b1, m0, m1, q(extra), bool(flag))
-                elif kind == "hardbreak":
-                    w.r("piece", "hardbreak", b0, b1, m0, m1)
-                else:
-                    w.r("piece", "formula", b0, b1, m0, m1, bool(flag), q(extra))
-            for index, link in enumerate(block.links):
-                b0, b1 = content.span(link.start, link.end)
-                w.r("link", index, b0, b1, link.start, link.end, q(link.target))
-            for index, formula in enumerate(block.formulas):
-                b0, b1 = content.span(formula.start, formula.end)
-                w.r("formula", index, b0, b1, formula.start, formula.end, formula.display,
-                    bool(formula.refusal), q(formula.text))  # fmt: skip
-            w.r("endtext")
-        elif isinstance(block, CodeBlock):
-            content = doc.contents[number]
-            (source,) = [text for made, text in doc.capture.codes if made is block]
-            w.r("code", number, q(style.font.key), block.left_indent, style.space_above,
-                style.space_below, len(block.lines), q(source))  # fmt: skip
-            blk.emit_style(w, style)
-            w.r("nest", -1 if depth is None else depth)
-            w.r("language", q(block.language))
-            w.r("content", len(content.text.encode("utf-8")), sum(map(len, block.lines)), q(content.text))
-            w.r("endcode")
-        else:
-            assert isinstance(block, RuleBlock)
-            w.r("rule", number, block.left_indent, block.thickness, style.space_above, style.space_below)
-            blk.emit_style(w, style)
-            w.r("nest", -1 if depth is None else depth)
-            w.r("endrule")
+        emit_block(w, doc, number, block)
     w.r("endblocks")
 
 

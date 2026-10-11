@@ -18,14 +18,20 @@
 // and a context made later starts from the defaults, whatever its address. See [SECTION] One state
 // per context.
 //
-// Leaving it out: define IMTYPESET_DISABLE_DEMO for this file and the function
-// is still there to link against and draws nothing.
+// One section at a time: ImTypeset::ShowDemoSection() submits the contents of
+// one section into whatever window is current, for a host that has pages of
+// its own. See [SECTION] ShowDemoSection().
+//
+// Leaving it out: define IMTYPESET_DISABLE_DEMO for this file and the functions
+// are still there to link against and draw nothing.
 //
 // Index of this file:
 //   [SECTION] Helpers
 //   [SECTION] Paragraph
 //   [SECTION] Faces and sizes
+//   [SECTION] Specimen
 //   [SECTION] Math
+//   [SECTION] Formula gallery
 //   [SECTION] Selection
 //   [SECTION] Inspector
 //   [SECTION] Stress
@@ -34,6 +40,7 @@
 //   [SECTION] Document
 //   [SECTION] One state per context
 //   [SECTION] ShowDemoWindow()
+//   [SECTION] ShowDemoSection()
 
 #include "imgui.h"
 #include "imtypeset.h"
@@ -41,10 +48,16 @@
 #ifdef IMTYPESET_DISABLE_DEMO
 
 void ImTypeset::ShowDemoWindow(bool*) {}
+void ImTypeset::ShowDemoSection(ImTypesetDemoSection) {}
+const char* ImTypeset::GetDemoSectionName(ImTypesetDemoSection)
+{
+    return "";
+}
 
 #else
 
-#include <string.h> // strlen, strchr, memcpy
+#include <stdio.h>  // snprintf
+#include <string.h> // strlen, strchr, strstr, memcpy, memcmp
 
 namespace
 {
@@ -149,6 +162,50 @@ ImVec2 ParagraphItem(ImTypesetParagraph* paragraph, float width, const ImTypeset
         ImGui::Dummy(size);
     ImTypeset::DrawParagraph(paragraph, ImGui::GetWindowDrawList(), pos, selection);
     return pos;
+}
+
+// ABOUT KEEPING A MEASUREMENT. CalcTextSize() lays its text out to answer, so
+// a section that wants the widths of twenty texts asks once and keeps the
+// answers, with what they were taken at: the style, the fonts, and whatever
+// numbers of its own they depend on. The library has no "the fonts changed"
+// to ask for, so the fonts are told apart by the ImFont each role answers.
+struct DemoSetting {
+    bool Taken = false;
+    ImTypesetStyle Style;
+    ImFont* Fonts[ImTypesetFace_COUNT] = {};
+    int FontsAdded = 0; // By the demo's Fonts section: a font replaced at the same address.
+    float A = 0.0f;
+    float B = 0.0f;
+};
+
+// Whether `kept` was taken at the present style, fonts and numbers. If it was
+// not, it now is: the caller measures again.
+bool SameSetting(DemoSetting* kept, int fonts_added, float a = 0.0f, float b = 0.0f)
+{
+    bool same = kept->Taken && kept->FontsAdded == fonts_added && kept->A == a && kept->B == b &&
+                memcmp(&kept->Style, &g_style, sizeof(ImTypesetStyle)) == 0;
+    for (int face = 0; face < ImTypesetFace_COUNT; ++face) {
+        ImFont* font = ImTypeset::GetFont(face);
+        same = same && kept->Fonts[face] == font;
+        kept->Fonts[face] = font;
+    }
+    kept->Taken = true;
+    kept->Style = g_style;
+    kept->FontsAdded = fonts_added;
+    kept->A = a;
+    kept->B = b;
+    return same;
+}
+
+// Text in ImGui's own font and the dimmed ink, with its right end at `right`
+// (a screen x) or centred on it, at the height `y`. It is drawn, not
+// submitted: the caller reserves the room.
+void DimmedLabel(float x, float y, const char* text, bool centred)
+{
+    const float width = ImGui::CalcTextSize(text).x;
+    const float left = centred ? x - width * 0.5f : x - width;
+    ImGui::GetWindowDrawList()->AddText(ImVec2((float)(int)left, (float)(int)y),
+                                        ImGui::GetColorU32(ImGuiCol_TextDisabled), text);
 }
 
 //-----------------------------------------------------------------------------
@@ -324,21 +381,9 @@ void ShowDemoFaces(DemoFacesState* state)
     if (error->Code != ImTypesetError_None)
         ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "%s", error->Message);
 
-    // Sizes. A face is added once and set at any size: ImGui's atlas bakes
-    // each size when it is first drawn.
-    ImGui::SeparatorText("One face, several sizes");
-    static const float SIZES[] = {11.0f, 14.0f, 19.0f, 26.0f, 38.0f};
-    for (int i = 0; i < IM_ARRAYSIZE(SIZES); ++i) {
-        ImTypesetStyle style = g_style;
-        style.FontSize = SIZES[i];
-        style.Align = ImTypesetAlign_Left;
-        ImGui::PushID(i); // The same words five times over: five layouts, told apart by ID.
-        ImTypeset::TextUnformatted("Hamburgefonstiv, AV To WA, 0123456789", NULL, 0, 0.0f, &style);
-        ImGui::PopID();
-    }
-
-    // The other size. FontSize is ImGui's: the height of a line. EmSize is a
-    // typographer's: the em. The same number gives two sizes of type.
+    // The two sizes. FontSize is ImGui's: the height of a line. EmSize is a
+    // typographer's: the em. The same number gives two sizes of type. (One
+    // face up a scale of sizes is in the Specimen section.)
     ImGui::SeparatorText("FontSize and EmSize");
     ImTypesetStyle by_line = g_style;
     by_line.Align = ImTypesetAlign_Left;
@@ -351,6 +396,315 @@ void ShowDemoFaces(DemoFacesState* state)
 }
 
 //-----------------------------------------------------------------------------
+// [SECTION] Specimen
+//-----------------------------------------------------------------------------
+// The faces a host has added, arranged to be compared: one line in each at one
+// size, one face up a scale of sizes, and pairs of letters set with and
+// without their kerning. A row is set at its natural width and never broken:
+// it is a row of a chart, and what is read off it is how wide it came.
+//
+// The numbers are a paragraph object's: its line says where the content starts
+// and ends as layout has it, in fractions of a pixel. CalcTextSize() and the
+// widgets answer in whole pixels, rounded up, which is right for reserving
+// room and too coarse to read a kern of a pixel or two off.
+
+const char PANGRAM[] = "The quick brown fox jumps over the lazy dog";
+const char LADDER_TEXT[] = "Hamburgefonstiv";
+// A modular scale: a major third, 1.25 a step, around a 16 px body, two steps
+// below it and three above.
+const int LADDER_STEPS = 6;
+const float LADDER_BODY = 16.0f;
+const float LADDER_RATIO = 1.25f;
+// Six pairs most text faces pull together and one, "rt", that Roboto and
+// others push apart: kerning is not only a matter of tightening.
+const char* const KERN_PAIRS[][2] = {
+    {"A", "V"}, {"T", "o"}, {"W", "a"}, {"Y", "o"}, {"P", "."}, {"L", "T"}, {"r", "t"},
+};
+
+struct DemoSpecimenState {
+    float FaceSize = 24.0f; // The em the faces are compared at, in pixels.
+    float KernSize = 44.0f; // The em the pairs are set at: a kern is some hundredths of it.
+    bool Guides = true;
+    ImTypesetParagraph* Scratch = NULL; // What the rows are measured with.
+    DemoSetting Measured;
+    ImVec2 Faces[ImTypesetFace_COUNT];
+    ImVec2 Ladder[LADDER_STEPS];
+    ImVec2 Pairs[IM_ARRAYSIZE(KERN_PAIRS)][3]; // The pair, its left letter, its right letter.
+};
+
+// The style of one row: a face at an em, ragged right.
+ImTypesetStyle SpecimenStyle(ImTypesetFace face, float em_size)
+{
+    ImTypesetStyle style = g_style;
+    style.Face = face;
+    style.EmSize = em_size; // Wins over FontSize.
+    style.Align = ImTypesetAlign_Left;
+    return style;
+}
+
+// How wide `text` sets on one line in `style`, and how tall that line is: the
+// extent of the one line of a paragraph laid out with room to spare.
+ImVec2 SpecimenMeasure(ImTypesetParagraph* scratch, const char* text, const ImTypesetStyle& style)
+{
+    ImTypeset::SetParagraphText(scratch, text);
+    ImTypeset::LayoutParagraph(scratch, 4096.0f, &style);
+    const ImTypesetLine line = ImTypeset::GetParagraphLine(scratch, 0);
+    return ImVec2(line.Max.x - line.Min.x, ImTypeset::GetParagraphSize(scratch).y);
+}
+
+// One sample: `text` in a face at an em, on one line. `size` is what
+// SpecimenMeasure() answered for it, and the wrap width is a little more than
+// that, so the line is never broken whatever room the window has. Returns
+// where it was put.
+ImVec2 SpecimenSample(const char* text, ImTypesetFace face, float em_size, const ImVec2& size)
+{
+    const ImTypesetStyle style = SpecimenStyle(face, em_size);
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    ImTypeset::TextUnformatted(text, NULL, 0, (float)(int)size.x + 3.0f, &style);
+    return pos;
+}
+
+// A label in a gutter `gutter` wide: right-aligned, so that labels of any
+// length end at one x, and centred on a row `height` tall.
+void SpecimenLabel(const char* label, float gutter, float height)
+{
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    DimmedLabel(pos.x + gutter, pos.y + (height - ImGui::GetTextLineHeight()) * 0.5f, label, false);
+    ImGui::Dummy(ImVec2(gutter, 1.0f));
+}
+
+// A number at the end of a row `height` tall, centred on it.
+void SpecimenNumber(float height, const char* fmt, ...) IM_FMTARGS(2);
+void SpecimenNumber(float height, const char* fmt, ...)
+{
+    const float lower = (height - ImGui::GetTextLineHeight()) * 0.5f;
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (lower > 0.0f ? lower : 0.0f));
+    va_list args;
+    va_start(args, fmt);
+    ImGui::TextDisabledV(fmt, args);
+    va_end(args);
+}
+
+// `fonts_added`: as for ShowDemoStress().
+void ShowDemoSpecimen(DemoSpecimenState* state, int fonts_added)
+{
+    static const char* const LABELS[ImTypesetFace_COUNT] = {
+        "", "Regular", "Bold", "Italic", "Bold Italic", "Code", "Code Bold", "Math",
+    };
+    if (ImTypeset::GetFont(ImTypesetFace_Regular) == NULL) {
+        ImGui::TextWrapped("No font has been added for ImTypesetFace_Regular: there is nothing "
+                           "to show a specimen of. See Fonts.");
+        return;
+    }
+
+    // The body is the third rung, and is itself on the scale.
+    float ladder[LADDER_STEPS];
+    ladder[2] = LADDER_BODY;
+    for (int i = 1; i >= 0; --i)
+        ladder[i] = ladder[i + 1] / LADDER_RATIO;
+    for (int i = 3; i < LADDER_STEPS; ++i)
+        ladder[i] = ladder[i - 1] * LADDER_RATIO;
+
+    // Which roles get a row. CodeBold answers Bold's font until it has one of
+    // its own, and a second row of the same face under another name would say
+    // nothing.
+    bool shown[ImTypesetFace_COUNT] = {};
+    int absent = 0;
+    for (int face = ImTypesetFace_Regular; face < ImTypesetFace_COUNT; ++face) {
+        ImFont* font = ImTypeset::GetFont(face);
+        if (face == ImTypesetFace_CodeBold)
+            shown[face] = font != NULL && font != ImTypeset::GetFont(ImTypesetFace_Bold);
+        else
+            shown[face] = font != NULL;
+        absent += font == NULL ? 1 : 0;
+    }
+
+    // Measure, when anything a measurement depends on has changed.
+    const bool fresh = state->Scratch == NULL;
+    if (fresh)
+        state->Scratch = ImTypeset::CreateParagraph();
+    ImTypesetParagraph* scratch = state->Scratch;
+    if (!SameSetting(&state->Measured, fonts_added, state->FaceSize, state->KernSize) || fresh) {
+        for (int face = ImTypesetFace_Regular; face < ImTypesetFace_COUNT; ++face)
+            state->Faces[face] = shown[face] ? SpecimenMeasure(scratch, PANGRAM,
+                                                               SpecimenStyle(face, state->FaceSize))
+                                             : ImVec2(0.0f, 0.0f);
+        for (int i = 0; i < LADDER_STEPS; ++i)
+            state->Ladder[i] = SpecimenMeasure(scratch, LADDER_TEXT,
+                                               SpecimenStyle(ImTypesetFace_Regular, ladder[i]));
+        const ImTypesetStyle style = SpecimenStyle(ImTypesetFace_Regular, state->KernSize);
+        static ImGuiTextBuffer pair; // Scratch: emptied before each use.
+        for (int i = 0; i < IM_ARRAYSIZE(KERN_PAIRS); ++i) {
+            pair.resize(0);
+            pair.appendf("%s%s", KERN_PAIRS[i][0], KERN_PAIRS[i][1]);
+            state->Pairs[i][0] = SpecimenMeasure(scratch, pair.c_str(), style);
+            state->Pairs[i][1] = SpecimenMeasure(scratch, KERN_PAIRS[i][0], style);
+            state->Pairs[i][2] = SpecimenMeasure(scratch, KERN_PAIRS[i][1], style);
+        }
+    }
+    const ImGuiTableFlags chart = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoHostExtendX;
+    char label[32];
+
+    // The faces. A role is a file, not an effect: Bold is the font added for
+    // ImTypesetFace_Bold, drawn as a bold.
+    ImGui::SeparatorText("Every face at one size");
+    ImTypeset::TextUnformatted(
+        "Every role a font has been added for, in one line at one size. A role is a font file "
+        "and not an effect applied to one: bold is the face added for ImTypesetFace_Bold, drawn "
+        "as a bold, and italic a drawn italic. Faces of one family share their heights, so what "
+        "separates them here is how wide each sets the line, which is the number at the end of "
+        "its row; a code face or a math face usually differs in the height of its lower case "
+        "as well.",
+        NULL, 0, 0.0f, &g_style);
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
+    ImGui::SliderFloat("ImTypesetStyle::EmSize##faces", &state->FaceSize, 10.0f, 48.0f, "%.0f px");
+    float gutter = 0.0f;
+    for (int face = ImTypesetFace_Regular; face < ImTypesetFace_COUNT; ++face)
+        if (shown[face] && ImGui::CalcTextSize(LABELS[face]).x > gutter)
+            gutter = ImGui::CalcTextSize(LABELS[face]).x;
+    if (ImGui::BeginTable("faces", 3, chart)) {
+        ImGui::TableSetupColumn("role", ImGuiTableColumnFlags_WidthFixed, gutter);
+        ImGui::TableSetupColumn("sample");
+        ImGui::TableSetupColumn("width");
+        for (int face = ImTypesetFace_Regular; face < ImTypesetFace_COUNT; ++face) {
+            if (!shown[face])
+                continue;
+            const ImVec2 size = state->Faces[face];
+            ImGui::PushID(face);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            SpecimenLabel(LABELS[face], gutter, size.y);
+            ImGui::TableNextColumn();
+            SpecimenSample(PANGRAM, face, state->FaceSize, size);
+            ImGui::TableNextColumn();
+            SpecimenNumber(size.y, "%.2f px", (double)size.x);
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    if (absent > 0)
+        ImGui::TextDisabled("%d role%s no font: no row for %s.", absent,
+                            absent == 1 ? " has" : "s have", absent == 1 ? "it" : "them");
+
+    // Sizes. A face is added once and set at any size: ImGui's atlas bakes
+    // each size when it is first drawn.
+    ImGui::SeparatorText("One face up a scale of sizes");
+    ImTypeset::TextUnformatted(
+        "Not round numbers: a modular scale, a major third of 1.25 a step from a 16 px body, "
+        "two steps below it and three above. Each row's size is its ImTypesetStyle::EmSize. A "
+        "face is added once and set at any size.",
+        NULL, 0, 0.0f, &g_style);
+    gutter = ImGui::CalcTextSize("00.0 px").x;
+    if (ImGui::BeginTable("ladder", 3, chart)) {
+        ImGui::TableSetupColumn("size", ImGuiTableColumnFlags_WidthFixed, gutter);
+        ImGui::TableSetupColumn("sample");
+        ImGui::TableSetupColumn("width");
+        for (int i = 0; i < LADDER_STEPS; ++i) {
+            const ImVec2 size = state->Ladder[i];
+            if (ladder[i] == (float)(int)ladder[i])
+                snprintf(label, sizeof(label), "%d px", (int)ladder[i]);
+            else
+                snprintf(label, sizeof(label), "%.1f px", (double)ladder[i]);
+            ImGui::PushID(i);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            SpecimenLabel(label, gutter, size.y);
+            ImGui::TableNextColumn();
+            SpecimenSample(LADDER_TEXT, ImTypesetFace_Regular, ladder[i], size);
+            ImGui::TableNextColumn();
+            SpecimenNumber(size.y, "%.2f px", (double)size.x);
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+
+    // Kerning. The library has no switch that turns it off and no call that
+    // answers a pair's kern, and neither is needed to show it: a text of two
+    // letters is set with their kern, and two texts of one letter each,
+    // placed by their widths, are set without. The widths are layout's and
+    // the ink is on whole pixels, so the second letter is put on the pixel
+    // its own width asks for.
+    ImGui::SeparatorText("Kerning, which ImGui's own text cannot do");
+    ImTypeset::TextUnformatted(
+        "Each pair is set twice in the Regular face. On the left as one text, with the kern the "
+        "font gives the pair; on the right letter by letter, each letter a text of its own "
+        "placed after the width of the one before, which is what a renderer that measures one "
+        "glyph at a time produces, and what ImGui::Text() produces. The number in the gutter is "
+        "the difference between the two widths: the pair's kern at this size. A pair the face "
+        "does not kern says +0.00. Where the number is positive the kern pushes the letters "
+        "apart, and it is the letter-by-letter setting that is too tight. Ink is drawn on "
+        "whole pixels, so on screen the two settings differ by the kern to the nearest pixel.",
+        NULL, 0, 0.0f, &g_style);
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
+    ImGui::SliderFloat("ImTypesetStyle::EmSize##kern", &state->KernSize, 16.0f, 96.0f, "%.0f px");
+    ImGui::SameLine();
+    ImGui::Checkbox("Mark where each setting ends", &state->Guides);
+    gutter = ImGui::CalcTextSize("+00.00 px").x;
+    float column = 0.0f;
+    for (int i = 0; i < IM_ARRAYSIZE(KERN_PAIRS); ++i) {
+        const float apart = state->Pairs[i][1].x + state->Pairs[i][2].x;
+        column = state->Pairs[i][0].x > column ? state->Pairs[i][0].x : column;
+        column = apart > column ? apart : column;
+    }
+    column += state->KernSize * 0.4f;
+    const float heading = ImGui::CalcTextSize("letter by letter").x;
+    column = heading > column ? heading : column;
+    if (ImGui::BeginTable("kerning", 4, chart)) {
+        ImGui::TableSetupColumn("kern", ImGuiTableColumnFlags_WidthFixed, gutter);
+        ImGui::TableSetupColumn("kerned", ImGuiTableColumnFlags_WidthFixed, column);
+        ImGui::TableSetupColumn("letter by letter", ImGuiTableColumnFlags_WidthFixed, column);
+        ImGui::TableSetupColumn("widths");
+        ImGui::TableHeadersRow();
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+        const ImU32 guide = IM_COL32(255, 96, 96, 200);
+        static ImGuiTextBuffer pair; // Scratch: emptied before each use.
+        for (int i = 0; i < IM_ARRAYSIZE(KERN_PAIRS); ++i) {
+            const ImVec2 kerned = state->Pairs[i][0];
+            const ImVec2 left = state->Pairs[i][1];
+            const ImVec2 right = state->Pairs[i][2];
+            const float apart = left.x + right.x;
+            snprintf(label, sizeof(label), "%+.2f px", (double)(kerned.x - apart));
+            ImGui::PushID(i);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            SpecimenLabel(label, gutter, kerned.y);
+
+            ImGui::TableNextColumn();
+            pair.resize(0);
+            pair.appendf("%s%s", KERN_PAIRS[i][0], KERN_PAIRS[i][1]);
+            ImVec2 pos =
+                SpecimenSample(pair.c_str(), ImTypesetFace_Regular, state->KernSize, kerned);
+            if (state->Guides)
+                draw_list->AddLine(ImVec2(pos.x + kerned.x, pos.y),
+                                   ImVec2(pos.x + kerned.x, pos.y + kerned.y), guide);
+
+            // The same two letters, each a text of its own: the second is put
+            // where the first one's width ends.
+            ImGui::TableNextColumn();
+            ImGui::PushID("left");
+            pos = SpecimenSample(KERN_PAIRS[i][0], ImTypesetFace_Regular, state->KernSize, left);
+            ImGui::PopID();
+            ImGui::SetCursorScreenPos(ImVec2(pos.x + (float)(int)(left.x + 0.5f), pos.y));
+            ImGui::PushID("right");
+            SpecimenSample(KERN_PAIRS[i][1], ImTypesetFace_Regular, state->KernSize, right);
+            ImGui::PopID();
+            if (state->Guides)
+                draw_list->AddLine(ImVec2(pos.x + apart, pos.y),
+                                   ImVec2(pos.x + apart, pos.y + kerned.y), guide);
+
+            ImGui::TableNextColumn();
+            SpecimenNumber(kerned.y, "%.2f px, %.2f px", (double)kerned.x, (double)apart);
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    DisabledTextWrapped("Not here: a face's ascent, descent and x-height, which characters it has "
+                        "a glyph for, and an overlay of its boxes. The library answers for a "
+                        "text and says nothing about a face.",
+                        NULL);
+}
+
+//-----------------------------------------------------------------------------
 // [SECTION] Math
 //-----------------------------------------------------------------------------
 // ImTypesetTextFlags_Math makes the dollars of a text delimit formulas. A
@@ -358,45 +712,326 @@ void ShowDemoFaces(DemoFacesState* state)
 // words. One that is outside the supported subset is never guessed at: its
 // source is shown instead and the call says why and where.
 
-const char* const FORMULAS[] = {
-    "e^{i\\pi} + 1 = 0",
-    "x_i^2",
-    "x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}",
-    "\\frac{\\frac{a}{b}}{\\frac{c}{d}}",
-    "\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}",
-    "\\int_0^1 x^2 dx = \\frac{1}{3}",
-    "a_1 + a_2 + a_3 + \\cdots + a_n = \\frac{n(a_1 + a_n)}{2}",
-    "(\\frac{a}{b}) \\quad \\left(\\frac{a}{b}\\right)",
-    "\\sqrt{x} \\quad \\sqrt{\\frac{a}{b}}",
-    "\\int f(x) dx \\quad \\int f(x) \\, dx",
-    "x = 1 \\text{ if } y > 0",
-    "\\left( \\sum_{i=1}^{n} \\frac{a_i}{b_i} \\right)^2 \\le \\sqrt{n} \\quad \\text{for every } "
-    "n",
-    "\\frac{a+b+c+d}{\\sqrt{x}} \\quad \\frac{\\sqrt{x}}{a+b+c+d} \\quad "
-    "\\frac{a+b+c+d}{\\frac{x}{y}}",
-    "\\sqrt{x}^2 \\quad \\sqrt{x^2 + y^2} \\quad \\frac{1}{11111111}",
-    "E = mc^2",
-    "\\alpha + \\beta = \\gamma",
-    "\\frac{1}{1 - x}",
-    "\\lim_{n \\to \\infty} \\frac{1}{n} = 0",
-    "\\sum_{n=1}^{\\infty} \\frac{1}{n^2} = \\frac{\\pi^2}{6}",
-    "a^2 + b^2 = c^2",
-    "\\binom{n}{k} = \\frac{n!}{k!(n-k)!}",
-    "\\overline{x + y} \\quad \\underline{x + y}",
-    "f'(x) \\quad \\mathbb{R} \\quad \\mathcal{L} \\quad \\mathbf{v} \\quad \\mathrm{d}x",
-    // Outside the subset: refused, with a reason.
-    "\\begin{matrix} a & b \\end{matrix}",
-    "\\hat{x}",
+// Sources, each with what it shows. Which of them the library sets is asked
+// of it and not written down here: ShowDemoMath() puts every one through
+// CalcTextSize() and shows it in the table if it set and in the list of
+// refusals, with the reason it was given, if it did not.
+struct DemoCandidate {
+    const char* What;
+    const char* Source;
 };
+const DemoCandidate CANDIDATES[] = {
+    {"superscript", "x^2"},
+    {"subscript", "x_i"},
+    {"both scripts", "x_i^2"},
+    {"a braced script", "x^{a+b}"},
+    {"a script on a script", "e^{x^2}"},
+    {"primes", "f'(x) + g''(x)"},
+    {"fraction", "\\frac{a}{b}"},
+    {"fraction in a fraction", "\\frac{1}{1 + \\frac{1}{x}}"},
+    {"a fraction of fractions", "\\frac{\\frac{a}{b}}{\\frac{c}{d}}"},
+    {"a binomial coefficient", "\\binom{n}{k} = \\frac{n!}{k!(n-k)!}"},
+    {"Greek, lower case", "\\alpha \\beta \\gamma \\pi \\omega"},
+    {"Greek, capitals", "\\Gamma \\Delta \\Sigma \\Omega"},
+    {"sum with limits", "\\sum_{i=1}^{n} a_i"},
+    {"product with limits", "\\prod_{k=1}^{n} k"},
+    {"integral with bounds", "\\int_a^b f(x) dx"},
+    {"limits beside, on request", "\\sum\\nolimits_{i=1}^{n} a_i"},
+    {"limits stacked, on request", "\\int\\limits_a^b f"},
+    {"relations", "a \\le b \\ne c \\approx d"},
+    {"membership", "x \\in A \\subset B"},
+    {"arrows", "a \\to b \\Rightarrow c"},
+    {"binary operators", "a + b - c \\times d \\cdot e \\pm f"},
+    {"fixed-size delimiters", "(a + b)[c]\\{d\\}"},
+    {"delimiters sized to their content", "\\left( \\frac{a}{b} \\right)"},
+    {"brackets, sized", "\\left[ \\frac{a}{b} \\right]"},
+    {"angle brackets, sized", "\\left\\langle \\frac{a}{b} \\right\\rangle"},
+    {"a brace on one side only", "\\left\\{ \\frac{x}{2} \\right."},
+    {"a sized pair with scripts", "\\left. \\frac{x^2}{2} \\right\\rbrack_0^1"},
+    {"parentheses, typed and fitted", "(\\frac{a}{b}) \\quad \\left(\\frac{a}{b}\\right)"},
+    {"a square root", "\\sqrt{x^2 + y^2}"},
+    {"a root over a fraction", "\\sqrt{\\frac{a}{b}}"},
+    {"two root signs of the font's several", "\\sqrt{x} \\quad \\sqrt{\\frac{a}{b}}"},
+    {"explicit spaces", "a \\, b \\; c \\quad d"},
+    {"a thin space before the differential", "\\int_0^1 f(x) \\, dx"},
+    {"the differential, against and a thin space off", "\\int f(x) dx \\quad \\int f(x) \\, dx"},
+    {"a negative thin space", "\\int\\!\\!\\int f"},
+    {"words inside a formula", "x = 1 \\text{ if } y > 0"},
+    {"words in a subscript", "v_{\\text{max}} \\le c"},
+    {"overline and underline", "\\overline{x + y} \\underline{z}"},
+    {"named functions", "\\sin x + \\log y"},
+    {"a limit", "\\lim_{n \\to \\infty} a_n"},
+    {"an operator name", "\\operatorname{rank} A"},
+    {"upright letters", "\\mathrm{d}x"},
+    {"alphabets", "\\mathbb{R} \\mathcal{L} \\mathbf{v}"},
+    {"dots on the baseline", "a_1, \\ldots, a_n"},
+    {"dots on the axis", "a_1 + \\cdots + a_n"},
+    {"ordinary symbols", "\\infty \\partial \\nabla \\forall \\exists"},
+    {"symbols typed as themselves", "\xE2\x88\x9E \xE2\x89\xA4 \xE2\x88\x91"},
+    {"Euler's identity", "e^{i\\pi} + 1 = 0"},
+    {"the quadratic formula", "x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}"},
+    {"a sum and its closed form", "\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}"},
+    {"a long one, for the line breaker",
+     "a_1 + a_2 + a_3 + \\cdots + a_n = \\frac{n(a_1 + a_n)}{2}"},
+    {"all of it at once",
+     "\\left( \\sum_{i=1}^{n} \\frac{a_i}{b_i} \\right)^2 \\le \\sqrt{n} \\quad "
+     "\\text{for every } n"},
+    {"bars over parts of unequal width",
+     "\\frac{a+b+c+d}{\\sqrt{x}} \\quad \\frac{\\sqrt{x}}{a+b+c+d} \\quad "
+     "\\frac{a+b+c+d}{\\frac{x}{y}}"},
+    {"rules and what they cover",
+     "\\sqrt{x}^2 \\quad \\sqrt{x^2 + y^2} \\quad \\frac{1}{11111111}"},
+    // Outside the subset. The first two are in it and are still refused: what
+    // stands between the delimiters, or under the root, is far taller than
+    // the largest ready-made sign a math font has.
+    {"content far taller than the largest parenthesis",
+     "\\left( 1 + \\frac{1}{1 + \\frac{1}{1 + \\frac{1}{1 + \\frac{1}{1 + \\frac{1}{x}}}}} "
+     "\\right)"},
+    {"roots nested past the largest radical sign",
+     "\\sqrt{\\sqrt{\\sqrt{\\sqrt{\\sqrt{\\sqrt{x}}}}}}"},
+    {"a root with a degree", "\\sqrt[3]{x}"},
+    {"a delimiter of a named size", "\\big( x \\big)"},
+    {"a brace that stretches sideways", "\\overbrace{a + b}"},
+    {"a matrix", "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}"},
+    {"cases", "\\begin{cases} a \\\\ b \\end{cases}"},
+    {"an environment", "\\begin{align} a &= b \\end{align}"},
+    {"a column separator", "a & b"},
+    {"a macro definition", "\\newcommand{\\R}{\\mathbb{R}}"},
+    {"a plain TeX definition", "\\def\\half{\\frac{1}{2}}"},
+    {"an accent", "\\hat{x}"},
+    {"a change of style", "\\displaystyle\\sum_i a_i"},
+    {"an infix fraction", "a \\over b"},
+    {"a command nobody listed", "\\frobnicate{x}"},
+    {"a script with nothing in it", "x^"},
+    {"a brace left open", "\\frac{a}{b"},
+};
+
+// A reply as it would arrive from somewhere, a few bytes at a time: three
+// paragraphs with a blank line between them, the second a display block.
+const char STREAM_SOURCE[] =
+    "The roots are $x = \\frac{-b \\pm \\sqrt{d}}{2a}$, where $d = b^2 - 4ac$ is the "
+    "discriminant. Until a closing dollar sign has arrived the source is shown as text, and "
+    "the words before it do not move when it closes.\n\n"
+    "$$\n\\sum_{k=0}^{\\infty} \\frac{x^k}{k!} = e^x\n$$\n\n"
+    "A display block is open from its first line, and is shown as its source until the line "
+    "that closes it has come.";
+const int STREAM_PARAGRAPHS = 3;
+const int STREAM_PIECE = 3; // Bytes in one piece: few enough to stop inside a formula.
+const float STREAM_PIECES_PER_SECOND = 12.0f;
 
 struct DemoMathState {
     char Source[512] = "x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}";
     float Width = 460.0f;
     bool Replaced = false; // A row of the table was clicked last frame.
     ImTypesetParagraph* Display = NULL;
+
+    // Where a formula can go.
+    ImTypesetDocument* Places = NULL;
+    int PlacesFonts = -1; // How many fonts the demo had added when it was built.
+    bool PlacesDebug = false;
+
+    // The stream.
+    ImTypesetParagraph* Stream[STREAM_PARAGRAPHS] = {};
+    int StreamFed = -1;   // Pieces handed over so far; -1 before the first frame.
+    int StreamShown = -1; // Bytes the paragraphs were last given.
+    bool StreamPlaying = false;
+    float StreamDue = 0.0f; // Pieces owed by the clock, less than one.
+
+    // The candidates: which of them set, and what the others were told.
+    DemoSetting Sorted;
+    bool Sets[IM_ARRAYSIZE(CANDIDATES)] = {};
+    ImGuiTextBuffer Reasons[IM_ARRAYSIZE(CANDIDATES)];
 };
 
-void ShowDemoMath(DemoMathState* state)
+// Where a formula can go, as a document: a heading, two items of a list, a
+// quotation, and a paragraph with a tagged, coloured run straight after a
+// formula. Blocks that say ImTypesetBlockFlags_Math have their dollars looked
+// for, exactly as a text with ImTypesetTextFlags_Math has.
+void BuildDemoPlaces(ImTypesetDocument* document)
+{
+    static const char LINK[] = "is the theorem of Pythagoras";
+    static const struct {
+        ImTypesetBlockKind Kind;
+        int Style;
+        int Container;
+        const char* Text;
+    } PLACES[] = {
+        {ImTypesetBlockKind_Heading, 1, 0, "In a heading: $E = mc^2$"},
+        {ImTypesetBlockKind_ListItem, 2, 1,
+         "In a list item, $\\alpha + \\beta = \\gamma$, with words after it."},
+        {ImTypesetBlockKind_ListItem, 2, 1,
+         "In a second item with a taller one, $\\frac{1}{1 - x}$, which opens its own gap."},
+        {ImTypesetBlockKind_Paragraph, 0, 2,
+         "In a quotation: $\\lim_{n \\to \\infty} \\frac{1}{n} = 0$."},
+        {ImTypesetBlockKind_Paragraph, 0, 0,
+         "A run straight after a formula keeps its own colour and its own tag: "
+         "$a^2 + b^2 = c^2$ is the theorem of Pythagoras, and the formula before it is no part "
+         "of the run."},
+    };
+    ImGuiTextBuffer text;
+    ImVector<ImTypesetBlock> blocks;
+    ImTypesetRun link;
+    link.Color = IM_COL32(110, 170, 255, 255);
+    link.Tag = 1;
+    ImTypesetBlockStyle styles[3];
+    styles[0].SpaceBelow = 8.0f;
+    styles[1].Face = ImTypesetFace_Bold;
+    styles[1].Scale = 1.25f;
+    styles[1].Align = ImTypesetAlign_Left;
+    styles[1].SpaceBelow = 8.0f;
+    styles[2].Align = ImTypesetAlign_Left;
+    styles[2].SpaceBelow = 8.0f;
+    ImTypesetContainer containers[2];
+    containers[0].Kind = ImTypesetContainerKind_List;
+    containers[0].Indent = 22.0f;
+    containers[1].Kind = ImTypesetContainerKind_Quote;
+
+    for (int i = 0; i < IM_ARRAYSIZE(PLACES); ++i) {
+        ImTypesetBlock block;
+        block.Kind = PLACES[i].Kind;
+        block.Flags = ImTypesetBlockFlags_Math;
+        block.Level = 3;
+        block.Style = PLACES[i].Style;
+        block.Container = PLACES[i].Container;
+        block.TextStart = text.size();
+        text.append(PLACES[i].Text);
+        block.TextEnd = text.size();
+        if (block.Kind == ImTypesetBlockKind_ListItem) {
+            block.MarkerStart = text.size();
+            text.append("-");
+            block.MarkerEnd = text.size();
+            block.LeftIndent = 22.0f;
+            block.Item = i;
+        }
+        if (block.Container == 2)
+            block.LeftIndent = 18.0f;
+        // A run's offsets are bytes of its block's text.
+        const char* at = strstr(PLACES[i].Text, LINK);
+        if (at != NULL) {
+            link.Start = (int)(at - PLACES[i].Text);
+            link.End = link.Start + (int)(sizeof(LINK) - 1);
+            block.RunStart = 0;
+            block.RunCount = 1;
+        }
+        blocks.push_back(block);
+    }
+    ImTypesetDocumentContent content;
+    content.Text = text.begin();
+    content.TextSize = text.size();
+    content.Blocks = blocks.Data;
+    content.BlockCount = blocks.Size;
+    content.Runs = &link;
+    content.RunCount = 1;
+    content.Styles = styles;
+    content.StyleCount = IM_ARRAYSIZE(styles);
+    content.Containers = containers;
+    content.ContainerCount = IM_ARRAYSIZE(containers);
+    ImTypeset::SetDocumentBlocks(document, &content);
+}
+
+// Text that arrives a piece at a time. Each paragraph of the reply is a
+// paragraph object given, whenever a piece arrives, as much of its text as
+// has come; the library is asked what the dollars in it came to so far.
+void ShowDemoMathStream(DemoMathState* state)
+{
+    const int size = (int)(sizeof(STREAM_SOURCE) - 1);
+    const int pieces = (size + STREAM_PIECE - 1) / STREAM_PIECE;
+    if (state->StreamFed < 0) {
+        // It opens stopped a little way inside its first formula, so that an
+        // unclosed dollar is on screen as text.
+        const char* dollar = strchr(STREAM_SOURCE, '$');
+        state->StreamFed = dollar != NULL ? (int)(dollar - STREAM_SOURCE + 8) / STREAM_PIECE : 0;
+    }
+    if (ImGui::Button("Restart")) {
+        state->StreamFed = 0;
+        state->StreamPlaying = false;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Step")) {
+        state->StreamFed += 1;
+        state->StreamPlaying = false;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(state->StreamPlaying ? "Pause" : "Play")) {
+        state->StreamPlaying = !state->StreamPlaying;
+        state->StreamDue = 0.0f;
+        if (state->StreamPlaying && state->StreamFed >= pieces)
+            state->StreamFed = 0;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Finish")) {
+        state->StreamFed = pieces;
+        state->StreamPlaying = false;
+    }
+    if (state->StreamPlaying) {
+        state->StreamDue += ImGui::GetIO().DeltaTime * STREAM_PIECES_PER_SECOND;
+        const int due = (int)state->StreamDue;
+        state->StreamDue -= (float)due;
+        state->StreamFed += due;
+    }
+    if (state->StreamFed >= pieces) {
+        state->StreamFed = pieces;
+        state->StreamPlaying = false;
+    }
+    const int arrived =
+        state->StreamFed * STREAM_PIECE < size ? state->StreamFed * STREAM_PIECE : size;
+
+    // Where each paragraph of the reply is in it: a blank line ends one.
+    int starts[STREAM_PARAGRAPHS + 1];
+    int count = 0;
+    starts[count++] = 0;
+    for (const char* gap = strstr(STREAM_SOURCE, "\n\n"); gap != NULL && count < STREAM_PARAGRAPHS;
+         gap = strstr(gap + 2, "\n\n"))
+        starts[count++] = (int)(gap - STREAM_SOURCE) + 2;
+    starts[count] = size;
+
+    bool fresh = false;
+    for (int k = 0; k < count; ++k) {
+        if (state->Stream[k] == NULL) {
+            state->Stream[k] = ImTypeset::CreateParagraph();
+            fresh = true;
+        }
+    }
+    if (fresh || arrived != state->StreamShown) {
+        for (int k = 0; k < count; ++k) {
+            const int end = arrived < starts[k + 1] ? arrived : starts[k + 1];
+            const int start = starts[k] < end ? starts[k] : end;
+            ImTypeset::SetParagraphText(state->Stream[k], STREAM_SOURCE + start,
+                                        STREAM_SOURCE + end, NULL, 0, ImTypesetTextFlags_Math);
+        }
+        state->StreamShown = arrived;
+    }
+
+    int set = 0;
+    int refused = 0;
+    int loose = 0;
+    for (int k = 0; k < count && starts[k] < arrived; ++k) {
+        ImTypesetParagraph* paragraph = state->Stream[k];
+        ParagraphItem(paragraph, state->Width, &g_style);
+        // Every dollar of what has come is in a formula or is standing in the
+        // text as a character. A formula's range has its delimiters in it.
+        const int end = arrived < starts[k + 1] ? arrived : starts[k + 1];
+        for (int at = starts[k]; at < end; ++at)
+            loose += STREAM_SOURCE[at] == '$' ? 1 : 0;
+        for (int i = 0; i < ImTypeset::GetParagraphFormulaCount(paragraph); ++i) {
+            const ImTypesetFormula formula = ImTypeset::GetParagraphFormula(paragraph, i);
+            if (formula.Refused)
+                ++refused;
+            else
+                ++set;
+            for (int at = formula.TextStart; at < formula.TextEnd; ++at)
+                loose -= STREAM_SOURCE[starts[k] + at] == '$' ? 1 : 0;
+        }
+    }
+    ImGui::Text("Piece %d of %d. Formulas set: %d. Refused so far: %d. Dollar signs standing as "
+                "text: %d.",
+                state->StreamFed, pieces, set, refused, loose);
+    ImGui::TextDisabled("A display block whose closing line has not come counts as refused "
+                        "until it has.");
+}
+
+// `fonts_added`: as for ShowDemoStress().
+void ShowDemoMath(DemoMathState* state, int fonts_added)
 {
     if (ImTypeset::GetFont(ImTypesetFace_Math) == NULL)
         ImGui::TextWrapped("No font has been added for ImTypesetFace_Math, so every formula is "
@@ -464,36 +1099,187 @@ void ShowDemoMath(DemoMathState* state)
         ImGui::TextDisabled("no formula: the dollars do not open one (see the rules at "
                             "ImTypesetTextFlags_Math)");
 
-    // The subset, one construct at a time: click a source to edit it above.
-    ImGui::SeparatorText("The subset");
-    if (ImGui::BeginTable("formulas", 3,
+    // In running text. A formula is a box in its line: a tall one opens the
+    // gaps above and below its own line and no others, and the line breaker
+    // moves it whole.
+    ImGui::SeparatorText("In a paragraph");
+    ImTypeset::TextUnformatted(
+        "A formula of plain letters, such as $x$ or $a + b = c$, is no taller than the words "
+        "around it, and the lines keep their leading. Scripts hang from the same baseline as "
+        "the text: the letter in $x^2$ and in $x_i$ stands where a letter of the sentence "
+        "would, and $x_i^2$ carries both at once. A fraction is another matter. The fraction "
+        "$\\frac{a}{b}$ needs more room than a line of words has, so its line is set further "
+        "from its neighbours, and a fraction of fractions, "
+        "$\\frac{\\frac{a}{b}}{\\frac{c}{d}}$, pushes them further again. Only the gaps "
+        "touching the formula's own line change.",
+        NULL, ImTypesetTextFlags_Math, state->Width, &g_style);
+    MarginGuides(state->Width);
+    ImTypeset::TextUnformatted(
+        "A formula is never broken across lines. Drag the width above and watch this one: the "
+        "sum of an arithmetic progression, "
+        "$a_1 + a_2 + a_3 + \\cdots + a_n = \\frac{n(a_1 + a_n)}{2}$, moves to the next line "
+        "whole when it no longer fits, and the line it left is stretched to the margin like "
+        "any other. At a width narrower than the formula itself it overhangs; it is not "
+        "scaled and not split.",
+        NULL, ImTypesetTextFlags_Math, state->Width, &g_style);
+    MarginGuides(state->Width);
+
+    // In the blocks of a document.
+    ImGui::SeparatorText("Where a formula can go");
+    ImGui::Checkbox("ImTypesetDocumentDrawFlags_Debug", &state->PlacesDebug);
+    ImGui::SameLine();
+    HelpMarker("Line boxes, baselines, and glue coloured by whether it was stretched or "
+               "squeezed. A document can be drawn with them; a paragraph and the widgets "
+               "cannot.");
+    if (state->Places == NULL || state->PlacesFonts != fonts_added) {
+        if (state->Places == NULL)
+            state->Places = ImTypeset::CreateDocument();
+        if (state->Places != NULL)
+            BuildDemoPlaces(state->Places);
+        state->PlacesFonts = fonts_added;
+    }
+    if (state->Places != NULL) {
+        ImTypesetDocument* places = state->Places;
+        ImTypeset::LayoutDocument(places, state->Width, &g_style);
+        // Five blocks: all of it is laid out, so that its height is its own
+        // and not an estimate.
+        ImTypeset::LayoutDocumentWindow(places, 0.0f, 100000.0f);
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImTypeset::GetDocumentSize(places));
+        ImTypesetDocumentDraw draw;
+        draw.Flags = state->PlacesDebug ? ImTypesetDocumentDrawFlags_Debug : 0;
+        ImTypeset::DrawDocument(places, ImGui::GetWindowDrawList(), pos, &draw);
+        if (ImGui::IsItemHovered()) {
+            const ImVec2 mouse = ImGui::GetMousePos();
+            const ImTypesetDocumentHit hit =
+                ImTypeset::HitTestDocument(places, ImVec2(mouse.x - pos.x, mouse.y - pos.y));
+            ImGui::Text("Under the pointer: block %d, byte %d, ImTypesetRun::Tag %d",
+                        hit.Position.Block, hit.Position.Offset, hit.Tag);
+        } else {
+            ImGui::TextDisabled("Under the pointer: move the mouse over the blocks");
+        }
+        ImGui::TextDisabled("Not here: a table cell. Tables are not laid out yet.");
+    }
+
+    ImGui::SeparatorText("In text that is still arriving");
+    ShowDemoMathStream(state);
+
+    // The subset, one construct at a time. Every candidate is put to the
+    // library once, and again when the style or the fonts change: an
+    // unwrapped CalcTextSize() lays it out, and the last error says whether a
+    // formula in it was refused and why.
+    ImTypesetStyle cell = g_style;
+    cell.Align = ImTypesetAlign_Left;
+    if (!SameSetting(&state->Sorted, fonts_added)) {
+        for (int i = 0; i < IM_ARRAYSIZE(CANDIDATES); ++i) {
+            text.resize(0);
+            text.appendf("$%s$", CANDIDATES[i].Source);
+            ImTypeset::CalcTextSize(text.begin(), text.end(), 0.0f, ImTypesetTextFlags_Math, &cell);
+            const ImTypesetErrorInfo* error = ImTypeset::GetLastError();
+            state->Sets[i] = error->Code != ImTypesetError_MathRefused;
+            state->Reasons[i].resize(0);
+            if (!state->Sets[i])
+                state->Reasons[i].append(error->Message);
+        }
+    }
+    int sets = 0;
+    for (int i = 0; i < IM_ARRAYSIZE(CANDIDATES); ++i)
+        sets += state->Sets[i] ? 1 : 0;
+    ImTypesetStyle code = cell;
+    code.Face = ImTypesetFace_Code;
+
+    ImGui::SeparatorText("The subset, one construct at a time");
+    ImGui::TextDisabled("%d of %d sources set. Click a source to edit it above.", sets,
+                        IM_ARRAYSIZE(CANDIDATES));
+    if (ImGui::BeginTable("formulas", 4,
                           ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
                               ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("what", ImGuiTableColumnFlags_None, 2.0f);
         ImGui::TableSetupColumn("source", ImGuiTableColumnFlags_None, 3.0f);
         ImGui::TableSetupColumn("$...$", ImGuiTableColumnFlags_None, 2.0f);
         ImGui::TableSetupColumn("$$...$$", ImGuiTableColumnFlags_None, 2.0f);
         ImGui::TableHeadersRow();
-        ImTypesetStyle cell = g_style;
-        cell.Align = ImTypesetAlign_Left;
-        for (int i = 0; i < IM_ARRAYSIZE(FORMULAS); ++i) {
+        for (int i = 0; i < IM_ARRAYSIZE(CANDIDATES); ++i) {
+            if (!state->Sets[i])
+                continue;
+            const char* candidate = CANDIDATES[i].Source;
             ImGui::PushID(i);
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            if (ImGui::Selectable(FORMULAS[i]) && strlen(FORMULAS[i]) < sizeof(state->Source)) {
-                memcpy(source, FORMULAS[i], strlen(FORMULAS[i]) + 1);
-                state->Replaced = true;
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextUnformatted(CANDIDATES[i].What);
+            ImGui::PopTextWrapPos();
+            ImGui::TableNextColumn();
+            // The source as it was typed, in the code face: without
+            // ImTypesetTextFlags_Math a dollar or a backslash is a character.
+            // A typeset text is an item like any other, so it can be clicked.
+            ImTypeset::TextUnformatted(candidate, NULL, 0, 0.0f, &code);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(),
+                                                    ImGui::GetItemRectMax(),
+                                                    ImGui::GetColorU32(ImGuiCol_TextDisabled));
+                if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+                    strlen(candidate) < sizeof(state->Source)) {
+                    memcpy(source, candidate, strlen(candidate) + 1);
+                    state->Replaced = true;
+                }
             }
             ImGui::TableNextColumn();
             text.resize(0);
-            text.appendf("$%s$", FORMULAS[i]);
+            text.appendf("$%s$", candidate);
             ImTypeset::TextUnformatted(text.begin(), text.end(), ImTypesetTextFlags_Math, 0.0f,
                                        &cell);
             ImGui::TableNextColumn();
             // A text that is one $$ block: display style, centred in the cell.
             text.resize(0);
-            text.appendf("$$%s$$", FORMULAS[i]);
+            text.appendf("$$%s$$", candidate);
             ImTypeset::TextUnformatted(text.begin(), text.end(), ImTypesetTextFlags_Math, 0.0f,
                                        &cell);
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+
+    // What cannot be set whole is never set as a damaged formula.
+    ImGui::SeparatorText("Refused, and why");
+    ImTypeset::TextUnformatted(
+        "Whatever cannot be set whole is never set as a damaged formula. Its source is shown "
+        "as it was typed, in the code face with its dollar signs, and the call that laid it "
+        "out says why. Matrices are left out, and everything else that needs alignment with "
+        "them; accents are not built; and a delimiter or a root sign is chosen from the sizes "
+        "the font carries and never assembled from pieces, so content far taller than the "
+        "largest is refused, where a sign that does not reach would be a damaged formula. The "
+        "first two below are of that kind. The reasons are the library's, given when this "
+        "list was made.",
+        NULL, 0, 0.0f, &g_style);
+    if (ImGui::BeginTable("refused", 3,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
+                              ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("what", ImGuiTableColumnFlags_None, 2.0f);
+        ImGui::TableSetupColumn("$...$, as it is shown", ImGuiTableColumnFlags_None, 4.0f);
+        ImGui::TableSetupColumn("ImTypesetErrorInfo::Message", ImGuiTableColumnFlags_None, 4.0f);
+        ImGui::TableHeadersRow();
+        for (int i = 0; i < IM_ARRAYSIZE(CANDIDATES); ++i) {
+            if (state->Sets[i])
+                continue;
+            ImGui::PushID(i);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextUnformatted(CANDIDATES[i].What);
+            ImGui::PopTextWrapPos();
+            ImGui::TableNextColumn();
+            text.resize(0);
+            text.appendf("$%s$", CANDIDATES[i].Source);
+            ImTypeset::TextUnformatted(text.begin(), text.end(), ImTypesetTextFlags_Math, 0.0f,
+                                       &cell);
+            ImGui::TableNextColumn();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.6f, 0.3f, 1.0f));
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextUnformatted(state->Reasons[i].c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
             ImGui::PopID();
         }
         ImGui::EndTable();
@@ -506,6 +1292,217 @@ void ShowDemoMath(DemoMathState* state)
         "once by the formula and a closing one must follow it at once. An escaped dollar, \\$ "
         "like this, is a dollar too. Without ImTypesetTextFlags_Math, a dollar is a dollar.",
         NULL, ImTypesetTextFlags_Math, state->Width, &g_style);
+}
+
+//-----------------------------------------------------------------------------
+// [SECTION] Formula gallery
+//-----------------------------------------------------------------------------
+// Plates, each one chosen for a rule of math mode it makes visible, and most
+// of them the same material set twice under two rules, side by side: a
+// reader compares two things faster than a picture with a memory.
+//
+// A panel is a paragraph object whose whole text is the source of one formula,
+// under one run that says so: ImTypesetRunFlags_DisplayFormula sets it in
+// display style and ImTypesetRunFlags_Formula in text style, where it stands,
+// with no dollars and no ImTypesetTextFlags_Math. The paragraph is then as wide
+// as the formula, and its one line says where the baseline is, which is what
+// puts the panels of a plate on one baseline.
+
+struct DemoPanel {
+    const char* Source;
+    bool Display; // Display style, or text style.
+    const char* Label;
+};
+const int PLATE_PANELS = 2;
+struct DemoPlate {
+    const char* Title;
+    const char* Caption;
+    DemoPanel Panels[PLATE_PANELS]; // A null Source ends them.
+};
+const DemoPlate PLATES[] = {
+    {"A big operator, twice",
+     "The large sigma is a different outline and not the small one scaled up: a glyph the math "
+     "font keeps for display style and reaches through its chain of size variants. The limits "
+     "move with it: stacked in display style, set to the right in text style.",
+     {{"\\sum_{i=1}^n", true, "display style"}, {"\\sum_{i=1}^n", false, "text style"}}},
+    {"Euler's identity",
+     "The control: five atoms, one superscript, nothing nested. No space was typed into it, and "
+     "the gap at the equals sign is wider than the one at the plus because a relation is not a "
+     "binary operator.",
+     {{"e^{i\\pi} + 1 = 0", true, ""}, {NULL, false, ""}}},
+    {"Schr\xC3\xB6"
+     "dinger's equation",
+     "Two fractions inside one expression, and a reclassification in the middle: the minus "
+     "after the equals sign has nothing on its left to bind, so it is set as an ordinary symbol "
+     "and hugs the fraction. The later plus, which really is binary, keeps its space.",
+     {{"i\\hbar\\frac{\\partial\\psi}{\\partial t} = "
+       "-\\frac{\\hbar^2}{2m}\\nabla^2\\psi + V\\psi",
+       true, ""},
+      {NULL, false, ""}}},
+    {"The Basel problem",
+     "Both limits stacked over the operator, because the style is display and a sum takes its "
+     "limits above and below there; which is why the text-style sigma of the first plate sets "
+     "its bounds to the right instead.",
+     {{"\\sum_{n=1}^\\infty \\frac{1}{n^2} = \\frac{\\pi^2}{6}", true, ""}, {NULL, false, ""}}},
+    {"Cauchy's integral formula",
+     "The plate before, the other way round: an integral keeps its bound beside the sign in "
+     "display style too, where a sum stacks them. The parentheses are typed as themselves and "
+     "stay the size of the type; nothing here is asked to grow.",
+     {{"f(a) = \\frac{1}{2\\pi i} \\oint_\\gamma \\frac{f(z)}{z-a} dz", true, ""},
+      {NULL, false, ""}}},
+    {"A continued fraction, four deep",
+     "The golden ratio, and the only plate that shows all four math styles at once. Each bar "
+     "drops one step: display, text, script, script-script. Then it stops, so the fourth bar is "
+     "set at the size of the third and three sizes of type serve any depth. Watch the plus "
+     "signs as well: in the script styles the space around a binary operator is dropped, so "
+     "the deep ones close up.",
+     {{"\\varphi = 1 + \\frac{1}{1+\\frac{1}{1+\\frac{1}{1+\\frac{1}{1+1}}}}", true, ""},
+      {NULL, false, ""}}},
+    {"Scripts stack, and the two directions are not mirror images",
+     "The same four letters, hung upward and downward. A subscript is always cramped and a "
+     "superscript is not, and a cramped style holds its own scripts down, so the left tower "
+     "rises further than the right one drops. Both reach the smallest size at the third "
+     "letter.",
+     {{"x^{y^{z^w}}", true, "superscripts"}, {"x_{y_{z_w}}", true, "subscripts"}}},
+    {"The spacing table, on and off",
+     "The same five glyphs, set twice. On the left the plus is a binary operator and the equals "
+     "sign a relation, so the one is given a medium space on each side and the other a thick "
+     "one. On the right each sign is written in braces, {+} and {=}, which makes it an ordinary "
+     "symbol, and no space is asked for. Neither source has a space in it.",
+     {{"a+b=c", true, "classified"}, {"a{+}b{=}c", true, "all ordinary"}}},
+    {"A minus sign is only binary in context",
+     "On the right something precedes it, so it is a binary operator and takes a medium space "
+     "on each side. On the left nothing does: it is set as an ordinary symbol, and the space is "
+     "not narrowed, it is never asked for.",
+     {{"-x", true, "nothing before it"}, {"a-x", true, "something before it"}}},
+    {"A radical, sized to its radicand",
+     "The root sign is chosen, never stretched: the font carries several, and the smallest that "
+     "covers the radicand, the clearance above it and the rule is the one set. So the two signs "
+     "here are different outlines, and the rule meets each at the top of its stroke.",
+     {{"\\sqrt{a^2+b^2}", true, "one line"}, {"\\sqrt{\\frac{a^2+b^2}{c^2}}", true, "a fraction"}}},
+    {"Parentheses, fixed and fitted",
+     "The same fraction between the same two characters. On the left they are typed as "
+     "themselves and stay the size of the type. On the right they are a \\left ... \\right "
+     "pair: what stands between them is measured and the smallest parenthesis in the font that "
+     "covers it is set, centred on the axis.",
+     {{"(\\frac{a^2+b^2}{c^2})", true, "fixed"},
+      {"\\left(\\frac{a^2+b^2}{c^2}\\right)", true, "fitted"}}},
+};
+
+struct DemoFormulasState {
+    float Size = 34.0f; // The em every plate is set at, in pixels: its smallest type is half of it.
+    bool Guides = false;
+    ImTypesetParagraph* Panels[IM_ARRAYSIZE(PLATES)][PLATE_PANELS] = {};
+};
+
+void ShowDemoFormulas(DemoFormulasState* state)
+{
+    if (ImTypeset::GetFont(ImTypesetFace_Math) == NULL)
+        ImGui::TextWrapped("No font has been added for ImTypesetFace_Math, so every plate shows "
+                           "its source and the reason it was refused. See Fonts.");
+    ImTypeset::TextUnformatted(
+        "Each plate is here for one rule of TeX's math mode that it makes visible, and says "
+        "which. Nothing in a source is a typed space that counts: every gap is the spacing "
+        "between the classes of two neighbouring atoms.",
+        NULL, 0, 0.0f, &g_style);
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
+    ImGui::SliderFloat("ImTypesetStyle::EmSize##formulas", &state->Size, 12.0f, 72.0f, "%.0f px");
+    ImGui::SameLine();
+    ImGui::Checkbox("Baseline and boxes", &state->Guides);
+
+    ImTypesetStyle style = g_style;
+    style.EmSize = state->Size;
+    style.Align = ImTypesetAlign_Left;
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    const float gap = state->Size; // Between two panels: one em.
+    const float label_height = ImGui::GetTextLineHeight();
+
+    for (int n = 0; n < IM_ARRAYSIZE(PLATES); ++n) {
+        const DemoPlate& plate = PLATES[n];
+        ImGui::PushID(n);
+        ImGui::SeparatorText(plate.Title);
+        ImTypeset::TextUnformatted(plate.Caption, NULL, 0, 0.0f, &g_style);
+
+        // Lay the panels out, and measure the row they make: each column is
+        // as wide as the wider of its formula and its label, and the row is
+        // as tall as the tallest rise above the baseline and the deepest
+        // drop below it.
+        const float avail = ImGui::GetContentRegionAvail().x;
+        ImTypesetParagraph* panels[PLATE_PANELS] = {};
+        ImVec2 sizes[PLATE_PANELS];
+        float baselines[PLATE_PANELS] = {};
+        float columns[PLATE_PANELS] = {};
+        int count = 0;
+        float width = 0.0f;
+        float above = 0.0f;
+        float below = 0.0f;
+        bool labelled = false;
+        for (; count < PLATE_PANELS && plate.Panels[count].Source != NULL; ++count) {
+            const DemoPanel& panel = plate.Panels[count];
+            ImTypesetParagraph*& paragraph = state->Panels[n][count];
+            if (paragraph == NULL) {
+                paragraph = ImTypeset::CreateParagraph();
+                ImTypesetRun run;
+                run.Start = 0;
+                run.End = (int)strlen(panel.Source);
+                run.Flags =
+                    panel.Display ? ImTypesetRunFlags_DisplayFormula : ImTypesetRunFlags_Formula;
+                ImTypeset::SetParagraphText(paragraph, panel.Source, NULL, &run, 1);
+            }
+            panels[count] = paragraph;
+            // A formula is not broken, so the width it is laid out to only has
+            // to be more than it needs: one number, whatever the window's.
+            ImTypeset::LayoutParagraph(paragraph, 4096.0f, &style);
+            sizes[count] = ImTypeset::GetParagraphSize(paragraph);
+            baselines[count] = ImTypeset::GetParagraphLine(paragraph, 0).Baseline;
+            const float label_width = ImGui::CalcTextSize(panel.Label).x;
+            columns[count] = sizes[count].x > label_width ? sizes[count].x : label_width;
+            width += columns[count] + (count > 0 ? gap : 0.0f);
+            above = baselines[count] > above ? baselines[count] : above;
+            const float drop = sizes[count].y - baselines[count];
+            below = drop > below ? drop : below;
+            labelled |= panel.Label[0] != 0;
+        }
+
+        // The row, centred, and under it the labels on the same columns.
+        const ImVec2 origin = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(avail, above + below + (labelled ? label_height + 4.0f : 0.0f)));
+        float x = origin.x + (avail > width ? (float)(int)((avail - width) * 0.5f) : 0.0f);
+        const float baseline = origin.y + above;
+        if (state->Guides)
+            draw_list->AddLine(ImVec2(x, baseline), ImVec2(x + width, baseline),
+                               IM_COL32(255, 96, 96, 160));
+        // DrawParagraph() draws what it is told to, in view or not; the row's
+        // rectangle was reserved above, and a row that is scrolled out of
+        // view is skipped here, as a host with a long page of its own skips.
+        const bool in_view = ImGui::IsItemVisible();
+        for (int i = 0; i < count && in_view; ++i) {
+            const ImVec2 pos(x + (float)(int)((columns[i] - sizes[i].x) * 0.5f),
+                             baseline - baselines[i]);
+            ImTypeset::DrawParagraph(panels[i], draw_list, pos);
+            if (state->Guides)
+                draw_list->AddRect(pos, ImVec2(pos.x + sizes[i].x, pos.y + sizes[i].y),
+                                   IM_COL32(80, 160, 255, 140));
+            DimmedLabel(x + columns[i] * 0.5f, baseline + below + 4.0f, plate.Panels[i].Label,
+                        true);
+            x += columns[i] + gap;
+        }
+
+        // A panel that could not be set shows its source, and says why.
+        for (int i = 0; i < count; ++i) {
+            if (ImTypeset::GetParagraphFormulaCount(panels[i]) < 1)
+                continue;
+            const ImTypesetFormula formula = ImTypeset::GetParagraphFormula(panels[i], 0);
+            if (formula.Refused)
+                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "refused at byte %d: %s",
+                                   formula.BytePos, formula.Reason);
+        }
+        ImGui::PopID();
+    }
+    ImGui::Spacing();
+    DisabledTextWrapped("Not here: whether the math face has a glyph for every character of a "
+                        "source. The library does not say what a font covers.",
+                        NULL);
 }
 
 //-----------------------------------------------------------------------------
@@ -1139,13 +2136,17 @@ void ShowDemoDocument(DemoDocumentState* state, int fonts_added)
 
 struct DemoState {
     ImU64 Serial = 0;   // ImTypeset::GetContextSerial() of its context.
-    ImU64 LastCall = 0; // Which call of ShowDemoWindow() last used it.
+    ImU64 LastCall = 0; // Which call of the demo last used it.
 
     float FontSize = 19.0f;                           // Chosen at the top of the window.
     ImTypesetStats LastFrameStats = ImTypesetStats(); // What the library did in its last frame.
+    // The same for each section shown alone, by ShowDemoSection().
+    ImTypesetStats LastSectionStats[ImTypesetDemoSection_COUNT] = {};
     DemoParagraphState Paragraph;
     DemoFacesState Faces;
+    DemoSpecimenState Specimen;
     DemoMathState Math;
+    DemoFormulasState Formulas;
     DemoSelectionState Selection;
     DemoInspectorState Inspector;
     DemoStressState Stress;
@@ -1168,11 +2169,17 @@ struct DemoStates {
             IM_DELETE(All[i]);
     }
 };
-DemoStates g_states;
+// Two sets of them: what the demo window remembers, and what the sections
+// shown alone by ShowDemoSection() remember. A host may show both in one
+// frame, at two sizes of type and in windows of two widths, and a paragraph
+// object or a kept measurement shared by the two would be laid out or taken
+// again at each call.
+DemoStates g_window_states;
+DemoStates g_section_states;
 
-// The state of the current context, made if there is none. Null with no
-// current context.
-DemoState* DemoStateOfCurrentContext()
+// The state of the current context in one of the sets, made if there is none.
+// Null with no current context.
+DemoState* DemoStateOfCurrentContext(DemoStates& g_states)
 {
     const ImU64 serial = ImTypeset::GetContextSerial();
     if (serial == 0)
@@ -1200,6 +2207,67 @@ DemoState* DemoStateOfCurrentContext()
     return g_states.All[found];
 }
 
+// The titles, as the window's headers show them.
+const char* const SECTION_NAMES[ImTypesetDemoSection_COUNT] = {
+    "Paragraph", "Faces and sizes", "Specimen", "Math",         "Formula gallery", "Selection",
+    "Inspector", "Stress",          "Fonts",    "Known limits", "Document",
+};
+
+void ShowSection(DemoState* demo, ImTypesetDemoSection section)
+{
+    switch (section) {
+    case ImTypesetDemoSection_Paragraph:
+        ShowDemoParagraph(&demo->Paragraph);
+        break;
+    case ImTypesetDemoSection_Faces:
+        ShowDemoFaces(&demo->Faces);
+        break;
+    case ImTypesetDemoSection_Specimen:
+        ShowDemoSpecimen(&demo->Specimen, demo->Fonts.Added);
+        break;
+    case ImTypesetDemoSection_Math:
+        ShowDemoMath(&demo->Math, demo->Fonts.Added);
+        break;
+    case ImTypesetDemoSection_Formulas:
+        ShowDemoFormulas(&demo->Formulas);
+        break;
+    case ImTypesetDemoSection_Selection:
+        ShowDemoSelection(&demo->Selection);
+        break;
+    case ImTypesetDemoSection_Inspector:
+        ShowDemoInspector(&demo->Inspector);
+        break;
+    case ImTypesetDemoSection_Stress:
+        ShowDemoStress(&demo->Stress, demo->Fonts.Added);
+        break;
+    case ImTypesetDemoSection_Fonts:
+        ShowDemoFonts(&demo->Fonts);
+        break;
+    case ImTypesetDemoSection_KnownLimits:
+        ShowDemoKnownLimits();
+        break;
+    case ImTypesetDemoSection_Document:
+        ShowDemoDocument(&demo->Document, demo->Fonts.Added);
+        break;
+    default:
+        break;
+    }
+}
+
+// What the library did between two readings of its counters: the ones a frame
+// in which something happened adds to.
+ImTypesetStats StatsBetween(const ImTypesetStats& before, const ImTypesetStats& after)
+{
+    ImTypesetStats done = ImTypesetStats();
+    done.Layouts = after.Layouts - before.Layouts;
+    done.TextBuilds = after.TextBuilds - before.TextBuilds;
+    done.DrawCalls = after.DrawCalls - before.DrawCalls;
+    done.CulledCalls = after.CulledCalls - before.CulledCalls;
+    done.VerticesEmitted = after.VerticesEmitted - before.VerticesEmitted;
+    done.BytesHashed = after.BytesHashed - before.BytesHashed;
+    return done;
+}
+
 } // namespace
 
 //-----------------------------------------------------------------------------
@@ -1221,7 +2289,7 @@ void ImTypeset::ShowDemoWindow(bool* p_open)
 
     // Without a context there is nothing to show, and every call would only
     // answer ImTypesetError_NoContext.
-    DemoState* demo = DemoStateOfCurrentContext();
+    DemoState* demo = DemoStateOfCurrentContext(g_window_states);
     if (demo == NULL) {
         ImGui::TextWrapped("There is no current ImTypeset context. Call "
                            "ImTypeset::CreateContext() after ImGui::CreateContext().");
@@ -1253,34 +2321,63 @@ void ImTypeset::ShowDemoWindow(bool* p_open)
     g_style.FontSize = ImGui::GetFontSize();
     ImGui::PopFont();
 
-    if (ImGui::CollapsingHeader("Paragraph"))
-        ShowDemoParagraph(&demo->Paragraph);
-    if (ImGui::CollapsingHeader("Faces and sizes"))
-        ShowDemoFaces(&demo->Faces);
-    if (ImGui::CollapsingHeader("Math"))
-        ShowDemoMath(&demo->Math);
-    if (ImGui::CollapsingHeader("Selection"))
-        ShowDemoSelection(&demo->Selection);
-    if (ImGui::CollapsingHeader("Inspector"))
-        ShowDemoInspector(&demo->Inspector);
-    if (ImGui::CollapsingHeader("Stress"))
-        ShowDemoStress(&demo->Stress, demo->Fonts.Added);
-    if (ImGui::CollapsingHeader("Fonts"))
-        ShowDemoFonts(&demo->Fonts);
-    if (ImGui::CollapsingHeader("Known limits"))
-        ShowDemoKnownLimits();
-    if (ImGui::CollapsingHeader("Document"))
-        ShowDemoDocument(&demo->Document, demo->Fonts.Added);
+    for (int section = 0; section < ImTypesetDemoSection_COUNT; ++section)
+        if (ImGui::CollapsingHeader(SECTION_NAMES[section]))
+            ShowSection(demo, section);
 
     // What this frame did, for the next one to show.
-    const ImTypesetStats now = ImTypeset::GetStats();
-    demo->LastFrameStats.Layouts = now.Layouts - stats.Layouts;
-    demo->LastFrameStats.TextBuilds = now.TextBuilds - stats.TextBuilds;
-    demo->LastFrameStats.DrawCalls = now.DrawCalls - stats.DrawCalls;
-    demo->LastFrameStats.CulledCalls = now.CulledCalls - stats.CulledCalls;
-    demo->LastFrameStats.VerticesEmitted = now.VerticesEmitted - stats.VerticesEmitted;
-    demo->LastFrameStats.BytesHashed = now.BytesHashed - stats.BytesHashed;
+    demo->LastFrameStats = StatsBetween(stats, ImTypeset::GetStats());
     ImGui::End();
+}
+
+//-----------------------------------------------------------------------------
+// [SECTION] ShowDemoSection()
+//-----------------------------------------------------------------------------
+// The contents of one section, into the window that is current. A host with
+// pages of its own (tabs, a sidebar and a child window) shows a section as one
+// of them:
+//
+//     for (int n = 0; n < ImTypesetDemoSection_COUNT; ++n)
+//         if (ImGui::BeginTabItem(ImTypeset::GetDemoSectionName(n))) {
+//             ImTypeset::ShowDemoSection(n);
+//             ImGui::EndTabItem();
+//         }
+//
+// The section sets its text at the size ImGui's own text has there, so the
+// host sizes it with ImGui::PushFont(NULL, size) around the call. It is the
+// section the demo window shows, with a state of its own: see [SECTION] One
+// state per context.
+
+void ImTypeset::ShowDemoSection(ImTypesetDemoSection section)
+{
+    if (section < 0 || section >= ImTypesetDemoSection_COUNT)
+        return;
+    DemoState* demo = DemoStateOfCurrentContext(g_section_states);
+    if (demo == NULL) {
+        ImGui::TextWrapped("There is no current ImTypeset context. Call "
+                           "ImTypeset::CreateContext() after ImGui::CreateContext().");
+        return;
+    }
+    const ImTypesetStats stats = ImTypeset::GetStats();
+    g_frame = demo->LastSectionStats[section];
+    g_font_size = ImGui::GetStyle().FontSizeBase;
+    g_style = ImTypeset::GetStyle();
+    g_style.FontSize = ImGui::GetFontSize();
+
+    // Under an ID of its own, so that a section's "Width" is not the host's.
+    ImGui::PushID("ImTypeset Demo");
+    ImGui::PushID(section);
+    ShowSection(demo, section);
+    ImGui::PopID();
+    ImGui::PopID();
+    demo->LastSectionStats[section] = StatsBetween(stats, ImTypeset::GetStats());
+}
+
+const char* ImTypeset::GetDemoSectionName(ImTypesetDemoSection section)
+{
+    if (section < 0 || section >= ImTypesetDemoSection_COUNT)
+        return "";
+    return SECTION_NAMES[section];
 }
 
 #endif // IMTYPESET_DISABLE_DEMO

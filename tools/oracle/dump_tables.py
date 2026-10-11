@@ -11,8 +11,8 @@ here and not edited.
 
 Run from the imtypeset repository root, with the reference's interpreter:
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \\
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_tables.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \\
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_tables.py
 
     ... dump_tables.py --verify   re-reads every golden, rebuilds each case
                                   from its INPUT records alone, rebuilds the
@@ -55,7 +55,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import inspect
-import subprocess
 import sys
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
@@ -63,6 +62,10 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import pinned_reference  # noqa: E402
+
+pinned_reference.require()
 
 import dump_blocks as blocks  # noqa: E402
 import dump_core as core  # noqa: E402
@@ -125,7 +128,7 @@ from advtext.units import MAX_DIMEN, UNITY, GlueOrder, Scaled, sp_from_pt, sp_fr
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "tests" / "golden" / "tables"
-REFERENCE = ROOT.parent / "imgui-adv-text"
+REFERENCE = pinned_reference.ROOT_DIR
 FORMAT_VERSION = 1
 MEASURE = para.MEASURE
 PARAMS = ui.PROSE_BREAKING
@@ -137,36 +140,14 @@ PT = UNITY
 # --------------------------------------------------------------------------
 
 
-def _git(*args: str) -> str:
-    """
-    One read-only git query against the reference. `--no-optional-locks` keeps
-    `status` from refreshing the index, so nothing at all is written there.
-    """
-    done = subprocess.run(
-        ["git", "--no-optional-locks", "-C", str(REFERENCE), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return done.stdout
-
-
 def provenance() -> list[str]:
     import fontTools
     import imgui_bundle
     import markdown_it
 
-    commit = _git("rev-parse", "HEAD").strip()
-    status = [line for line in _git("status", "--porcelain").splitlines() if line.strip()]
-    lines = [f"Reference: imgui-adv-text commit {commit}."]
-    if status:
-        under = [line for line in status if line[3:].startswith("advtext/")]
-        lines.append(
-            f"Reference working tree: dirty in {len(status)} paths, {len(under)} of them under advtext/:"
-        )
-        lines += [f"- {line[3:]} ({line[:2].strip()})" for line in status]
-    else:
-        lines.append("Reference working tree: clean.")
+    # The commit is the one tools/oracle/REFERENCE.lock pins; pinned_reference
+    # has verified that the tree `advtext` was imported from is that commit's.
+    lines = pinned_reference.header_lines()
     lines.append(
         f"Versions: imgui_bundle {imgui_bundle.__version__}, fontTools {fontTools.version}, "
         f"markdown-it-py {markdown_it.__version__}, Python {sys.version.split()[0]}."

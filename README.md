@@ -623,11 +623,16 @@ difference is a switch: the goldens run under `reference()` rules and the
 public API under `product()` rules (`TexRules`, `DrawRules`, `DocumentRules`),
 and `docs/divergences.md` lists each.
 
-To regenerate a golden directory, run the script that wrote it with the
-reference's interpreter, from the repository root:
+The reference is pinned: commit `32e3953` of `../imgui-adv-text` (its tag
+`advtext-reference`), extracted read-only into `build/advtext-reference` by
+`tools/oracle/pin_reference.sh` and held to `tools/oracle/REFERENCE.lock`. The
+oracle scripts refuse to run against anything else, the sibling's working tree
+included. To regenerate a golden directory, run the script that wrote it with
+the reference's interpreter, from the repository root:
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
+tools/oracle/pin_reference.sh
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
     ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_core.py
 python3 -B tools/oracle/manifest.py --check
 ```
@@ -642,6 +647,12 @@ as they are here (the font corpus too, 2,991 faces). The thirteenth,
 commit and in no record: the reference had been committed to since, with no
 change under `advtext/`. Those six files were taken as regenerated and the
 manifest written again.
+
+Run again on the same day from the pinned tree, one script at a time: the same
+twelve directories byte for byte, and `tests/golden/tables` again in its
+header comments only, which now name the pinned commit. `tests/golden/doc-tables`
+was added then (`tools/oracle/FORMAT-doc-tables.md`): a table among other
+blocks, for the table work to be held to. No test replays it yet.
 
 ## Licence
 

@@ -84,11 +84,30 @@ the reference was found wanting, the improvement is a switch, off in
 selects `reference()`. A test of a product rule has no oracle: it states a
 bound and asserts it, or is worked by hand, and says which.
 
-Nothing is ever written into `../imgui-adv-text` or `../pptmstr`. Run the
+**The oracle is a pinned tree, not `../imgui-adv-text`'s working tree.** That
+repository is being rewritten onto this library and its Python layout core is
+no longer in its working tree. The reference is commit `32e3953` there (its
+tag `advtext-reference`), extracted read-only into `build/advtext-reference`:
+
+    tools/oracle/pin_reference.sh
+
+It is idempotent, refuses a directory holding another commit, and checks the
+tree against the tracked `tools/oracle/REFERENCE.lock`. Nothing is ever written
+into `../imgui-adv-text` or `../pptmstr` — no worktree, no tag. Run the
 reference with
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
         ../imgui-adv-text/.venv/bin/python -P -B <script>
+
+Every `tools/oracle/dump_*.py`, `manifest.py` and `tools/gen_mathtext_tables.py`
+exits 2 before dumping anything unless `advtext` was imported from that tree
+and the tree matches the lock (`tools/oracle/pinned_reference.py`). Without
+`PYTHONPATH` the interpreter's editable install imports the sibling's working
+tree, which is the wrong reference: that is the case the check exists for. The
+interpreter itself is still `../imgui-adv-text/.venv` — a virtual environment
+is not history and no commit holds it; `tests/golden/PROVENANCE.md` records
+its versions. Read the reference's modules in `build/advtext-reference/advtext`,
+not in the sibling.
 
 ### `tex.web` for structure, the oracle for behaviour (D23)
 
@@ -514,5 +533,5 @@ once in this project (an old headless-Firefox experiment ran eight times).
   or under `tools/` in this tree if they are worth keeping.
 - Run the reference interpreter with `-P` as well as `-B` (Python 3.11: do not
   prepend the script's directory or the current directory to `sys.path`);
-  `PYTHONPATH=../imgui-adv-text` still applies.
+  `PYTHONPATH=build/advtext-reference` still applies.
 - Never `cd` into `$TMPDIR`'s top level to run an interpreter or a build tool.

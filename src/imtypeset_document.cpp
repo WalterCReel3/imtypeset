@@ -1715,10 +1715,18 @@ ImTypesetDocumentStats GetDocumentStats(const ImTypesetDocument* document)
 bool DrawDocument(ImTypesetDocument* document, ImDrawList* draw_list, const ImVec2& pos,
                   const ImTypesetDocumentDraw* draw)
 {
-    if (draw_list == nullptr)
-        return fail(ImTypesetError_InvalidArgument, "DrawDocument: a draw list is needed");
     if (!can_draw(document))
         return false;
+    if (draw_list == nullptr) {
+        // Null is the current window's. NewFrame invalidates the draw data and
+        // Render makes it valid again: the one sign imgui.h gives of being
+        // inside a frame, which is where there is a current window.
+        if (ImGui::GetFrameCount() <= 0 || ImGui::GetDrawData() != nullptr)
+            return fail(ImTypesetError_InvalidArgument,
+                        "DrawDocument: no draw list was given, which means the current "
+                        "window's, and this is outside a frame");
+        draw_list = ImGui::GetWindowDrawList();
+    }
     Target target;
     target.list = draw_list;
     const int before = draw_list->VtxBuffer.Size;

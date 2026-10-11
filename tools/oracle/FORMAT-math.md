@@ -1,12 +1,12 @@
 # Math goldens: `tests/golden/math/*.golden`
 
 Written by `tools/oracle/dump_math.py` from the Python reference
-(`../imgui-adv-text/advtext/{style,mathtext}.py`, `advtext/math/{atoms,mlist}.py`,
+(`build/advtext-reference/advtext/{style,mathtext}.py`, `advtext/math/{atoms,mlist}.py`,
 and `advtext/markdown.py` for formulas in running text). Regenerate, from the
 repository root, with
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_math.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_math.py
 
 Two runs write identical bytes. `dump_math.py --verify` re-reads every file
 with a reader that uses only what this document and `FORMAT.md` say, rebuilds

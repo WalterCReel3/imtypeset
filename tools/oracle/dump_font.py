@@ -3,8 +3,8 @@ Dump font goldens from the Python reference for the C++ OpenType subset reader.
 
 Run from the repository root, with the reference's interpreter:
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_font.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_font.py
 
 Writes tests/golden/font/*.golden. Reads the reference and never writes to it.
 tools/oracle/FORMAT-font.md documents every record this writes and, more to the
@@ -40,6 +40,11 @@ from typing import Any
 import fontTools
 from fontTools.pens.basePen import NullPen
 from fontTools.ttLib import TTFont
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pinned_reference  # noqa: E402
+
+pinned_reference.require()
 
 from advtext import fontlib
 from advtext.fontmetrics import Face, MathParams

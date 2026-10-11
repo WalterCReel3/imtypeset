@@ -339,6 +339,7 @@ PROTOTYPES = {
     "ImTypeset_AddFontFromMemoryTTF": (_P, [_INT, C.c_char_p, _INT, _INT, _P]),
     "ImTypeset_RemoveFont": (_INT, [_INT]),
     "ImTypeset_GetFont": (_P, [_INT]),
+    "ImTypeset_GetFontAtlasIndex": (_INT, [_INT]),
     "ImTypeset_TextUnformatted": (_INT, [_TEXT, _END, _INT, _F, _ptr(Style)]),
     "ImTypeset_TextWithID": (_INT, [_TEXT, _END, _TEXT, _END, _INT, _F, _ptr(Style)]),
     "ImTypeset_SelectableText": (
@@ -413,6 +414,8 @@ PROTOTYPES = {
         [_TEXT, _END, _P, _ptr(Vec2), _ptr(DocumentRange), _ptr(DocumentDraw), _ptr(Style)],
     ),
     "ImTypeset_ShowDemoWindow": (_INT, [_ptr(_INT)]),
+    "ImTypeset_ShowDemoSection": (_INT, [_INT]),
+    "ImTypeset_GetDemoSectionName": (C.c_char_p, [_INT]),
     "ImTypeset_TextCodepointToByteOffset": (_INT, [_TEXT, _END, _INT]),
     "ImTypeset_TextByteToCodepointOffset": (_INT, [_TEXT, _END, _INT]),
     "ImTypeset_ParagraphCodepointToByteOffset": (_INT, [_P, _INT]),

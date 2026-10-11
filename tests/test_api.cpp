@@ -2443,8 +2443,8 @@ TEST(no_length_a_host_passes_reaches_the_layout_core_unclamped)
     }
     CHECK(!ImTypeset::DrawParagraphToBuffers(p, ImVec2(0.0f, 0.0f), ImVec4(0, 0, 1, 1), nullptr,
                                              &indices));
-    CHECK(!ImTypeset::DrawParagraph(p, nullptr, ImVec2(0.0f, 0.0f)));
-    CHECK_EQ(ImTypeset::GetLastError()->Code, static_cast<int>(ImTypesetError_InvalidArgument));
+    // No draw list is the current window's: inside a frame there is one.
+    CHECK(ImTypeset::DrawParagraph(p, nullptr, ImVec2(0.0f, 0.0f)));
     ImTypeset::DestroyParagraph(nullptr);
     ImTypeset::DestroyParagraph(p);
 }

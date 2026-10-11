@@ -168,6 +168,7 @@ typedef int ImTypeset_ContainerFlags;    /* ImTypeset_ContainerFlags_ */
 typedef int ImTypeset_CodeOverflow;      /* ImTypeset_CodeOverflow_ */
 typedef int ImTypeset_MarkPlace;         /* ImTypeset_MarkPlace_ */
 typedef int ImTypeset_DocumentDrawFlags; /* ImTypeset_DocumentDrawFlags_ */
+typedef int ImTypeset_DemoSection;       /* ImTypeset_DemoSection_ */
 
 /* Every value below is the value of the C++ enumerator of the same name. */
 
@@ -641,6 +642,13 @@ IMTYPESET_C_API struct ImFont* ImTypeset_AddFontFromMemoryTTF(ImTypeset_Face fac
                                                               const struct ImFontConfig* font_cfg);
 IMTYPESET_C_API int ImTypeset_RemoveFont(ImTypeset_Face face); /* [E] */
 IMTYPESET_C_API struct ImFont* ImTypeset_GetFont(ImTypeset_Face face);
+/* Where ImTypeset_GetFont(face) stands in the atlas's list of fonts
+ * (ImGui::GetIO().Fonts->Fonts), or -1 when it answers null. For a binding in
+ * which an ImFont is an object of its own and cannot be made from an address:
+ * the object at that place of the same list IS the role's font, and a host
+ * draws its own text with it instead of adding the file a second time. Good
+ * until a font is added to or removed from the atlas. */
+IMTYPESET_C_API int ImTypeset_GetFontAtlasIndex(ImTypeset_Face face);
 
 /* --- Widgets ---------------------------------------------------------------------- */
 
@@ -706,7 +714,7 @@ IMTYPESET_C_API int ImTypeset_GetParagraphLineCount(const ImTypeset_Paragraph* p
 IMTYPESET_C_API int ImTypeset_GetParagraphLine(const ImTypeset_Paragraph* paragraph, int line,
                                                ImTypeset_Line* out);
 
-/* `selection` may be null. [E] */
+/* `selection` may be null. `draw_list` null is the current window's. [E] */
 IMTYPESET_C_API int ImTypeset_DrawParagraph(const ImTypeset_Paragraph* paragraph,
                                             struct ImDrawList* draw_list, const ImTypeset_Vec2* pos,
                                             const ImTypeset_TextRange* selection);
@@ -812,7 +820,7 @@ IMTYPESET_C_API int ImTypeset_GetDocumentBlockErrorMessage(const ImTypeset_Docum
 IMTYPESET_C_API int ImTypeset_GetDocumentStats(const ImTypeset_Document* document,
                                                ImTypeset_DocumentStats* out);
 
-/* `draw` may be null. [E] */
+/* `draw` may be null. `draw_list` null is the current window's. [E] */
 IMTYPESET_C_API int ImTypeset_DrawDocument(ImTypeset_Document* document,
                                            struct ImDrawList* draw_list, const ImTypeset_Vec2* pos,
                                            const ImTypeset_DocumentDraw* draw);
@@ -879,6 +887,30 @@ IMTYPESET_C_API int ImTypeset_ParagraphByteToCodepointOffset(const ImTypeset_Par
  * int read as a bool and written 0 when the window's close button is pressed.
  * Returns 1, or 0 with the error set if a C++ exception was caught. */
 IMTYPESET_C_API int ImTypeset_ShowDemoWindow(int* p_open);
+
+/* The sections of the demo window. The values are stable: a new section is
+ * added before COUNT and none is renumbered. */
+enum ImTypeset_DemoSection_ {
+    ImTypeset_DemoSection_Paragraph = 0,
+    ImTypeset_DemoSection_Faces = 1,
+    ImTypeset_DemoSection_Specimen = 2,
+    ImTypeset_DemoSection_Math = 3,
+    ImTypeset_DemoSection_Formulas = 4,
+    ImTypeset_DemoSection_Selection = 5,
+    ImTypeset_DemoSection_Inspector = 6,
+    ImTypeset_DemoSection_Stress = 7,
+    ImTypeset_DemoSection_Fonts = 8,
+    ImTypeset_DemoSection_KnownLimits = 9,
+    ImTypeset_DemoSection_Document = 10,
+    ImTypeset_DemoSection_COUNT = 11
+};
+
+/* ImTypeset::ShowDemoSection(): the contents of one section, into the current
+ * window. Returns 1, or 0 with the error set if a C++ exception was caught. */
+IMTYPESET_C_API int ImTypeset_ShowDemoSection(ImTypeset_DemoSection section);
+/* ImTypeset::GetDemoSectionName(). Never null; "" for a value that is not a
+ * section. */
+IMTYPESET_C_API const char* ImTypeset_GetDemoSectionName(ImTypeset_DemoSection section);
 
 #ifdef __cplusplus
 } /* extern "C" */

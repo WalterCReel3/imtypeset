@@ -3,8 +3,8 @@ Dump draw goldens from the Python reference's ImDrawList backend.
 
 Run from the repository root, with the reference's interpreter:
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_draw.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_draw.py
 
 Writes tests/golden/draw/*.golden. Reads the reference and never writes to it.
 tools/oracle/FORMAT-draw.md documents every record.
@@ -42,6 +42,11 @@ from pathlib import Path
 from typing import Any
 
 from imgui_bundle import imgui
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pinned_reference  # noqa: E402
+
+pinned_reference.require()
 
 from advtext import fontlib
 from advtext.backends import imgui_draw

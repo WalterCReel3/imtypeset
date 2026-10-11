@@ -2636,3 +2636,141 @@ What a contracted host ImGui does to drawn vertices has not been measured.
 `python/` on its own (28 of 28); the eleven presets from empty directories afterwards, counts in
 `docs/distribution.md` section 7, with `compile_commands.json` read for the flag. **Not run:**
 any build with `-march` on ImGui; Clang; MSVC.
+
+## D53. What a host met at the Document's edges, answered (task `swap-api-answers`, 2026-10-10)
+
+*Agent decisions, taken unattended for the session swapping advtext onto the library; the user
+may overrule any. The answers as that session reads them are in `docs/advtext-swap-status.md`.*
+
+**Decided.**
+
+1. **A copy has one separator between two blocks that each gave text, and none beside a block
+   that gave none** (a rule, a host block without text, an empty block). Kept as it was: it is
+   what the reference copies for text, rule, text (`UnitModel.copy_text`; read, not run). The
+   reference's single newline between two blocks of one list is still not reproduced.
+2. **A formula is marked, selected and copied whole when the range holds its first byte, and
+   not at all otherwise.** Kept; now said at `ImTypesetTextRange` and `ImTypesetMark`.
+3. **`GetDocumentBlockTextSize` answers the bytes handed in; positions in a code block end at
+   its last character.** Two numbers on purpose: an append goes on from the first, and blank
+   lines at the end stop being the end when text arrives after them.
+4. **`GetFont` answers null unless the context's ImGui context is the current one.** It
+   answered the stale pointer. Fixed.
+5. **The lifetime rule is `DestroyContext()` before `ImGui::DestroyContext()`, and it is not
+   enforced.** No ImGui context, or another one, is refused. A new ImGui context at the address
+   of the destroyed one is taken for the old one, because `bound()` compares addresses and
+   `imgui.h` offers nothing else. In every case run the roles are then found empty and nothing of
+   the old atlas is touched. Two collisions are possible by reading and were not reproduced:
+   `validate_fonts` accepting a host's font that stands at an old font's address with the same
+   `FontId` (ids restart with each atlas), and its once-a-frame skip matching across the two
+   contexts. **Not fixed.** What would close both: a stamp unique to the process in
+   `ImFontConfig::Name` of each font added, compared in `validate_fonts`, and one such font
+   looked at before the skip is taken. It reads `ImFont::Sources` and `ImFontConfig::Name`,
+   which the wheel probe (`python/imtypeset/_bundle.py`) would have to learn. Queued.
+6. **A null `draw_list` is the current window's** in `DrawParagraph` and `DrawDocument`, and is
+   refused outside a frame by the test the widgets use. It was `InvalidArgument`. For a binding
+   that cannot name a draw list (both applications reached `GetWindowDrawList` by its mangled
+   name). No new ImGui symbol: the library already called it.
+7. **No adoption of a host's font; one C-only function instead.** The atlas font is a rewritten
+   copy (D27), so the two ImFonts are different by design. `ImTypeset_GetFontAtlasIndex(face)`
+   says where the role's font stands in `ImFontAtlas::Fonts`, which is how a binding with its own
+   ImFont objects finds it; the host then draws its own text with the library's font. It is not
+   in `imtypeset.h`: a C++ host has the pointer.
+8. **A refused `import imtypeset` removes the package's submodules from `sys.modules`.**
+
+**Measured** (debug, FreeType 2.12.1, GCC 12.2, `tests/test_api_answers.cpp`, one run): a second
+copy of the seven test faces (1,680,856 bytes of files) adds 1,847,800 bytes of ImGui
+allocations before a glyph is drawn and 1,878,327 more once the same words are drawn in both;
+atlas textures 1,835,008 bytes with the roles' fonts drawn, 3,145,728 with both. A role's font
+and a host's copy of the file give equal `ImGui::CalcTextSize` for six text faces at 13, 16 and
+24 px. `Document.pack_marks`: 2.0 to 0.5 microseconds a mark (2,000 marks, ASCII blocks).
+
+**Not measured, not run:** any of it under stb_truetype or a 16-bit `ImWchar`; the two
+collisions of item 5; a host font with `USE_TYPO_METRICS` set beside the library's copy.
+
+
+## D54. The oracle is a pinned commit of the reference, not its working tree (task `oracle-freeze`, 2026-10-10)
+
+**Decided.** The reference the goldens are dumped from is commit
+`32e395346551cac82c7a6dd6e9b6d8e47feeac8e` of `../imgui-adv-text` (its tag `advtext-reference`),
+extracted read-only into `build/advtext-reference` by `tools/oracle/pin_reference.sh` and
+described by the tracked `tools/oracle/REFERENCE.lock` (commit, tree, file count, one SHA-256 over
+every file's SHA-256). `PYTHONPATH` is that directory. Every `tools/oracle/dump_*.py` that imports
+the reference, `manifest.py` when it writes, and `tools/gen_mathtext_tables.py` call
+`pinned_reference.require()` first and exit 2 unless the tree matches the lock and `advtext` was
+imported from it. This replaces D51's "the tables goldens name the reference's present commit":
+they name the pinned one, read from the lock, and no script runs git against the sibling.
+
+**Why.** The sibling is being rewritten onto this library on a branch and its Python layout core
+is no longer in its working tree; the reference interpreter has an editable install pointing at
+that working tree, so a run without `PYTHONPATH` imported whatever was there. A commit is the only
+state of that repository that does not move. The commit is pinned and the tag only checked,
+because a tag can be moved. `git worktree add` would have been the obvious tool and writes the
+sibling's `.git`; `git archive` reads it.
+
+**Not pinned, and it cannot be by this:** the interpreter and its libraries,
+`../imgui-adv-text/.venv` (Python 3.11.2, imgui_bundle 1.92.900, fontTools 4.66.0, markdown-it-py
+4.2.0). No commit holds a virtual environment. The commit must also stay reachable in the
+sibling's object store; nothing in this repository keeps a copy, and `build/` is ignored.
+
+**Read (git).** `a3c589a` has the pinned tree. `30496e1`, which `PROVENANCE.md` and the tables
+headers named until now, does not: it is three commits later and differs in `docs/`,
+`scripts/bench_draw.py`, `tests/test_docs.py` and `tests/test_style.py`, in nothing under
+`advtext/` or `demo/` and not in `tests/test_stream_stability.py`, which are all a dump reads.
+
+**Run.** All thirteen existing dump scripts from the pinned tree, one at a time, writing in place:
+twelve directories byte-identical, the font corpus among them (2,991 faces, `--jobs 4`, 905 s);
+`tests/golden/tables` differs in its header comment lines only and in no record. The four
+refusals a wrong invocation meets (no `PYTHONPATH`, the sibling as `PYTHONPATH`, no `-B`,
+`manifest.py` writing without the pin). **Not run:** the refusal of an edited tree or a wrong
+stamp; `pin_reference.sh` against a moved or missing tag; any C++.
+
+**Decided, new goldens.** `tests/golden/doc-tables` (`tools/oracle/dump_doc_tables.py`,
+`FORMAT-doc-tables.md`): a table among other blocks — positions, selection, hit tests and copy
+through cells, find hits and links in cells, a table growing by rows. Two things in it are the
+script's definition, because the reference has neither and the product needs both: **a position
+in a table is (block, row, column, byte offset into the cell's text), the header being row 0**,
+and a cell's text is what the converter was handed for it, as `FORMAT-doc.md` §1 defines a block's. No test
+replays the directory until the product has a table block. Selection across columns, find marks
+drawn inside cells, balanced columns and a caret rectangle in a cell are not in the reference at
+all: the core meets those without an oracle.
+
+## D55. The demo's sections are callable one at a time, and the demo is in the sidecar (task `galleries`, 2026-10-11)
+
+**Decided.** `ImTypeset::ShowDemoSection(ImTypesetDemoSection)` submits one section of the demo
+window into the current window and `GetDemoSectionName()` answers its title; the enum has eleven
+stable values and `_COUNT`. One function and an enum, not a function a section: a host that makes
+a page of each (advtext's demo, which gives up its specimen, formula and math pages) lists them,
+and a new section costs no declaration, C counterpart, map row or wrapper. Python:
+`imtypeset.demo`.
+
+**Decided: a section shown alone keeps a state of its own**, apart from the demo window's, per
+context (two tables of `DemoState`, each bounded as D49's one was). *Measured*, with the state
+shared: a host showing the window and the same sections alone in one frame, at two type sizes,
+laid out 230 times a frame, because every kept measurement and every paragraph object was taken
+again at each call's style. With two states: 0.
+
+**Decided: the bundle-hosted library is built with the demo.** The wheel's fork declares the
+callback of `InputTextMultiline` and `InputTextWithHint` as a `std::function`
+(*read*: `nm -DC` on the modules of wheels 1.92.801 and 1.92.900), so upstream's names, which a
+library compiled against stand-in headers calls, are not exported. `python/host/
+imtypeset_bundle_shim.cpp` defines those two names under `IMTYPESET_BUNDLE_STAND_IN` and hands
+over to the wheel's, declared there by hand. `src/imtypeset_demo.cpp` is unchanged by this and
+still uses only `imgui.h` and `imtypeset.h`. *Measured*: both libraries link with
+`--no-undefined`; text typed into the demo's formula field through the wheel reaches it, in both
+venvs. **Not run:** the `fork:` branch of the build script, where the shim's two definitions are
+compiled out and the demo calls the fork's functions directly.
+
+**Decided: what a gallery needs that the public API cannot say is listed, not reached for.**
+The Specimen reads set widths off a paragraph object's line (`GetParagraphLine`), since
+`CalcTextSize()` answers whole pixels; it shows kerning as one text against two texts placed by
+their widths, with no "kerning off" switch and no kern query. *Measured*: the six set widths at a
+24 px em, the ladder and the seven kerns at 44 px agree with the reference's
+`advtext.ui.specimen.build_specimen` (tag `advtext-reference`) to the four decimals of a pixel it
+prints; `tests/test_demo.cpp` holds eleven of them. The gaps (no overlay for a paragraph, no face
+metrics, no glyph coverage, no public "the fonts changed") are in the task's result file.
+
+**Decided: `examples/demo_headless.cpp` rasterises the last frame of a run only.** The frames
+before it go through the renderer, which takes the atlas's textures, into a strip one row tall.
+*Measured*: the sixteen pages are pixel-identical to rasterising every frame; 25 s to 3 s in
+release, and 46 s under ASan+UBSan where the sixteen pages took more than 550 s, past the
+example's 600 s ctest timeout.

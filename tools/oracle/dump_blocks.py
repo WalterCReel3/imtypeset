@@ -11,8 +11,8 @@ dump_para.py and dump_core.py, imported here and not edited.
 
 Run from the imtypeset repository root, with the reference's interpreter:
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \\
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_blocks.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \\
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_blocks.py
 
     ... dump_blocks.py --verify   re-reads every golden, rebuilds each case
                                   from its INPUT records alone -- blocks built
@@ -65,6 +65,10 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import pinned_reference  # noqa: E402
+
+pinned_reference.require()
+
 import dump_core as core  # noqa: E402
 import dump_para as para  # noqa: E402
 from dump_core import (  # noqa: E402
@@ -110,7 +114,7 @@ from advtext.units import GlueOrder, Scaled, sp_from_px  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "tests" / "golden" / "blocks"
-REFERENCE = ROOT.parent / "imgui-adv-text"
+REFERENCE = pinned_reference.ROOT_DIR
 FORMAT_VERSION = 1
 
 # Very narrow, three ordinary columns, very wide: dump_para's.

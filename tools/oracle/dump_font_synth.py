@@ -4,8 +4,8 @@ the C++ OpenType reader that no installed font reaches.
 
 Run from the repository root, with the reference's interpreter:
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_font_synth.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_font_synth.py
 
 Writes tests/golden/font-synth/synth.golden.
 

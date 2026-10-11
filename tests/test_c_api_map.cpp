@@ -124,8 +124,13 @@ const Row TABLE[] = {
     BOTH(GetDocumentBlockLine),
     BOTH(DocumentView),
     BOTH(ShowDemoWindow),
+    BOTH(ShowDemoSection),
+    BOTH(GetDemoSectionName),
     C_ONLY(GetBuildInfo, "what a binding compares with its own ImGui before anything else"),
     C_ONLY(SetStyle, "GetStyle() is a reference in C++ and a copy here"),
+    C_ONLY(GetFontAtlasIndex,
+           "GetFont()'s ImFont by its place in the atlas, for a binding that cannot make its "
+           "ImFont object from an address; C++ has the pointer"),
     C_ONLY(GetLastErrorMessage, "ImTypesetErrorInfo::Message, into the caller's buffer"),
     C_ONLY(GetParagraphErrorMessage, "ImTypesetErrorInfo::Message, into the caller's buffer"),
     C_ONLY(GetParagraphFormulaReason, "ImTypesetFormula::Reason, into the caller's buffer"),
@@ -533,7 +538,7 @@ TEST(every_enum_type_has_its_c_typedef)
         ++found;
         at = semi;
     }
-    CHECK_EQ(found, 16);
+    CHECK_EQ(found, 17);
 }
 
 TEST(the_two_headers_are_one_version)

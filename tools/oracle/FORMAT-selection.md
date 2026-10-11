@@ -1,11 +1,11 @@
 # Selection goldens: `tests/golden/selection/*.golden`
 
 Written by `tools/oracle/dump_selection.py` from the Python reference
-(`../imgui-adv-text/advtext/selection.py`). Regenerate, from the repository
+(`build/advtext-reference/advtext/selection.py`). Regenerate, from the repository
 root, with
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_selection.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_selection.py
 
 Two runs write identical bytes. `dump_selection.py --verify` re-reads every
 file with a reader that uses only what this document and `FORMAT.md` say,

@@ -17,8 +17,8 @@ before the swap").
 
 Regenerate, from the repository root, with
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_tables.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_tables.py
 
 Two runs write identical bytes. Every file's header comments name the
 reference's commit, the paths its working tree differed in, and the versions
@@ -457,7 +457,10 @@ lines. `width` is the width of one column. The script asserts
   rounding a float width; `split_into_columns` on a count below 1 or a height
   not above 0; a character or a running rule in a vertical list.
 - Links and formula spans inside cells; selection, copy and hit testing in a
-  wrapped table; the demo's column dragging.
+  table, wrapped or not; a table among other blocks as far as selection goes;
+  a table growing in a stream. Those are in `tests/golden/doc-tables`
+  ([FORMAT-doc-tables.md](FORMAT-doc-tables.md)). The demo's column dragging
+  is in neither.
 - Hard breaks inside a cell, and breaking parameters other than
   `PROSE_BREAKING`.
 - Column pages, gutters, the rule between columns (`ui/app.py`,

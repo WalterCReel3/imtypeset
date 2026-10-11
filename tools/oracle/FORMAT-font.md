@@ -1,10 +1,10 @@
 # Font goldens: `tests/golden/font/*.golden`
 
 Written by `tools/oracle/dump_font.py` from the Python reference
-(`../imgui-adv-text/advtext/fontlib.py`, fontTools 4.66.0). Regenerate with
+(`build/advtext-reference/advtext/fontlib.py`, fontTools 4.66.0). Regenerate with
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_font.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_font.py
 
 Two runs write identical bytes. The script exits non-zero if the directory holds
 a `.golden` it did not write.

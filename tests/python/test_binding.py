@@ -129,6 +129,50 @@ class Loading(unittest.TestCase):
         self.assertIn("ImportError", result.stderr)
         self.assertIn("does not export", result.stderr)
 
+    def test_a_refused_import_leaves_nothing_a_second_attempt_meets(self):
+        import _ctypes
+
+        # Three refusals, each leaving no module of the package in sys.modules;
+        # then, in the same process, the import with the library set right.
+        code = (
+            "import os, sys\n"
+            "good = os.environ['GOOD_LIBRARY']\n"
+            "for bad in ('', '/nonexistent/libimtypeset.so', os.environ['NOT_OURS']):\n"
+            "    os.environ['IMTYPESET_LIBRARY'] = bad\n"
+            "    try:\n"
+            "        import imtypeset\n"
+            "    except ImportError:\n"
+            "        pass\n"
+            "    else:\n"
+            "        raise SystemExit('imported with ' + repr(bad))\n"
+            "    left = sorted(n for n in sys.modules if n == 'imtypeset' or n.startswith('imtypeset.'))\n"
+            "    if left:\n"
+            "        raise SystemExit('left behind after ' + repr(bad) + ': ' + repr(left))\n"
+            # Another copy of the package, in front on the path: it must get
+            # its own submodule, not the one the refused import had loaded.
+            "import tempfile\n"
+            "with tempfile.TemporaryDirectory() as other:\n"
+            "    os.mkdir(os.path.join(other, 'imtypeset'))\n"
+            "    open(os.path.join(other, 'imtypeset', '__init__.py'), 'w').write('from . import _capi\\nWHOSE = _capi.WHOSE\\n')\n"
+            "    open(os.path.join(other, 'imtypeset', '_capi.py'), 'w').write('WHOSE = \"the other copy\"\\n')\n"
+            "    sys.path.insert(0, other)\n"
+            "    import imtypeset as stub\n"
+            "    assert stub.WHOSE == 'the other copy', stub.WHOSE\n"
+            "    sys.path.remove(other)\n"
+            "    for name in [n for n in sys.modules if n.split('.')[0] == 'imtypeset']:\n"
+            "        del sys.modules[name]\n"
+            "os.environ['IMTYPESET_LIBRARY'] = good\n"
+            "import imtypeset\n"
+            "assert imtypeset.host_info()['library'] == os.path.abspath(good)\n"
+            "assert imtypeset.version() == imtypeset.build_info().version\n"
+            "print('second attempt ok')\n"
+        )
+        result = child(code)(
+            GOOD_LIBRARY=os.environ["IMTYPESET_LIBRARY"], NOT_OURS=_ctypes.__file__
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("second attempt ok", result.stdout)
+
     # `import imtypeset` in a child whose copy of imtypeset._capi was changed
     # by `patch` first: what the import does with a package and a library that
     # do not belong together.
@@ -217,6 +261,32 @@ class Errors(unittest.TestCase):
         self.assertTrue(caught.exception.message)
         self.assertIn(caught.exception.message, str(caught.exception))
 
+    def test_a_roles_font_is_found_in_the_atlas_by_its_place(self):
+        places = {face: ts.font_atlas_index(face) for face in FONTS}
+        self.assertTrue(all(place is not None and place >= 0 for place in places.values()))
+        self.assertEqual(len(set(places.values())), len(FONTS))
+        self.assertEqual(ts.font_atlas_index(ts.Face.Default), places[ts.Face.Regular])
+        self.assertEqual(ts.font_atlas_index(ts.Face.CodeBold), places[ts.Face.Bold])
+        self.assertIsNone(ts.font_atlas_index(ts.Face.BoldItalic))
+        self.assertIsNone(ts.font_atlas_index(99))
+        # The font at that place is the role's: the host draws its own text
+        # in it, and the text is as wide as the same words typeset in that role.
+        def body():
+            widths = []
+            host.push_font(ts.get_font(ts.Face.Code), 16.0)
+            try:
+                for words in ("iiiiiiii", "MMMMMMMM"):
+                    host.text_wrapped(words)
+                    left, _, right, _ = host.get_item_rect()
+                    widths.append(right - left)
+            finally:
+                host.pop_font()
+            return widths
+
+        narrow, wide = frame(body)
+        self.assertGreater(narrow, 20.0)
+        self.assertEqual(narrow, wide)  # The Code role is a fixed-pitch face.
+
     def test_a_font_from_bytes_and_its_removal(self):
         with open(os.path.join(FONT_DIR, "Roboto-BoldItalic.ttf"), "rb") as source:
             font = ts.add_font(ts.Face.BoldItalic, source.read())
@@ -238,6 +308,59 @@ class Errors(unittest.TestCase):
         finally:
             ts.set_current_context(held)
         self.assertEqual(ts.current_context(), held)
+
+    def test_a_context_left_behind_by_its_imgui_context_refuses_and_is_destroyed(self):
+        # In a child: this process's window must stay as it is.
+        code = (
+            "import os\n"
+            "import imtypeset as ts, imtypeset_host as host\n"
+            "font = os.environ['A_FONT']\n"
+            "window = host.Window('first', 320, 240, dpi_scale=1.0)\n"
+            "ts.create_context()\n"
+            "ts.add_font(ts.Face.Regular, font)\n"
+            "document = ts.Document.from_blocks([ts.Block(text='Des mots gardés.')])\n"
+            "document.layout(300.0)\n"
+            "clip = (0.0, 0.0, 1000.0, 1000.0)\n"
+            "assert window.begin_frame()\n"
+            "assert len(document.draw_to_buffers((0.0, 0.0), clip)[0]) > 0\n"
+            "window.end_frame()\n"
+            # The ImGui context goes and the imtypeset context is NOT destroyed
+            # first, which Window.close() would do.
+            "ts.library().ImTypesetHost_Destroy(); window._open = False\n"
+            "assert ts.current_context() is not None\n"
+            "assert ts.get_font(ts.Face.Regular) is None\n"
+            "assert ts.font_atlas_index(ts.Face.Regular) is None\n"
+            "for call in (lambda: document.draw_to_buffers((0.0, 0.0), clip),\n"
+            "             lambda: document.draw(None, (0.0, 0.0)),\n"
+            "             lambda: ts.add_font(ts.Face.Regular, font)):\n"
+            "    try:\n"
+            "        call()\n"
+            "    except ts.Error as error:\n"
+            "        assert error.code == ts.ErrorCode.NoContext, error\n"
+            "    else:\n"
+            "        raise SystemExit('not refused')\n"
+            # What needs no ImGui still answers.
+            "assert document.range_text(((0, 0), (0, 99))) == 'Des mots gardés.'\n"
+            # A second ImGui context, wherever it was allocated: the rule is to
+            # destroy the old imtypeset context and make one in the new.
+            "window = host.Window('second', 320, 240, dpi_scale=1.0)\n"
+            "ts.destroy_context()\n"
+            "assert document.closed and ts.current_context() is None\n"
+            "ts.create_context()\n"
+            "ts.add_font(ts.Face.Regular, font)\n"
+            "again = ts.Document.from_blocks([ts.Block(text='Des mots gardés.')])\n"
+            "again.layout(300.0)\n"
+            "assert window.begin_frame()\n"
+            "assert len(again.draw_to_buffers((0.0, 0.0), clip)[0]) > 0\n"
+            "window.end_frame()\n"
+            "ts.destroy_context()\n"
+            "window.close()\n"
+            "ts.destroy_context()\n"  # With nothing to destroy: nothing.
+            "print('lifetime ok')\n"
+        )
+        result = child(code)(A_FONT=os.path.join(FONT_DIR, "Roboto-Regular.ttf"))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("lifetime ok", result.stdout)
 
     def test_a_contexts_serial_is_its_own_and_is_never_used_again(self):
         held = ts.current_context()
@@ -751,6 +874,133 @@ class Documents(unittest.TestCase):
         self.assertEqual(drag, ts.DocumentRange(ts.Position(0, 0), ts.Position(1, tail)))
         self.assertGreaterEqual(len(document.range_rects(drag)), 2)
         self.assertEqual(document.range_rects(((1, 4), (1, 4))), [])
+
+    def test_a_block_that_gives_no_text_leaves_no_trace_in_a_copy(self):
+        blocks = [
+            ts.Block(text="une"),
+            ts.Block(ts.BlockKind.Rule),
+            ts.Block(ts.BlockKind.Host, extent=20.0),
+            ts.Block(text=""),
+            ts.Block(ts.BlockKind.Code, "\n\n"),
+            ts.Block(text="deux"),
+            ts.Block(ts.BlockKind.Host, "[w]", extent=20.0),
+            ts.Block(ts.BlockKind.Rule),
+        ]
+        document = ts.Document.from_blocks(blocks)
+        self.addCleanup(document.close)
+        document.layout(400.0)
+        self.assertEqual(document.range_text(((0, 0), (7, 0)), separator=" | "), "une | deux | [w]")
+        self.assertEqual(document.range_text(((0, 0), (7, 0))), "une\n\ndeux\n\n[w]")
+        self.assertEqual(document.range_text(((0, 0), (4, 0)), separator=" | "), "une")
+        self.assertEqual(document.range_text(((1, 0), (5, 4)), separator=" | "), "deux")
+        self.assertEqual(document.range_text(((1, 0), (4, 0)), separator=" | "), "")
+        self.assertEqual(document.range_text(((0, 3), (5, 0)), separator=" | "), "")
+
+    def test_a_code_block_ends_at_its_last_character(self):
+        for given in ("é = 1\nb", "é = 1\nb\n", "é = 1\nb\n\n\n", "é = 1\r\nb\r\n\r\n", "é\n  \n"):
+            with self.subTest(given=given):
+                held = given.rstrip("\r\n")
+                document = ts.Document.from_blocks(
+                    [ts.Block(text="avant"), ts.Block(ts.BlockKind.Code, given), ts.Block(text="après")]
+                )
+                self.addCleanup(document.close)
+                document.layout(400.0)
+                self.assertEqual(document.range_text(((1, 0), (1, len(given)))), held)
+                self.assertEqual(document.range_text(((1, 0), (1, 9999))), held)
+                self.assertEqual(
+                    document.range_text(((0, 0), (2, 5)), separator="|"), f"avant|{held}|après"
+                )
+                where = document.block_geometry(1)
+                below = document.hit_test((2000.0, where.full_max[1] - 1.0))
+                self.assertEqual(below.position, ts.Position(1, len(held)))
+        # Text that arrives after blank lines makes them part of the block.
+        document = ts.Document.from_blocks([ts.Block(ts.BlockKind.Code, "é\n\n")])
+        self.addCleanup(document.close)
+        document.layout(400.0)
+        self.assertEqual(document.range_text(((0, 0), (0, 99))), "é")
+        self.assertTrue(document.append_text("ç\n"))
+        self.assertEqual(document.range_text(((0, 0), (0, 99))), "é\n\nç")
+        self.assertEqual(document.range_text(((0, 3), (0, 4))), "ç")
+
+    def test_a_mark_takes_a_formula_whole_or_not_at_all(self):
+        text = "ça x^2+1 là"
+        first, end = text.index("x"), text.index(" là")
+        document = ts.Document.from_blocks(
+            [ts.Block(text=text, runs=[ts.Run(first, end, flags=ts.RunFlags.Formula)])],
+            styles=[ts.BlockStyle(Align=ts.Align.Left)],
+        )
+        self.addCleanup(document.close)
+        document.layout(400.0)
+        clip = (0.0, 0.0, 2000.0, 2000.0)
+
+        def drawn(start, stop, place):
+            mark = ts.Mark(((0, start), (0, stop)), RED, place)
+            return document.draw_to_buffers((0.0, 0.0), clip, marks=[mark])
+
+        plain = document.draw_to_buffers((0.0, 0.0), clip)
+        for place in (ts.MarkPlace.Ink, ts.MarkPlace.Behind, ts.MarkPlace.Under):
+            with self.subTest(place=place):
+                whole = drawn(first, end, place)
+                self.assertNotEqual(whole, plain)
+                self.assertEqual(drawn(first + 1, end - 1, place), plain)  # Inside it: nothing.
+                self.assertEqual(drawn(first, first + 1, place), whole)  # Its first character: all.
+                self.assertEqual(drawn(1, first + 2, place), drawn(1, end, place))
+                self.assertEqual(drawn(first + 2, len(text), place), drawn(end, len(text), place))
+        self.assertEqual(document.range_text(((0, first + 1), (0, end - 1))), "")
+        self.assertEqual(document.range_text(((0, first), (0, first + 1))), text[first:end])
+
+    def test_no_draw_list_is_the_current_windows(self):
+        document = self.document()
+        document.layout(400.0)
+        size = ts.build_info().sizeof_imdrawvert
+        expected, _ = document.draw_to_buffers((8.0, 8.0), (0.0, 0.0, 640.0, 480.0))
+        before = ts.stats().VerticesEmitted
+        frame(lambda: self.assertTrue(document.draw(None, (8.0, 8.0))))
+        self.assertEqual(ts.stats().VerticesEmitted - before, len(expected) // size)
+        paragraph = ts.Paragraph("Un paragraphe.")
+        self.addCleanup(paragraph.close)
+        paragraph.layout(300.0)
+        before = ts.stats().VerticesEmitted
+        frame(lambda: paragraph.draw(None, (8.0, 8.0)))
+        self.assertGreater(ts.stats().VerticesEmitted, before)
+        # Outside a frame there is no current window: refused, not followed.
+        with self.assertRaises(ts.Error) as caught:
+            document.draw(None, (8.0, 8.0))
+        self.assertEqual(caught.exception.code, ts.ErrorCode.InvalidArgument)
+        with self.assertRaises(ts.Error):
+            paragraph.draw(None, (8.0, 8.0))
+
+    def test_marks_packed_from_tuples_are_the_marks(self):
+        document = self.document()
+        document.layout(400.0)
+        clip = (0.0, 0.0, 2000.0, 2000.0)
+        marks = [
+            ts.Mark(((0, 3), (0, 99)), RED),
+            ts.Mark(((1, 2), (5, 4)), ts.col32(0, 0, 255, 128), ts.MarkPlace.Behind),
+            ts.Mark(((0, 0), (0, 5)), ts.col32(0, 255, 0), ts.MarkPlace.Under, 2.5, 3.5),
+            ts.Mark(((-1, -5), (99, 7)), RED, ts.MarkPlace.Under),
+        ]
+        packed = document.pack_marks(marks)
+        self.assertEqual(packed.count, len(marks))
+        for raw, mark in zip(packed.array, marks):
+            (start_block, start), (end_block, end) = mark.range
+            self.assertEqual(
+                (raw.Range.Start.Block, raw.Range.End.Block, raw.Color, raw.Place),
+                (start_block, end_block, mark.color, int(mark.place)),
+            )
+            self.assertEqual((raw.Thickness, raw.Offset), (mark.thickness, mark.offset))
+            self.assertEqual(raw.Range.Start.Offset, document._byte(start_block, start))
+            self.assertEqual(raw.Range.End.Offset, document._byte(end_block, end))
+        # A character past ASCII before the mark: the offsets are bytes.
+        title = document.range_text(((0, 0), (0, 99)))
+        self.assertGreater(len(title.encode()), len(title))
+        self.assertEqual(packed.array[0].Range.End.Offset, len(title.encode()))
+        as_tuples = [tuple(mark)[:2] for mark in marks[:1]] + [tuple(mark) for mark in marks[1:]]
+        self.assertEqual(
+            document.draw_to_buffers((0.0, 0.0), clip, marks=document.pack_marks(as_tuples)),
+            document.draw_to_buffers((0.0, 0.0), clip, marks=marks),
+        )
+        self.assertEqual(document.pack_marks([]).count, 0)
 
     def test_marks_and_a_selection_are_drawn(self):
         document = self.document()

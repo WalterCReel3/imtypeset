@@ -308,6 +308,13 @@ static void test_fonts(void)
     CHECK(last_error_code() == ImTypeset_Error_None);
     CHECK(ImTypeset_GetFont(ImTypeset_Face_Regular) == regular);
     CHECK(ImTypeset_GetFont(ImTypeset_Face_Default) == regular);
+    /* Its place in the atlas's list; none for a role without a font or a
+     * face that is not one. */
+    CHECK(ImTypeset_GetFontAtlasIndex(ImTypeset_Face_Regular) >= 0);
+    CHECK(ImTypeset_GetFontAtlasIndex(ImTypeset_Face_Default) ==
+          ImTypeset_GetFontAtlasIndex(ImTypeset_Face_Regular));
+    CHECK(ImTypeset_GetFontAtlasIndex(ImTypeset_Face_Italic) == -1);
+    CHECK(ImTypeset_GetFontAtlasIndex(99) == -1);
 
     /* From memory, and the bytes are the caller's to free at once. */
     bytes = read_whole_file(c_api_host_data_path("fonts/Roboto-Bold.ttf"), &size);
@@ -868,6 +875,30 @@ static void test_widgets(int frame, struct ImDrawList* draw_list)
 /* A document through the C ABI: blocks described in C structs, laid out
  * lazily, asked, copied across blocks (a formula and code among them) and
  * drawn both ways. The struct sizes were compared by the version check. */
+/* Inside a frame: every section of the demo window, drawn into the current
+ * window. A library compiled with IMTYPESET_DISABLE_DEMO has the entry points
+ * and no sections: every title is "". */
+static void test_demo_sections(void)
+{
+    int section;
+    int titled = 0;
+    SECTION("demo sections");
+    for (section = 0; section < ImTypeset_DemoSection_COUNT; ++section) {
+        const char* name = ImTypeset_GetDemoSectionName(section);
+        REQUIRE(name != NULL);
+        titled += name[0] != 0 ? 1 : 0;
+        CHECK(ImTypeset_ShowDemoSection(section) == 1);
+    }
+    CHECK(titled == 0 || titled == ImTypeset_DemoSection_COUNT);
+    CHECK(strcmp(ImTypeset_GetDemoSectionName(ImTypeset_DemoSection_COUNT), "") == 0);
+    CHECK(strcmp(ImTypeset_GetDemoSectionName(-1), "") == 0);
+    CHECK(ImTypeset_ShowDemoSection(ImTypeset_DemoSection_COUNT) == 1);
+    CHECK(ImTypeset_ShowDemoSection(-1) == 1);
+    if (titled != 0)
+        CHECK(strcmp(ImTypeset_GetDemoSectionName(ImTypeset_DemoSection_Specimen), "Specimen") ==
+              0);
+}
+
 static void test_document(struct ImDrawList* draw_list)
 {
     static const char BODY[] = "A heading"
@@ -1083,6 +1114,9 @@ static void test_document(struct ImDrawList* draw_list)
         CHECK(ImTypeset_DrawDocument(document, draw_list, &origin, &draw) == 1);
         CHECK(c_api_host_draw_list_vertex_count(draw_list) - before == vertex_count);
         CHECK(ImTypeset_DrawDocument(document, draw_list, NULL, &draw) == 0);
+        /* No draw list is the current window's, which is this one. */
+        CHECK(ImTypeset_DrawDocument(document, NULL, &origin, &draw) == 1);
+        CHECK(c_api_host_draw_list_vertex_count(draw_list) - before == 2 * vertex_count);
     }
 
     /* Streaming: text appended to the last block lays out that block alone. */
@@ -1218,6 +1252,7 @@ static void test_with_a_context(void)
             test_paragraph_draw(paragraph, reference, draw_list, 1);
             test_paragraph_buffers(paragraph, reference);
             test_document(draw_list);
+            test_demo_sections();
         }
         c_api_host_end_frame();
     }

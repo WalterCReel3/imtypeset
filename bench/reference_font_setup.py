@@ -4,8 +4,8 @@ Time the reference's font setup, for the comparison in docs/performance.md.
 
 Run with the reference's interpreter and nothing written into its tree:
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
-        ../imgui-adv-text/.venv/bin/python -B bench/reference_font_setup.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
+        ../imgui-adv-text/.venv/bin/python -P -B bench/reference_font_setup.py
 
 One process is one sample: everything here is paid once per process, and the
 reference caches all of it. Run it several times for a spread. What is timed:

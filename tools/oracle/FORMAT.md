@@ -1,11 +1,11 @@
 # Core goldens: `tests/golden/core/*.golden`
 
 Written by `tools/oracle/dump_core.py` from the Python reference
-(`../imgui-adv-text/advtext/{units,badness,nodes,pack,linebreak,shipout}.py`).
+(`build/advtext-reference/advtext/{units,badness,nodes,pack,linebreak,shipout}.py`).
 Regenerate, from the repository root, with
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_core.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_core.py
 
 Two runs write identical bytes. `dump_core.py --verify` re-reads every file
 with a reader that uses only what this document says, rebuilds the inputs from

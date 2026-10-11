@@ -99,6 +99,7 @@ __all__ = [
     "create_context",
     "current_context",
     "destroy_context",
+    "font_atlas_index",
     "get_context_serial",
     "get_font",
     "get_style",
@@ -500,7 +501,23 @@ def _load():
     return lib, path, info, host, layout_checked, bundle_report
 
 
-_lib, _path, _build, _host, _layout_checked, _bundle_report = _load()
+try:
+    _lib, _path, _build, _host, _layout_checked, _bundle_report = _load()
+except BaseException:
+    # A refused import leaves no module of this package behind. Python takes
+    # the package itself out of sys.modules and not the submodules it had
+    # already imported, and a second attempt -- after IMTYPESET_LIBRARY was
+    # set right, or with another copy of the package in front on sys.path --
+    # would otherwise be made with the first attempt's `_capi`. What cannot
+    # be taken back is the shared object: once loaded it stays mapped in the
+    # process (ctypes never unloads a library, and no platform promises that
+    # it could), so its static initialisers have run. Loading it again later
+    # is harmless.
+    import sys as _sys
+
+    for _name in [_n for _n in _sys.modules if _n.startswith(__name__ + ".")]:
+        del _sys.modules[_name]
+    raise
 
 
 def library() -> _C.CDLL:
@@ -633,7 +650,19 @@ def create_context() -> int:
 
 
 def destroy_context(ctx: Optional[int] = None) -> None:
-    """Destroys a context (None: the current one) and closes its paragraphs and documents."""
+    """Destroys a context (None: the current one) and closes its paragraphs and documents.
+
+    Call it BEFORE the Dear ImGui context it was made in is destroyed. It is
+    also safe afterwards (it touches nothing of ImGui's), and is then the one
+    thing left to do with the context: until it is called, drawing and
+    `add_font` raise `Error` (ErrorCode.NoContext) while no ImGui context, or
+    another one, is current, and `get_font` answers None. A NEW ImGui context
+    made at the address of the destroyed one cannot be told from it: the
+    library takes it for its own, finds every role without a font, and text
+    reports ErrorCode.NoFont until `add_font` is called again. A host that
+    makes ImGui contexts in turn (a test suite does) therefore calls this
+    each time, and does not ask `current_context()` whether one is "still
+    there": it is, until destroyed, whatever became of ImGui's."""
     target = ctx if ctx is not None else _lib.ImTypeset_GetCurrentContext()
     if not target:
         return
@@ -705,8 +734,27 @@ def remove_font(face: int) -> bool:
 
 
 def get_font(face: int) -> Optional[int]:
-    """The address of the ImFont drawing a role, or None."""
+    """The address of the ImFont drawing a role, or None. None too while the
+    Dear ImGui context the current context was made in is not the current one."""
     return _lib.ImTypeset_GetFont(int(face)) or None
+
+
+def font_atlas_index(face: int) -> Optional[int]:
+    """Where a role's ImFont stands in the atlas's list of fonts, or None.
+
+    For a host whose ImGui binding has ImFont objects of its own, which an
+    address cannot be turned into. In Dear ImGui Bundle:
+
+        font = imgui.get_io().fonts.fonts[imtypeset.font_atlas_index(imtypeset.Face.Code)]
+        imgui.push_font(font, 0.0)      # the host's own widgets, in the role's font
+
+    THIS IS HOW A FACE IS SHARED: the library cannot adopt a font the host
+    added (the one it adds is a copy of the file with its character map
+    rewritten for typesetting), so a host that wants a face for its own text
+    as well uses the library's ImFont and does not add the file a second
+    time. Ask again after any font is added to or removed from the atlas."""
+    index = _lib.ImTypeset_GetFontAtlasIndex(int(face))
+    return index if index >= 0 else None
 
 
 # --- Widgets ------------------------------------------------------------------------------
@@ -947,11 +995,13 @@ class Paragraph:
 
     def draw(
         self,
-        draw_list: int,
+        draw_list: Optional[int],
         pos: Tuple[float, float],
         selection: Optional[Tuple[int, int]] = None,
     ) -> None:
-        """Draws into an ImDrawList (its address) with the top-left corner at `pos`."""
+        """Draws into an ImDrawList (its address) with the top-left corner at
+        `pos`. `draw_list` None is the current window's: call it between the
+        host's begin and end of a window."""
         handle = self._h()
         held = self._range(selection) if selection is not None else None
         ok = _lib.ImTypeset_DrawParagraph(
@@ -1084,7 +1134,9 @@ class Paragraph:
 # setting seventeen ctypes fields a block.
 _BLOCK = _struct.Struct("=10if3if2i")
 _RUN = _struct.Struct("=3ifI2i")
+_MARK = _struct.Struct("=4iIi2f")
 assert _BLOCK.size == _C.sizeof(_capi.Block) and _RUN.size == _C.sizeof(_capi.Run)
+assert _MARK.size == _C.sizeof(_capi.Mark)
 
 
 class _Marks:
@@ -1564,15 +1616,34 @@ class Document:
     def pack_marks(self, marks: Sequence) -> _Marks:
         """Marks converted once, for `draw` and `view` to take every frame at
         no cost. Good until a block one of them names changes its text."""
-        array = (_capi.Mark * max(len(marks), 1))()
-        for slot, mark in zip(array, marks):
-            mark = mark if type(mark) is Mark else Mark(*mark)
-            slot.Range = self._range(mark.range)
-            slot.Color = mark.color
-            slot.Place = int(mark.place)
-            slot.Thickness = mark.thickness
-            slot.Offset = mark.offset
-        return _Marks(array, len(marks))
+        # Packed straight into the bytes the library reads, one pack a mark.
+        count = len(marks)
+        packed = bytearray(_MARK.size * max(count, 1))
+        texts = self._texts
+        blocks = len(texts)
+        byte_in = self._byte_in
+        at = 0
+        for mark in marks:
+            (start_block, start), (end_block, end) = mark[0]
+            entry = texts[start_block] if 0 <= start_block < blocks else None
+            start = max(start, 0) if entry is None else byte_in(entry, start)
+            entry = texts[end_block] if 0 <= end_block < blocks else None
+            end = max(end, 0) if entry is None else byte_in(entry, end)
+            _MARK.pack_into(
+                packed,
+                at,
+                start_block,
+                start,
+                end_block,
+                end,
+                mark[1],
+                int(mark[2]) if len(mark) > 2 else 0,
+                mark[3] if len(mark) > 3 else 0.0,
+                mark[4] if len(mark) > 4 else 0.0,
+            )
+            at += _MARK.size
+        array = (_capi.Mark * max(count, 1)).from_buffer(packed)
+        return _Marks(array, count)
 
     def _draw_arg(self, selection, marks, debug: bool):
         """(pointer or None, what it points into)."""
@@ -1594,16 +1665,21 @@ class Document:
 
     def draw(
         self,
-        draw_list: int,
+        draw_list: Optional[int],
         pos: Tuple[float, float],
         selection=None,
         marks=(),
         debug: bool = False,
     ) -> bool:
         """Draws into an ImDrawList (its address) with the top-left corner at
-        `pos`, laying out what its clip rectangle shows. `selection` is a
-        ((block, offset), (block, offset)); `marks` a sequence of `Mark` or
-        what `pack_marks` returned. False: something in view was set differently."""
+        `pos`, laying out what its clip rectangle shows. `draw_list` None is
+        the current window's (between the host's begin and end of a window):
+        a host whose binding cannot give a draw list's address needs no other
+        way to find one. `selection` is a ((block, offset), (block, offset));
+        `marks` a sequence of `Mark` or what `pack_marks` returned. A mark,
+        like a selection, takes a formula whole when it holds the formula's
+        first character and not at all otherwise. False: something in view
+        was set differently."""
         pointer, held = self._draw_arg(selection, marks, debug)
         ok = _lib.ImTypeset_DrawDocument(
             self._h(), draw_list, _C.byref(_capi.Vec2(*pos)), pointer
@@ -1752,7 +1828,18 @@ class Document:
 
     def range_text(self, given, separator: Optional[str] = None) -> str:
         """The text of the range: what copying it gives. `separator` goes
-        between two blocks; None is a blank line."""
+        between two blocks that each gave text, once; None is a blank line.
+
+        A block that gives no text (a rule, a Host block with no text, an
+        empty block, a block the range only touches the edge of) leaves no
+        trace: no text and no separator, so text, a rule, text copies as the
+        two texts with ONE separator. A Code block gives its text up to its
+        last character: the line end after it and blank lines at the end of
+        what was handed in are not part of the block, so
+        `range_text(((b, 0), (b, len(text))))` is `text.rstrip("\\r\\n")`,
+        and no position the library answers is past that. A formula is
+        copied whole (its source, dollars included) when the range holds its
+        first character, and not at all otherwise."""
         handle = self._h()
         held = self._range(given)
         if separator is None:
@@ -1814,7 +1901,7 @@ def show_demo_window(open: Optional[bool] = None) -> Optional[bool]:
     """ImTypeset::ShowDemoWindow. With `open` given, returns whether the window
     is still open (its close button answers False); with None there is no close
     button and None comes back. A library built with IMTYPESET_DISABLE_DEMO
-    (the one hosted in Dear ImGui Bundle's wheel is) draws nothing."""
+    draws nothing. `imtypeset.demo` has the window's sections one at a time."""
     if open is None:
         _must(_lib.ImTypeset_ShowDemoWindow(None), "show_demo_window")
         return None

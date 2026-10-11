@@ -31,6 +31,55 @@
 
 #define IMTYPESET_BUNDLE_EXPORT extern "C" __attribute__((visibility("default")))
 
+// --- Text input, under stand-in headers ---------------------------------------------
+//
+// The wheel's Dear ImGui is a fork whose text-input functions take their
+// callback as a std::function, so the names upstream's imgui.h declares
+// (callback as a function pointer) are not among the wheel's symbols. A library
+// compiled against the fork's own headers calls the fork's functions and needs
+// nothing here. One compiled against upstream's headers as a stand-in
+// (IMTYPESET_BUNDLE_STAND_IN, from the build script) calls upstream's names:
+// the demo window does, for its two text fields. They are defined here, in the
+// library, and hand over to the wheel's. The wheel's two are declared by hand,
+// from its exported symbols (nm -DC on its module, wheels 1.92.801 and
+// 1.92.900); a wheel that changes them is a link error when the library is
+// built, not a wrong call.
+#ifdef IMTYPESET_BUNDLE_STAND_IN
+#include <functional>
+
+namespace ImGui
+{
+IMGUI_API bool InputTextMultiline(const char* label, char* buf, size_t buf_size, const ImVec2& size,
+                                  ImGuiInputTextFlags flags,
+                                  std::function<int(ImGuiInputTextCallbackData*)> callback,
+                                  void* user_data);
+IMGUI_API bool InputTextWithHint(const char* label, const char* hint, char* buf, size_t buf_size,
+                                 ImGuiInputTextFlags flags,
+                                 std::function<int(ImGuiInputTextCallbackData*)> callback,
+                                 void* user_data);
+} // namespace ImGui
+
+bool ImGui::InputTextMultiline(const char* label, char* buf, size_t buf_size, const ImVec2& size,
+                               ImGuiInputTextFlags flags, ImGuiInputTextCallback callback,
+                               void* user_data)
+{
+    std::function<int(ImGuiInputTextCallbackData*)> wheels;
+    if (callback != nullptr)
+        wheels = callback;
+    return ImGui::InputTextMultiline(label, buf, buf_size, size, flags, wheels, user_data);
+}
+
+bool ImGui::InputTextWithHint(const char* label, const char* hint, char* buf, size_t buf_size,
+                              ImGuiInputTextFlags flags, ImGuiInputTextCallback callback,
+                              void* user_data)
+{
+    std::function<int(ImGuiInputTextCallbackData*)> wheels;
+    if (callback != nullptr)
+        wheels = callback;
+    return ImGui::InputTextWithHint(label, hint, buf, buf_size, flags, wheels, user_data);
+}
+#endif // IMTYPESET_BUNDLE_STAND_IN
+
 // Which headers this library was compiled against, as the build script names
 // them: "fork:<commit>" or "stand-in:<what>".
 IMTYPESET_BUNDLE_EXPORT const char* ImTypesetBundle_Headers(void)

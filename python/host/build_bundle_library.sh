@@ -71,6 +71,7 @@ have=""
 if [ "$have" = "$want" ]; then
     inc="$fork"
     label="fork:$want"
+    stand_in_define=""
 else
     stand_in="v$imgui_version-docking"
     if ! git --git-dir="$imgui_clone/.git" rev-parse -q --verify "$stand_in^{commit}" >/dev/null 2>&1; then
@@ -81,6 +82,7 @@ else
     git --git-dir="$imgui_clone/.git" archive "$stand_in" imgui.h imconfig.h | tar -x -C "$out/headers/stand-in"
     inc="$out/headers/stand-in"
     label="stand-in:ocornut-$stand_in"
+    stand_in_define="-DIMTYPESET_BUNDLE_STAND_IN"
     cat >&2 <<EOF
 build_bundle_library.sh: NOTE: building against STAND-IN headers ($stand_in).
   The wheel's own headers are the fork at $want, and
@@ -101,10 +103,12 @@ fi
 # section 3), its throwing IM_ASSERT included: exceptions are on, as they must be.
 # -ffp-contract=off: the results are defined without fused multiply-adds; the
 # generated file also says so itself, and this says it for every file.
-# IMTYPESET_DISABLE_DEMO: the demo window calls ImGui::InputTextMultiline and
-# InputTextWithHint on a char buffer, which the wheel does not export (its fork
-# binds std::string forms). With it imtypeset_demo.cpp defines a ShowDemoWindow
-# that draws nothing, which is what ImTypeset_ShowDemoWindow links to.
+# The demo window is in it (imtypeset_demo.cpp). It calls
+# ImGui::InputTextMultiline and InputTextWithHint, whose callback parameter the
+# wheel's fork declares as a std::function: under stand-in headers the library
+# calls upstream's names, which the wheel does not export, and
+# imtypeset_bundle_shim.cpp defines those two and hands over to the wheel's
+# (IMTYPESET_BUNDLE_STAND_IN).
 compile() {
     "${CXX:-g++}" -std=c++17 -O2 -g -fPIC -fvisibility=hidden -fvisibility-inlines-hidden \
         -ffp-contract=off -fexceptions -Wno-terminate \
@@ -113,7 +117,7 @@ compile() {
         -DIMGUI_BUNDLE_BUILD_PYTHON -DIMGUI_BUNDLE_PYTHON_API -DIMGUI_USE_WCHAR32 \
         -DImTextureID=int -DIMGUI_DISABLE_OBSOLETE_FUNCTIONS -DIMGUI_ENABLE_FREETYPE \
         "-DIMTYPESET_BUNDLE_HEADERS=\"$label\"" \
-        -DIMTYPESET_DISABLE_DEMO \
+        $stand_in_define \
         -c "$1" -o "$out/obj/$(basename "$1" .cpp).o" || touch "$out/obj/FAILED"
 }
 rm -f "$out/obj/FAILED" "$out"/obj/*.o

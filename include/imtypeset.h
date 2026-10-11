@@ -110,6 +110,7 @@
 //   - Handles are raw pointers. One used after DestroyParagraph() or
 //     DestroyDocument(), or after its context was destroyed, is a use after
 //     free, as with any pointer.
+//   - DestroyContext() comes BEFORE ImGui::DestroyContext(): see CreateContext().
 
 #pragma once
 
@@ -174,6 +175,7 @@ typedef int ImTypesetContainerFlags;    // -> enum ImTypesetContainerFlags_
 typedef int ImTypesetCodeOverflow;      // -> enum ImTypesetCodeOverflow_
 typedef int ImTypesetMarkPlace;         // -> enum ImTypesetMarkPlace_
 typedef int ImTypesetDocumentDrawFlags; // -> enum ImTypesetDocumentDrawFlags_
+typedef int ImTypesetDemoSection;       // -> enum ImTypesetDemoSection_
 
 // A typographic role. A host says which file plays each; text names roles.
 enum ImTypesetFace_ {
@@ -409,6 +411,9 @@ struct ImTypesetRun {
     // Whatever the host wants back when asked what is at a place: a link's
     // number, say. Not read by layout. 0 is no tag. Answered by
     // HitTestDocument(); a paragraph keeps it and has no question that answers it.
+    // A tag is a field of a run like its face, and runs do not overlap: a link
+    // that runs over plain and bold text is two runs, each with the link's tag
+    // and its own face. The host cuts them; nothing here merges two runs.
     int Tag;
 
     ImTypesetRun()
@@ -425,7 +430,12 @@ struct ImTypesetRun {
 
 // A stretch of a paragraph's text, [Start, End), in bytes. Empty when
 // Start >= End. What it covers: a character whose first byte is in it, and a
-// formula whose opening dollar is in it. Nothing is ever half selected.
+// formula whose FIRST BYTE is in it (its opening dollar; for a run flagged
+// ImTypesetRunFlags_Formula, the first byte of the run). Nothing is ever half
+// selected: a formula is one thing, taken whole or not at all, so a range
+// that starts inside a formula does not have it and one that only reaches
+// into it has all of it. The same holds for every range here: a selection,
+// its rectangles, a copy, an ImTypesetMark.
 struct ImTypesetTextRange {
     int Start;
     int End;
@@ -527,7 +537,8 @@ enum ImTypesetBlockKind_ {
     ImTypesetBlockKind_ListItem = 2,  // Text, usually with a marker.
     // Text set verbatim in ImTypesetFace_Code: one line per source line, white
     // space kept, tabs to the next multiple of four columns, no runs, no
-    // formulas. Blank lines at the end are dropped. See ImTypesetCodeOverflow_.
+    // formulas. Blank lines at the end are dropped (a line of spaces is not
+    // blank): see POSITIONS under "Documents". See ImTypesetCodeOverflow_.
     ImTypesetBlockKind_Code = 3,
     ImTypesetBlockKind_Rule = 4, // A horizontal rule across the column, Extent thick.
     // A rectangle Extent tall that the library leaves empty, for a widget of
@@ -766,7 +777,10 @@ struct ImTypesetDocumentRange {
 // and can change every frame for nothing: a search hit, a link's colour and
 // underline, a syntax token. Marks are drawn in the order given, a later one
 // over an earlier one; two Ink marks over one character leave it the later
-// one's colour.
+// one's colour. A formula is marked whole or not at all, by whether the range
+// holds its first byte (see ImTypesetTextRange): a mark over the middle of a
+// formula's source draws nothing, in any Place. A mark over a rule or a host
+// block draws nothing.
 struct ImTypesetMark {
     ImTypesetDocumentRange Range;
     ImU32 Color;
@@ -851,6 +865,23 @@ struct ImTypesetDocumentStats {
                         // (counted when asked: one step a block).
 };
 
+// The sections of the demo window. The values are stable: a new section is
+// added before COUNT and none is renumbered.
+enum ImTypesetDemoSection_ {
+    ImTypesetDemoSection_Paragraph = 0,
+    ImTypesetDemoSection_Faces = 1,    // "Faces and sizes"
+    ImTypesetDemoSection_Specimen = 2, // Every face at one size, one face up a scale, kerning.
+    ImTypesetDemoSection_Math = 3,     // Formulas in text: the subset, refusals, a stream.
+    ImTypesetDemoSection_Formulas = 4, // "Formula gallery": plates, each for one rule of math mode.
+    ImTypesetDemoSection_Selection = 5,
+    ImTypesetDemoSection_Inspector = 6,
+    ImTypesetDemoSection_Stress = 7,
+    ImTypesetDemoSection_Fonts = 8,
+    ImTypesetDemoSection_KnownLimits = 9,
+    ImTypesetDemoSection_Document = 10,
+    ImTypesetDemoSection_COUNT
+};
+
 namespace ImTypeset
 {
 
@@ -875,9 +906,27 @@ IMTYPESET_API bool DebugCheckDocumentDataLayout(size_t sz_block, size_t sz_block
 // is. Null if there is no ImGui context, if the library was compiled against
 // another ImGui than it is linked with, or after a failed
 // IMTYPESET_CHECKVERSION(). [E]
+//
+// LIFETIME. Destroy it before the ImGui context it was made in. If that ImGui
+// context goes first, this one is left holding fonts of an atlas that is gone:
+//   - with no ImGui context current, or another one, everything that draws,
+//     adds or removes a font, or is a widget answers false with
+//     ImTypesetError_NoContext, and GetFont() answers null; layout, hit tests
+//     and copies still answer, since they need no ImGui;
+//   - DestroyContext() is still safe, and is the one thing left to do with it;
+//   - an ImGui context made LATER AT THE SAME ADDRESS cannot be told from the
+//     one that was destroyed (an address is all imgui.h gives to know one by,
+//     and allocators hand the same block out again). It is taken for this
+//     context's own: every role is found empty by the next call that looks,
+//     text reports ImTypesetError_NoFont until fonts are added again, and
+//     paragraphs and documents kept from before are then laid out and drawn
+//     as before. That is what happens in every case tested, not a promise: a
+//     host that makes ImGui contexts in turn destroys this one each time.
 IMTYPESET_API ImTypesetContext* CreateContext();
-// Null destroys the current one. Its paragraphs die with it. The fonts it
-// added stay in the ImGui atlas, which owns them.
+// Null destroys the current one. Its paragraphs and documents die with it. The
+// fonts it added stay in the ImGui atlas, which owns them. Touches nothing of
+// ImGui's: it may be called with no ImGui context, or with the one it was
+// made in already destroyed.
 IMTYPESET_API void DestroyContext(ImTypesetContext* ctx = NULL);
 IMTYPESET_API ImTypesetContext* GetCurrentContext();
 IMTYPESET_API void SetCurrentContext(ImTypesetContext* ctx);
@@ -933,6 +982,18 @@ IMTYPESET_API void SetTextCacheLimits(int max_paragraphs, int max_bytes);
 //   - A role that already has a font is given the new one and the old ImFont
 //     is removed from the atlas. Do not keep the old pointer.
 //   - ImTypesetFace_Default is not a role: it is refused.
+//
+// ONE COPY OF A FACE, NOT TWO. The font added here is a copy of the file made
+// for typesetting (its character map rewritten so that every codepoint layout
+// can name has a glyph), so a font the host added from the same file cannot
+// be adopted: the two are different ImFonts. The sharing goes the other way.
+// The ImFont returned here is an ordinary one, and a host that wants its own
+// widgets in the same face draws them with it (ImGui::PushFont(font, size))
+// instead of adding the file a second time. For text the file encodes it
+// draws what a copy the host added would draw, with two differences a host
+// can see: ImFontConfig::OversampleH is 1 unless `font_cfg` says otherwise,
+// and under FreeType a font that asks to be sized by its OS/2 typographic
+// metrics is sized by its hhea table, as layout measures it.
 IMTYPESET_API ImFont* AddFontFromFileTTF(ImTypesetFace face, const char* filename,
                                          int face_index = 0, const ImFontConfig* font_cfg = NULL);
 // The bytes are copied.
@@ -949,7 +1010,8 @@ IMTYPESET_API ImFont* AddFontFromMemoryTTF(ImTypesetFace face, const void* font_
 // too. [E]
 IMTYPESET_API bool RemoveFont(ImTypesetFace face);
 // The ImFont drawing a role, or null. CodeBold answers Bold's until it has
-// its own, and Default answers Regular's.
+// its own, and Default answers Regular's. Null whenever the ImGui context the
+// current context was made in is not the current one: the font is its atlas's.
 IMTYPESET_API ImFont* GetFont(ImTypesetFace face);
 
 // --- Widgets -------------------------------------------------------------------------
@@ -1097,7 +1159,9 @@ IMTYPESET_API ImTypesetLine GetParagraphLine(const ImTypesetParagraph* paragraph
 // texture is the font atlas (any window's is). False, with nothing drawn, if
 // that context is not current, the backend has no texture updates, the
 // paragraph has no font, or it has not been laid out since its text or the
-// context's fonts last changed. [E]
+// context's fonts last changed. `draw_list` null is the current window's
+// (ImGui::GetWindowDrawList()), for a binding that has no way to name one; it
+// is refused outside a frame. [E]
 IMTYPESET_API bool DrawParagraph(const ImTypesetParagraph* paragraph, ImDrawList* draw_list,
                                  const ImVec2& pos, const ImTypesetTextRange* selection = NULL);
 
@@ -1195,14 +1259,23 @@ IMTYPESET_API int AppendParagraphRangeText(const ImTypesetParagraph* paragraph,
 // POSITIONS are ImTypesetPosition: (block, byte offset into that block's text
 // as the host gave it). For a code block the text is the raw source, tabs and
 // all, up to the last character that is set: the line end after it and any
-// blank lines that follow are not part of the block, and are not copied.
+// blank lines that follow are not part of the block, and are not copied. No
+// position the library answers is past that character, and one a host gives
+// past it is that end. The bytes are kept all the same
+// (GetDocumentBlockTextSize() counts them), and they stop being the block's
+// end when AppendDocumentText() puts text after them.
 //
 // WHAT A COPY GIVES (AppendDocumentRangeText): within a block what
 // AppendParagraphRangeText gives; a code block's source bytes as they were
 // handed in, tabs and "\r\n" included, as far as its text goes (see
 // POSITIONS: not the line end after its last character); a host block's text
-// whole when the range covers any of it; nothing for a rule or a marker; and
-// between two blocks `block_separator`.
+// whole when the range covers any of it; nothing for a rule or a marker.
+// `block_separator` goes between two blocks THAT EACH GAVE TEXT, once, however
+// many blocks lie between them that gave none: a rule, a host block without
+// text, an empty block, a block the range only touches the edge of. Such a
+// block leaves no trace in a copy, and a range that starts or ends in one has
+// no separator at that end. (Text, a rule, text copies as the two texts with
+// one separator between them, which is what the reference copies.)
 //
 // A document belongs to the context that was current when it was created.
 
@@ -1259,7 +1332,9 @@ IMTYPESET_API bool SetDocumentOptions(ImTypesetDocument* document,
 IMTYPESET_API int GetDocumentBlockCount(const ImTypesetDocument* document);
 IMTYPESET_API int GetDocumentStyleCount(const ImTypesetDocument* document);
 IMTYPESET_API int GetDocumentContainerCount(const ImTypesetDocument* document);
-// How many bytes of text a block holds; 0 for a block that is not one.
+// How many bytes of text a block holds, as they were handed in; 0 for a block
+// that is not one. For a code block that ends in line ends this is more than
+// its last position: see POSITIONS.
 IMTYPESET_API int GetDocumentBlockTextSize(const ImTypesetDocument* document, int block);
 
 // Says how wide the column is, in pixels, and how text is set where a block's
@@ -1290,7 +1365,7 @@ IMTYPESET_API ImTypesetDocumentStats GetDocumentStats(const ImTypesetDocument* d
 // whatever the draw list's clip rectangle shows and is not laid out. Blocks
 // outside the clip rectangle are not visited: the work is what is in view
 // plus a logarithm of the number of blocks. Refuses what DrawParagraph
-// refuses. [E]
+// refuses; `draw_list` null is the current window's, as there. [E]
 IMTYPESET_API bool DrawDocument(ImTypesetDocument* document, ImDrawList* draw_list,
                                 const ImVec2& pos, const ImTypesetDocumentDraw* draw = NULL);
 // The same as vertices and indices: see DrawParagraphToBuffers. [E]
@@ -1385,5 +1460,18 @@ IMTYPESET_API int ParagraphByteToCodepointOffset(const ImTypesetParagraph* parag
 // it. With no current context it says so. Compiled with
 // IMTYPESET_DISABLE_DEMO it is still there to link against and draws nothing.
 IMTYPESET_API void ShowDemoWindow(bool* p_open = NULL);
+// One section of the demo window without the window: its contents, submitted
+// into the current window, for a host that shows it as a page of its own (in a
+// tab, a child, a window it made). Text is set at ImGui::GetFontSize(), so
+// PushFont() around the call sizes it. What a section remembers between frames
+// it remembers per context, and apart from the demo window's own copy of the
+// section: a width dragged in one is not dragged in the other. A value that is
+// not a section draws nothing; with no current ImTypeset context it says so in
+// a line of text.
+IMTYPESET_API void ShowDemoSection(ImTypesetDemoSection section);
+// The section's title as the demo window's header shows it; "" for a value
+// that is not a section, and for every value when compiled with
+// IMTYPESET_DISABLE_DEMO. Never null; a string constant.
+IMTYPESET_API const char* GetDemoSectionName(ImTypesetDemoSection section);
 
 } // namespace ImTypeset

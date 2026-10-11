@@ -1,0 +1,8 @@
+# Written by tools/oracle/pin_reference.sh --lock. Do not edit.
+# sha256 is the SHA-256 of the listing '<sha256>  <path>' of every file
+# of the archive, sorted by path (LC_ALL=C).
+tag=advtext-reference
+commit=32e395346551cac82c7a6dd6e9b6d8e47feeac8e
+tree=7a591a485818c85fd6c6c43df75271a477c9d612
+files=179
+sha256=cae5c698082ef77bcb96cbe3fa691ef0d6ef60809d511ebfd8db0f55625f7e56

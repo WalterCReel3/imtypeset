@@ -158,6 +158,13 @@ if(_py_python AND EXISTS "${_py_python}")
         TIMEOUT 600
         SKIP_RETURN_CODE 77
         ENVIRONMENT "IMTYPESET_LIBRARY=$<TARGET_FILE:imtypeset_pyhost>;PYTHONDONTWRITEBYTECODE=1;SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
+    # python/imtypeset/demo.py: the demo's sections, one at a time.
+    add_test(NAME python_demo_sections
+        COMMAND "${_py_python}" -P -B "${_py_repo}/tests/python/test_demo_sections.py")
+    set_tests_properties(python_demo_sections PROPERTIES
+        TIMEOUT 600
+        SKIP_RETURN_CODE 77
+        ENVIRONMENT "IMTYPESET_LIBRARY=$<TARGET_FILE:imtypeset_pyhost>;PYTHONDONTWRITEBYTECODE=1;SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
 else()
     message(STATUS "imtypeset python host: no interpreter, python_binding will be skipped")
     add_test(NAME python_binding

@@ -723,6 +723,25 @@ struct ImFont* ImTypeset_GetFont(ImTypeset_Face face)
     return guarded<ImFont*>(nullptr, [&]() { return ImTypeset::GetFont(face); });
 }
 
+int ImTypeset_GetFontAtlasIndex(ImTypeset_Face face)
+{
+    return guarded(-1, [&]() -> int {
+        // Not null only with the context's ImGui context current, so the
+        // atlas looked through is the one the font is in.
+        const ImFont* const font = ImTypeset::GetFont(face);
+        if (font == nullptr)
+            return -1;
+        const ImFontAtlas* const atlas = ImGui::GetIO().Fonts;
+        if (atlas == nullptr)
+            return -1;
+        for (int i = 0; i < atlas->Fonts.Size; ++i) {
+            if (atlas->Fonts[i] == font)
+                return i;
+        }
+        return -1;
+    });
+}
+
 // --- Widgets --------------------------------------------------------------------------
 
 int ImTypeset_TextUnformatted(const char* text, const char* text_end, ImTypeset_TextFlags flags,
@@ -1423,6 +1442,19 @@ int ImTypeset_ShowDemoWindow(int* p_open)
             *p_open = open ? 1 : 0;
         return 1;
     });
+}
+
+int ImTypeset_ShowDemoSection(ImTypeset_DemoSection section)
+{
+    return guarded(0, [&]() -> int {
+        ImTypeset::ShowDemoSection(section);
+        return 1;
+    });
+}
+
+const char* ImTypeset_GetDemoSectionName(ImTypeset_DemoSection section)
+{
+    return ImTypeset::GetDemoSectionName(section);
 }
 
 } // extern "C"

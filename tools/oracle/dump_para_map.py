@@ -45,8 +45,8 @@ font reader, which tests/golden/para already holds to the reference.
 
 Run from the repository root:
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \\
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_para_map.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \\
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_para_map.py
 
 Two runs write identical bytes.
 """
@@ -60,6 +60,10 @@ from typing import Sequence
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import pinned_reference  # noqa: E402
+
+pinned_reference.require()
 
 import dump_core as core  # noqa: E402
 from dump_core import emit_skip, q  # noqa: E402

@@ -15,8 +15,8 @@ before the swap").
 
 Regenerate, from the repository root, with
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_doc_extras.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_doc_extras.py
 
 (about two minutes; `--only selection,hosts` writes some files only). Two runs
 write identical bytes. `--verify` (about as long) re-reads every file, rebuilds
@@ -546,7 +546,7 @@ INPUT rows:
     first_fit <nlines> <words_on_line>{nlines}
     flips <steps> <most_lines> <nflips> <words>{nflips}
 
-`../imgui-adv-text/tests/test_stream_stability.py`, imported from its file and
+`build/advtext-reference/tests/test_stream_stability.py`, imported from its file and
 driven as it drives itself: the 635-node paragraph of `demo/sample.md`, every
 glue's shrink set to zero (`_without_shrink`), ragged right (`_ragged` of
 `PROSE_BREAKING` or of `LineBreakParams()`), cut before each interword glue
@@ -574,8 +574,10 @@ than the last changed — **none**, at 270 and 420 pt.
 
 ## 8. What is not in here
 
-- Tables: cell separators (tab, newline), `map_table`, links and find hits in
-  cells, live-table column holding in a stream.
+- Tables. Cell separators (tab, newline), `map_table`, links and find hits in
+  cells and live-table column holding in a stream are in
+  `tests/golden/doc-tables` ([FORMAT-doc-tables.md](FORMAT-doc-tables.md)),
+  not here.
 - `carry_selection` / `carry_caret`: restating a selection across a relayout.
   R3's byte offsets replace them by construction.
 - `BlockSource` / `SourceSpan` (which markdown lines a block came from) and

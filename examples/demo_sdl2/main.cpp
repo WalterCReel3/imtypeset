@@ -226,8 +226,8 @@ bool setup_library(const char* font_dir)
 // window's storage under the ID of its label.
 void arrange_demo_window(const Options& opt)
 {
-    static const char* const all = "Paragraph,Faces and sizes,Math,Selection,Inspector,Stress,"
-                                   "Fonts,Known limits";
+    static const char* const all = "Paragraph,Faces and sizes,Specimen,Math,Formula gallery,"
+                                   "Selection,Inspector,Stress,Fonts,Known limits,Document";
     ImGui::Begin("ImTypeset Demo");
     if (opt.Open != nullptr) {
         const std::string list = std::strcmp(opt.Open, "all") == 0 ? all : opt.Open;

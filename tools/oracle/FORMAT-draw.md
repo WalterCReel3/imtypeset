@@ -1,11 +1,11 @@
 # Draw goldens: `tests/golden/draw/*.golden`
 
 Written by `tools/oracle/dump_draw.py` from the Python reference's ImDrawList
-backend (`../imgui-adv-text/advtext/backends/imgui_draw.py`), running inside a
+backend (`build/advtext-reference/advtext/backends/imgui_draw.py`), running inside a
 real, headless ImGui frame. Regenerate, from the repository root, with
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_draw.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_draw.py
 
 Two runs write identical bytes. The reference's `imgui_font_file` leaves one
 `advtext-fonts-*` directory under `$TMPDIR` per run; that is its behaviour.

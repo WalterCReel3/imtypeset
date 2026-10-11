@@ -2,16 +2,19 @@
 // scripted input through ImGuiIO's event queue and drawn by the software
 // renderer the tests use.
 //
-//     example_demo_headless              runs every section, writes nothing
-//     example_demo_headless DIR          also writes DIR/demo-<section>.png
+//     example_demo_headless              runs every page, writes nothing
+//     example_demo_headless DIR          also writes DIR/demo-<page>.png
 //     example_demo_headless --frame OUT.png [--size WxH] [--open SECTIONS]
 //                           [--frames N] [--drag X0,Y0,X1,Y1] [--scroll Y]
+//                           [--section N]
 //
 // The first two open one section at a time, in a window that fills the frame,
 // and act on it as a user would: a drag across the selectable text, a formula
 // typed into the math source, the wheel over the long document, a file that is
 // not a font offered as one. They fail if a frame in which nothing happens lays
-// anything out.
+// anything out. The pages named demo-section-* show a section the other way:
+// by ImTypeset::ShowDemoSection(), in a window of the host's own, as a host
+// with pages of its own embeds one. --section N does that for --frame.
 //
 // --frame renders the frame examples/demo_sdl2 renders when given the same
 // options with --fill --dpi-scale 1, so that one frame can be held against the
@@ -41,11 +44,6 @@
 namespace
 {
 
-const char* const SECTIONS[] = {
-    "Paragraph", "Faces and sizes", "Math",         "Selection", "Inspector",
-    "Stress",    "Fonts",           "Known limits", "Document",
-};
-
 // What is behind the window, which is not quite opaque: the clear colour of
 // ImGui's examples, and of examples/demo_sdl2, as OpenGL rounds it.
 const ImU32 CLEAR = IM_COL32(115, 140, 153, 255);
@@ -60,6 +58,13 @@ struct Run {
     float Scroll = 0.0f;
     int Frames = 14;
     Script Input = nullptr;
+    // A section shown by ImTypeset::ShowDemoSection() in a window of the
+    // host's, in place of the demo window; -1 is the demo window.
+    int Section = -1;
+    // Scroll is where the window stands in every frame, not only where it is
+    // put in the first: for a page that shows the lower part of a section,
+    // whose height is not known until it has been laid out.
+    bool HoldScroll = false;
     // The --drag of examples/demo_sdl2, for --frame.
     bool Drag = false;
     float DragFrom[2] = {0.0f, 0.0f};
@@ -74,7 +79,8 @@ void arrange_demo_window(const Run& run)
 {
     ImGui::Begin("ImTypeset Demo");
     const std::string list = "," + run.Open + ",";
-    for (const char* section : SECTIONS) {
+    for (int n = 0; n < ImTypesetDemoSection_COUNT; ++n) {
+        const char* section = ImTypeset::GetDemoSectionName(n);
         const bool open = list.find("," + std::string(section) + ",") != std::string::npos;
         ImGui::GetStateStorage()->SetInt(ImGui::GetID(section), open ? 1 : 0);
     }
@@ -128,6 +134,39 @@ ImVec2 text_drawn(const char* text)
     return ImVec2(0.0f, 0.0f);
 }
 
+// What a host with pages of its own does with a section: a window it made,
+// filling the frame, the type size pushed around the call.
+void show_section_in_a_host_window(int section, float scroll)
+{
+    ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+    ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+    ImGui::Begin("A page of the host's", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
+    ImGui::Text("ImTypeset::ShowDemoSection(%d): %s", section,
+                ImTypeset::GetDemoSectionName(section));
+    ImGui::Separator();
+    ImGui::PushFont(nullptr, 19.0f);
+    ImTypeset::ShowDemoSection(section);
+    ImGui::PopFont();
+    if (scroll > 0.0f)
+        ImGui::SetScrollY(scroll);
+    ImGui::End();
+}
+
+// One frame of what a run shows.
+void show(const Run& run, bool first_frame)
+{
+    if (run.Section >= 0) {
+        show_section_in_a_host_window(run.Section, run.Scroll);
+        return;
+    }
+    if (run.HoldScroll && !first_frame)
+        ImGui::SetNextWindowScroll(ImVec2(-1.0f, run.Scroll));
+    ImTypeset::ShowDemoWindow();
+    if (first_frame)
+        arrange_demo_window(run);
+}
+
 // One run from context to context. Fills `image` with the last frame.
 bool run_demo(const Run& run, soft_raster::Image& image)
 {
@@ -166,6 +205,7 @@ bool run_demo(const Run& run, soft_raster::Image& image)
         std::fprintf(stderr, "demo_headless: %s\n", ImTypeset::GetLastError()->Message);
 
     image = soft_raster::Image(run.Width, run.Height, CLEAR);
+    soft_raster::Image strip(run.Width, 1, CLEAR);
     for (int frame = 1; ok && frame <= run.Frames; ++frame) {
         if (run.Input != nullptr)
             run.Input(frame, io);
@@ -179,12 +219,18 @@ bool run_demo(const Run& run, soft_raster::Image& image)
         ImGui::NewFrame();
         g_ui_font = ImGui::GetFont();
         g_ui_font_size = ImGui::GetFontSize();
-        ImTypeset::ShowDemoWindow();
-        if (frame == 1)
-            arrange_demo_window(run);
+        show(run, frame == 1);
         ImGui::Render();
-        image.clear(CLEAR);
-        renderer.render(ImGui::GetDrawData(), image);
+        // Every frame goes through the renderer, which is what takes the
+        // atlas's textures; only the last is wanted as a picture, and the
+        // others are drawn into a strip one row tall.
+        if (frame == run.Frames) {
+            image.clear(CLEAR);
+            renderer.render(ImGui::GetDrawData(), image);
+        } else {
+            strip.clear(CLEAR);
+            renderer.render(ImGui::GetDrawData(), strip);
+        }
     }
 
     // Three more frames with the pointer away and nothing held: whatever the
@@ -197,7 +243,7 @@ bool run_demo(const Run& run, soft_raster::Image& image)
             if (frame == 1)
                 layouts = ImTypeset::GetStats().Layouts;
             ImGui::NewFrame();
-            ImTypeset::ShowDemoWindow();
+            show(run, false);
             ImGui::Render();
         }
         const ImU64 steady = ImTypeset::GetStats().Layouts - layouts;
@@ -347,32 +393,67 @@ const bool DEMO_WINDOW = false;
 const bool DEMO_WINDOW = true;
 #endif
 
+// Math: the stream stepped twelve pieces on, which closes its first formula,
+// and then the source replaced as script_math() replaces it.
+void script_math_stream(int frame, ImGuiIO& io)
+{
+    if (frame >= 4 && frame < 28) {
+        const ImVec2 button = text_drawn("Step");
+        io.AddMousePosEvent(button.x + 8.0f, button.y + 4.0f);
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, frame % 2 == 0);
+        if (frame == 6)
+            expect(ImGui::IsAnyItemHovered(), "the pointer is not on the stream's Step button");
+    } else if (frame == 28) {
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+        io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+    }
+}
+
 struct Page {
     const char* File;
-    const char* Section;
+    const char* Section; // Its title in the demo window.
     int Height;
     Script Input;
     int Frames;
+    float Scroll;
+    bool Alone; // Shown by ShowDemoSection() in a window of the host's.
 };
 
 const Page PAGES[] = {
-    {"demo-paragraph", "Paragraph", 600, idle, 14},
-    {"demo-faces", "Faces and sizes", 520, idle, 14},
-    {"demo-math", "Math", 1500, script_math, 14},
-    {"demo-selection", "Selection", 720, script_selection, 14},
-    {"demo-inspector", "Inspector", 540, script_inspector, 14},
-    {"demo-stress", "Stress", 720, script_stress, 44},
-    {"demo-fonts", "Fonts", 640, script_fonts, 14},
-    {"demo-limits", "Known limits", 660, idle, 14},
-    {"demo-document", "Document", 720, idle, 14},
+    {"demo-paragraph", "Paragraph", 600, idle, 14, 0.0f, false},
+    {"demo-faces", "Faces and sizes", 400, idle, 14, 0.0f, false},
+    {"demo-specimen", "Specimen", 1500, idle, 14, 0.0f, false},
+    {"demo-math", "Math", 1500, script_math, 14, 0.0f, false},
+    {"demo-math-stream", "Math", 1500, script_math_stream, 32, 0.0f, false},
+    {"demo-math-subset", "Math", 2300, idle, 14, 1200.0f, false},
+    {"demo-formulas", "Formula gallery", 2600, idle, 14, 0.0f, false},
+    {"demo-selection", "Selection", 720, script_selection, 14, 0.0f, false},
+    {"demo-inspector", "Inspector", 540, script_inspector, 14, 0.0f, false},
+    {"demo-stress", "Stress", 720, script_stress, 44, 0.0f, false},
+    {"demo-fonts", "Fonts", 640, script_fonts, 14, 0.0f, false},
+    {"demo-limits", "Known limits", 660, idle, 14, 0.0f, false},
+    {"demo-document", "Document", 720, idle, 14, 0.0f, false},
+    {"demo-section-specimen", "Specimen", 1500, idle, 14, 0.0f, true},
+    {"demo-section-formulas", "Formula gallery", 2600, idle, 14, 0.0f, true},
+    {"demo-section-math", "Math", 1500, idle, 14, 0.0f, true},
 };
+
+// Which section has this title; -1 if none has.
+int section_named(const char* title)
+{
+    for (int n = 0; n < ImTypesetDemoSection_COUNT; ++n)
+        if (std::strcmp(ImTypeset::GetDemoSectionName(n), title) == 0)
+            return n;
+    return -1;
+}
 
 int usage()
 {
     std::fprintf(stderr,
                  "usage: example_demo_headless [DIR]\n"
                  "       example_demo_headless --frame OUT.png [--size WxH] [--open SECTIONS]\n"
-                 "                             [--frames N] [--drag X0,Y0,X1,Y1] [--scroll Y]\n");
+                 "                             [--frames N] [--drag X0,Y0,X1,Y1] [--scroll Y]\n"
+                 "                             [--section N]\n");
     return 2;
 }
 
@@ -399,6 +480,10 @@ int main(int argc, char** argv)
             } else if (std::strcmp(arg, "--frames") == 0) {
                 run.Frames = std::atoi(value);
                 if (run.Frames < 1 || run.Frames > 10000)
+                    return usage();
+            } else if (std::strcmp(arg, "--section") == 0) {
+                run.Section = std::atoi(value);
+                if (run.Section < 0 || run.Section >= ImTypesetDemoSection_COUNT)
                     return usage();
             } else if (std::strcmp(arg, "--scroll") == 0) {
                 run.Scroll = (float)std::atof(value);
@@ -432,6 +517,16 @@ int main(int argc, char** argv)
         run.Open = page.Section;
         run.Input = DEMO_WINDOW ? page.Input : idle;
         run.Frames = page.Frames;
+        run.Scroll = page.Scroll;
+        run.HoldScroll = page.Scroll > 0.0f;
+        if (page.Alone && DEMO_WINDOW) {
+            run.Section = section_named(page.Section);
+            if (run.Section < 0) {
+                std::fprintf(stderr, "demo_headless: no section is called %s\n", page.Section);
+                ok = false;
+                continue;
+            }
+        }
         soft_raster::Image image;
         if (!run_demo(run, image)) {
             std::fprintf(stderr, "demo_headless: %s failed\n", page.Section);
@@ -448,6 +543,6 @@ int main(int argc, char** argv)
         }
         std::printf("demo_headless: wrote %s (%d x %d)\n", path.c_str(), run.Width, run.Height);
     }
-    std::printf("demo_headless: %d sections, %s\n", IM_ARRAYSIZE(PAGES), ok ? "ok" : "FAILED");
+    std::printf("demo_headless: %d pages, %s\n", IM_ARRAYSIZE(PAGES), ok ? "ok" : "FAILED");
     return ok ? 0 : 1;
 }

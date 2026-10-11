@@ -9,8 +9,8 @@ reader either. The record vocabulary is specified in tools/oracle/FORMAT.md.
 
 Run from the imtypeset repository root, with the reference's interpreter:
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \\
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_core.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \\
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_core.py
 
     ... dump_core.py --verify   re-reads every golden with a reader written
                                 from FORMAT.md alone, rebuilds the inputs from
@@ -47,6 +47,11 @@ import sys
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pinned_reference  # noqa: E402
+
+pinned_reference.require()
 
 from advtext import linebreak as L
 from advtext import markdown, ui
@@ -138,7 +143,7 @@ from advtext.units import (
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "tests" / "golden" / "core"
-REFERENCE = ROOT.parent / "imgui-adv-text"
+REFERENCE = pinned_reference.ROOT_DIR
 FORMAT_VERSION = 1
 PT = UNITY
 

@@ -11,8 +11,8 @@ tools/oracle/FORMAT-selection.md, over the shared records of FORMAT.md.
 
 Run from the imtypeset repository root, with the reference's interpreter:
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \\
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_selection.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \\
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_selection.py
 
     ... dump_selection.py --verify   re-reads every golden with a reader
                                      written from the FORMAT documents, rebuilds
@@ -40,6 +40,10 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import pinned_reference  # noqa: E402
+
+pinned_reference.require()
 
 import dump_core as core  # noqa: E402
 from dump_core import Records, Rng, emit_cmds, q, read_cmds, unq  # noqa: E402

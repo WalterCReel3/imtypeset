@@ -13,8 +13,8 @@ modules, none of which is ported whole (D20):
 
 Regenerate, from the repository root, with
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_para.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_para.py
 
 Two runs write identical bytes. `dump_para.py --verify` re-reads every file
 with a reader that uses only this document and `FORMAT.md`, rebuilds each case

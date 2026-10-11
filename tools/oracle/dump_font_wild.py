@@ -5,8 +5,8 @@ corpus test.
 
 Run from the repository root, with the reference's interpreter:
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_font_wild.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_font_wild.py
 
 Writes tests/golden/font-wild/*.golden. tools/oracle/FORMAT-font-wild.md
 documents every record. Reads the reference and the system fonts and writes to
@@ -55,15 +55,19 @@ from typing import Any
 import fontTools
 import fontTools.ttLib
 
+# The sibling scripts are found beside this file whether or not the
+# interpreter was started with -P.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pinned_reference  # noqa: E402
+
+pinned_reference.require()
+
 from advtext import fontlib
 from advtext.fontmetrics import Face
 
 # The conventions of the bundled-font oracle: `s` percent-encodes a string
 # token, `f` writes a float as `float.hex()`, `Lcg` is the generator behind
-# every "deterministic sample". Found beside this file whether or not the
-# interpreter was started with -P.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
+# every "deterministic sample".
 from dump_font import Lcg, f, s  # noqa: E402
 
 OUT = Path(__file__).resolve().parents[2] / "tests" / "golden" / "font-wild"

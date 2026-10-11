@@ -19,8 +19,8 @@ over `hpack`/`vpack` and nothing in document composition calls it.
 
 Regenerate, from the repository root, with
 
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=../imgui-adv-text \
-        ../imgui-adv-text/.venv/bin/python -B tools/oracle/dump_blocks.py
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=build/advtext-reference \
+        ../imgui-adv-text/.venv/bin/python -P -B tools/oracle/dump_blocks.py
 
 Two runs write identical bytes. `dump_blocks.py --verify`, per case:
 

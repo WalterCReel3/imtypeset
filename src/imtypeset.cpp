@@ -2423,8 +2423,11 @@ ImFont* GetFont(ImTypesetFace face)
     const int role = face == ImTypesetFace_Default ? 0 : role_of(face);
     if (role < 0)
         return nullptr;
-    if (bound(*g_context))
-        validate_fonts(*g_context);
+    // The pointer is into the atlas of the ImGui context this one was created
+    // in: with that context not current nothing here can vouch for it.
+    if (!bound(*g_context))
+        return nullptr;
+    validate_fonts(*g_context);
     return g_context->fonts.faces[role].font;
 }
 
@@ -2681,10 +2684,18 @@ ImTypesetLine GetParagraphLine(const ImTypesetParagraph* paragraph, int line)
 bool DrawParagraph(const ImTypesetParagraph* paragraph, ImDrawList* draw_list, const ImVec2& pos,
                    const ImTypesetTextRange* selection)
 {
-    if (draw_list == nullptr)
-        return fail(ImTypesetError_InvalidArgument, "DrawParagraph: no draw list was given");
     if (!can_draw(paragraph))
         return false;
+    if (draw_list == nullptr) {
+        // Null is the current window's. NewFrame invalidates the draw data and
+        // Render makes it valid again: the one sign imgui.h gives of being
+        // inside a frame, which is where there is a current window.
+        if (ImGui::GetFrameCount() <= 0 || ImGui::GetDrawData() != nullptr)
+            return fail(ImTypesetError_InvalidArgument,
+                        "DrawParagraph: no draw list was given, which means the current "
+                        "window's, and this is outside a frame");
+        draw_list = ImGui::GetWindowDrawList();
+    }
     draw_to_list(*paragraph->ctx, *paragraph, draw_list, pos, selection);
     return succeed();
 }
