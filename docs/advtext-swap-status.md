@@ -7,14 +7,14 @@ States: **done**, **in progress**, **queued**, **declined** (with the reason),
 **needs the user**. A decision an agent took is marked *agent decision*; the
 user is the only one who moves the border.
 
-Last updated: 2026-10-11, after commit `5654eee`; items 7 and 8 by `swap-api-answers`, item 6 by `galleries`, uncommitted.
+Last updated: 2026-10-11, after commit `12d77ac` (items 2, 6, 7, 8 are in it).
 
 ## Build from
 
 | | |
 |---|---|
-| commit | **`5654eee`** on `main` ("Settle the tree after the release gate") |
-| what it is | the tree every preset passed on from clean directories (GCC 12.2, Linux x86-64) |
+| commit | **`12d77ac`** on `main` ("Pin the oracle, answer advtext's API questions, add the galleries"). Before it: `5654eee`, the tree the release gate passed |
+| what it is | `5654eee` (every preset from clean) plus items 2, 6 and 7. On `12d77ac` itself only the `debug` preset was run: 43 of 43. Rebuild the library: the Python package of this commit refuses one built from `5654eee` |
 | how | `python/host/build_bundle_library.sh` as before; one library per interpreter |
 | pushed? | no — the session cannot reach the network; the local repository has it |
 
@@ -25,11 +25,12 @@ what advtext can call is listed under "API changes".
 
 ## API changes since `5654eee`
 
-**Not committed yet** (task `swap-api-answers`; in the working tree, to be in
-the next commit this file names). Nothing was renamed or removed. A library
-and the `python/imtypeset` package must come from the same tree: the package
-refuses a library that lacks a function it declares, so **rebuild the library
-when the package moves past `5654eee`**.
+**In `12d77ac`** (tasks `swap-api-answers` and `galleries`). Nothing was renamed or
+removed. A library and the `python/imtypeset` package must come from the same
+commit: the package refuses a library that lacks a function it declares.
+Also new in `12d77ac`, from `galleries`: `ShowDemoSection` /
+`GetDemoSectionName` / `ImTypesetDemoSection_` (C: `ImTypeset_ShowDemoSection`,
+`ImTypeset_GetDemoSectionName`; Python: `imtypeset.demo`), see item 6.
 
 | what | C++ | C | Python | note |
 |---|---|---|---|---|
@@ -60,8 +61,8 @@ in this section naming the commit.
 | 3 | tables in the core | **queued** behind 2 and 7 (task `tables-core`); requirements from `FS-S2--builder--result.md`, not yet written when this was last updated |
 | 4 | columns in the core | **queued** behind 3 (task `columns-core`) |
 | 5 | what DiffView needs | **in progress**: FS-S1 asks for ONE thing, accepted (*agent decision, the coordinating session's; it is leading, so typesetting*): **R1**, a way to make a Code block's line height exact whatever glyphs a line holds, and its fallback **R1b**, "does face F have a glyph for codepoint C" (the face alone, not the stand-in chain). Both are stage 0 of task `tables-core`, with FS-S2 section 4's four API notes; they land in their own commit, named here, before the table work. **Declined**, as the request itself asks: anything exposing nodes, packing or draw commands — FS-S1 asks for none |
-| 6 | specimen and formula galleries | **done** in the working tree, not yet committed (task `galleries`): see "Galleries (item 6)" |
-| 7 | open API questions, and C1–C8 | **done** for (a)–(g), in the working tree and not yet committed: see "Answers (item 7)". Of C1–C8: C1 done, C3 in part, C8 answered in the header; C5 is item 3; C2, C4, C6, C7 queued, each with its reason |
+| 6 | specimen and formula galleries | **done** in `12d77ac` (task `galleries`): see "Galleries (item 6)" |
+| 7 | open API questions, and C1–C8 | **done** for (a)–(g), in `12d77ac`: see "Answers (item 7)". Of C1–C8: C1 done, C3 in part, C8 answered in the header; C5 is item 3; C2, C4, C6, C7 queued, each with its reason |
 | 8 | output that is not ImGui | **needs the user**: assessed, nothing built; the recommendation and what each choice costs are under "Border questions" |
 
 ## Border questions for the user
