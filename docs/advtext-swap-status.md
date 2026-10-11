@@ -409,3 +409,24 @@ advtext's); captions set from markdown with bold and code spans (they are
 plain text); the count of atoms and glyphs per pane. What a gallery cannot be
 without advtext: nothing. The demo's stream is a paragraph re-given as bytes
 arrive, not `advtext.stream`'s commit policies, which stay advtext's.
+
+## Known defects in tables at `be40444` (from a read-only review; a fix task follows columns)
+
+Found by reading, not by running; each will be reproduced before it is fixed
+(task `tables-fixes`). Plan around them until a later commit is named here.
+
+- **A click in the blank part of a cell reports the next cell** (in the last
+  column, the next row): `hit_test`'s `Row`/`Column` and `Position` come from
+  the item nearest the point, and a cell's filling blank is an item split at its
+  middle. For short text in a wide column a large part of the cell answers the
+  wrong column. Until fixed, take the cell from `GetDocumentTableRow` /
+  `GetDocumentTableCell` geometry and the point, not from the hit.
+- The caret rectangle at the end of an unwrapped right-aligned cell is drawn at
+  the next cell's first glyph; in a wrapped row a caret rectangle is the whole
+  row tall.
+- `FixedLineHeight` on a TABLE whose last row wraps makes the block too short
+  (the next block overlaps). Code blocks, which DiffView uses, are not affected.
+- A held table keeps its old column widths after a style change (font size).
+- Appending rows one at a time costs time proportional to the rows already
+  there (about 0.2 us a row an append): fine at hundreds of rows, not at tens of
+  thousands.
