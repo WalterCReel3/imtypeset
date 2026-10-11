@@ -346,6 +346,22 @@ void index_lines(const DrawCmd* cmds, size_t count, LineIndex& out)
     }
 }
 
+Scaled ink_overhang(const DrawCmd* cmds, size_t count)
+{
+    if (cmds == nullptr)
+        return 0;
+    Scaled glyph = 0;
+    Scaled atom = 0;
+    for (size_t i = 0; i < count; ++i) {
+        const DrawCmd& cmd = cmds[i];
+        if (cmd.type == CmdType::GLYPH)
+            glyph = std::max(glyph, cmd.font().size());
+        else if (cmd.type == CmdType::ATOM)
+            atom = std::max(atom, std::max(cmd.height, cmd.depth));
+    }
+    return add_saturating(atom, add_saturating(glyph, glyph));
+}
+
 // --- ImGui as the binder ------------------------------------------------------------
 
 class Drawer::ImGuiBinder : public FontBinder
@@ -1104,8 +1120,11 @@ DrawStats Drawer::place(const DrawRun* runs, size_t run_count, const DrawArgs& a
         // ends any rigid span, so skipping one changes nothing in the next.
         const std::vector<LineSpan>& spans = run.lines->spans;
         const double origin_y = static_cast<double>(args.origin.y);
-        const double clip_top = static_cast<double>(cull_clip->y) - CULL_MARGIN_PX;
-        const double clip_bottom = static_cast<double>(cull_clip->w) + CULL_MARGIN_PX;
+        const double reach =
+            CULL_MARGIN_PX +
+            (args.px_per_inch > 0.0 ? px_from_sp(run.lines->overhang, args.px_per_inch) : 0.0);
+        const double clip_top = static_cast<double>(cull_clip->y) - reach;
+        const double clip_bottom = static_cast<double>(cull_clip->w) + reach;
         const auto top_of = [&](const LineSpan& s) {
             return origin_y + px_from_sp(s.top, args.px_per_inch);
         };

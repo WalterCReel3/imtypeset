@@ -135,8 +135,24 @@ struct DocBlock {
     uint32_t last_cell_boxes = 0;
     uint32_t last_cell_display = 0;
     // With ImTypesetBlockFlags_TableHeld: the widest each column's cells have
-    // wanted at any layout, in scaled points.
+    // wanted at any layout, in scaled points; and what those lengths were
+    // measured under (the block's face and size, the padding, the fonts). A
+    // table set under anything else starts its widths afresh.
     std::vector<Scaled> held;
+    // How many of the cells, from the first, `held` has taken in: the cells
+    // that had their material the last time the widths were brought up.
+    uint32_t held_cells = 0;
+    struct HeldUnder {
+        Face face = Face::PROSE;
+        Scaled size = 0;
+        Scaled padding = 0;
+        uint32_t generation = 0;
+        bool operator==(const HeldUnder& other) const
+        {
+            return face == other.face && size == other.size && padding == other.padding &&
+                   generation == other.generation;
+        }
+    } held_under;
     // From the layout whose serial is `seen`: the byte of `text` each index of
     // the table's commands stands for, and one past the end.
     std::vector<uint32_t> table_bytes;
@@ -186,6 +202,11 @@ struct ImTypesetDocument {
     // See REFERENCE RULES above. Read when the rules are next applied and a
     // block's description next resolved: set it before the blocks.
     bool reference_rules = false;
+    // Under reference rules, the position of a hit in a table is still the
+    // product's (a byte of the cell whose rectangle holds the point): for a
+    // test that holds that rule over a document laid out as the reference
+    // lays it.
+    bool product_table_hits = false;
 
     // --- As of the last LayoutDocument
     bool has_style = false;
@@ -197,6 +218,13 @@ struct ImTypesetDocument {
     // Blocks were added, removed or described again since their specs were
     // last resolved against the style.
     bool specs_stale = true;
+    // How far past its block's box the ink of a block of exact lines
+    // (ImTypesetBlockFlags_FixedLineHeight) is looked for when a draw decides
+    // which blocks the clip rectangle shows: four ems of the largest such
+    // block this document has resolved, zero with none (it never shrinks: a
+    // window a little too large only visits a block more). Inside a block the
+    // lines are tested with LineIndex::overhang.
+    ImTypeset::detail::Scaled exact_reach = 0;
 
     // --- Scratch and caches
     // The paragraph a block's material is built in.
@@ -209,6 +237,11 @@ struct ImTypesetDocument {
     std::vector<ImTypeset::detail::Rect> highlights;
     std::vector<ImTypeset::detail::InkRange> inks;
     std::vector<ImTypeset::detail::InkRange> inks_scratch;
+    ImTypeset::detail::LineIndex lines_scratch;
+    // Table rows whose lines, colours and index-to-byte map were made (again)
+    // beside a layout: all of a table's the first time, and after that the
+    // rows a layout set again.
+    uint64_t table_rows_synced = 0;
     // Formula boxes of the arena that no block's material names any more.
     size_t dead_boxes = 0;
     size_t live_boxes = 0;

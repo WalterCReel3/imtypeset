@@ -7,8 +7,11 @@ States: **done**, **in progress**, **queued**, **declined** (with the reason),
 **needs the user**. A decision an agent took is marked *agent decision*; the
 user is the only one who moves the border.
 
-Last updated: 2026-10-11, after commit `92847e6`. Next: the table and column defects listed at the
-end of this file (task `tables-fixes`), then all presets from clean.
+Last updated: 2026-10-11, by task `tables-fixes`, on a working tree after `ce4d66d` that is NOT
+YET A COMMIT: the coordinating session commits it and names the commit under "Build from". Until
+a commit is named there, what this file says under "After `ce4d66d`" and in the two "Known
+defects" sections describes that tree and not anything you can build from. Next: all presets
+from clean.
 
 ## Build from
 
@@ -134,15 +137,38 @@ functions. What a caller can notice:
 | the demo window's state | `ShowDemoWindow`, `ShowDemoSection` | kept for the 32 contexts it was last shown in (was 8). Past 32 LIVE contexts shown in turn, a context's demo starts over each turn and leaves the handles it had made in that context; the window says so under Known limits |
 | `CalcTextSize` | header comment | says what it always did: whole pixels, rounded up |
 
+**After `ce4d66d`** (task `tables-fixes`; D60 to D64; **not yet committed**). No declaration was
+added, removed or changed in `imtypeset.h`, `imtypeset_c.h` or the Python package: the layout
+checks and the gate's probe are what they were. Behaviour changed, all of it in tables and in
+columns:
+
+| what | call | what changed |
+|---|---|---|
+| which cell a point is in | `HitTestDocument` / `Document.hit_test` (`Row`, `Column`, `Position`) | **changed (D60)**: a point in a cell's rectangle answers THAT cell: its blank, its padding, the room under a short cell of a wrapped row. The position is a byte of that cell (its end for the blank after left-aligned text, its start before right-aligned text). Before, the far half of a cell's blank answered the next cell, and in the last column the next row. A point in a column the row has no cell for now says the row's LAST cell (it said the column under the point, which `table_cell` of its position contradicted). The workaround given here before (take the cell from the geometry) is no longer needed |
+| a drag in a table | `SelectDocumentRange` / `select_range`, `Document.view` | follows from the above: a character drag that ends in the blank at the end of a row's last cell ends at that cell's end, not at the start of the next row |
+| the caret in a table | `GetDocumentCaretRect` / `caret_rect` | **fixed (D60)**: one LINE tall in a wrapped row (it was the whole row), and at the cell's own end for the byte that ends the cell (for a right-aligned cell it was drawn at the next cell's first glyph). An empty cell's caret is where its text would begin. hit -> position -> caret -> hit is the same position |
+| a range's rectangles in a table | `GetDocumentRangeRects` / `range_rects`, a drawn selection, marks Behind and Under | **changed (D61)**: one rectangle a cell and line, inside the cell's text. Before, a range through several cells of a row set on one line was ONE bar over the blanks and padding between them (your reference's own rule, which stays under reference rules) |
+| `FixedLineHeight` on a table | `BlockFlags.FixedLineHeight` | **fixed (D62)**: per line. A wrapped row is as many line heights as its tallest cell has lines; rows tile; the block is its lines tall (it was one line a row, with the next block set over the wrapped lines) |
+| ink overhanging a fixed line | any draw | **fixed (D62)**: drawn when only the overhang is inside the clip rectangle, within the bounds the header now states (two ems of the largest type plus the tallest formula past a line's box; four ems past a block's box) |
+| held widths | `BlockFlags.TableHeld` | **fixed**: started afresh when the block's size or face, the fonts or the cell padding change (they kept the old, wider columns after the type shrank). **Not changed, and the demo's sentence was what was wrong:** when the held widths stop fitting the width the table is fitted like any other and EVERY column can move, as the header says and as your `StreamView._sized_to` does |
+| a table's height before it is laid out | `GetDocumentSize` / `size`, a view's scroll range | **fixed**: the estimate has the rule under the header in it (a view scrolled to the end of a document ending in a table stopped one row short the first time) |
+| a row appended | `AppendDocumentTableCells`, `AppendDocumentText` / `append_table_rows`, `append_text` | **fixed (D64)**: costs that row. 4.3 us an append at 10,000 rows where it was 2,100; 65,536 rows one at a time in 0.39 s (release, a loaded machine) |
+| rectangles in columns | `GetDocumentCaretRect`, `GetDocumentRangeRects` | **fixed (D63)**: the answer no longer depends on what was drawn or asked before (it could name the wrong column, or be a line off after an edit under `Balance`). The workarounds given here before are no longer needed |
+| the page's height in columns | `GetDocumentSize` / `size`, `Document.view` | **changed (D63)**: as tall as the tallest OVERFULL column cut so far holds, when that is more than a column: a view filled in order now scrolls down to what overflows |
+| `Overfull` | `ImTypesetColumnGeometry` / `ColumnGeometry.overfull` | **changed (D63)**: never set under `Balance` (it was set for columns that fit, in a document with no more pieces than columns). In order it is what it was |
+| where a column may end | columns, product rules | **changed (D63)**: not between a table's header row, the rule under it and the row after; not after a heading even with an empty paragraph between; and a table row whose cells wrapped is whole in its column (it hung below the foot by all its lines but the first, unflagged). A column's last line hangs below the foot by at most a line's depth |
+| the height a view lent | `SetDocumentColumns` / `set_columns` | **fixed**: kept while the same columns are said again (a host that says them every frame and asked before the view was drawn was answered uncut) |
+| columns kept across an edit | any edit in columns | **fixed (D63)**: a block of another shape exactly as tall as the one whose place it takes no longer inherits its cuts |
+
 ## Items
 
 | # | item | state |
 |---|---|---|
 | 1 | a committed, reproducible state | **done**: `5654eee` |
 | 2 | freeze the oracle at `advtext-reference` (32e3953); goldens for tables, columns, cross-block copy | **done** (task `oracle-freeze`). See "The oracle" below |
-| 3 | tables in the core | **done** in `be40444` (task `tables-core`): a table is a block of the Document in C++, C and Python. Names and behaviour under "API changes", "Tables"; decisions in `docs/decisions.md` D57; what is not the reference's in `docs/divergences.md`. RQ-T1 to T10 of `FS-S2` are each answered there. Not built: a table laid out in pieces (it is one block, laid out whole when first seen; an appended row costs that row plus about 0.2 microseconds for each row the table has, measured), cell borders or fills, column spans, hard breaks in a cell |
-| 4 | columns in the core | **done** in `0b21807` (task `columns-core`): a document is shown in columns through C++, C and Python. Names and behaviour under "API changes", "Columns"; decisions in `docs/decisions.md` D58; what is not the reference's in `docs/divergences.md`, "columns-core". RQ-C1 and RQ-C2 of `FS-S2` are answered by `set_columns` with a height (the cut is the reference's, held by `tests/golden/tables` exactly, at the core and through the public calls: 28 cases, 247 columns); RQ-C3 by `ColumnFlags.Balance`. **What stands on a golden:** where a column is cut and why, the glue at its head, what is dropped at a cut, an overfull column, what `count` columns leave over, and every command a column draws, under the reference's rules. **What stands on a decision alone, with its own tests and no oracle** (the reference draws columns and never selects in them, and does not balance): hit testing, selection, rectangles and copy across columns in reading order; balanced columns; a column ending between two blocks and not after a heading; the top skip; the gutter and where a column is on the page; per-column geometry. **Lazy layout:** filled in order, a frame of three columns of a 10,000-paragraph document lays out 14 blocks; the last column costs all 10,000 (where a column starts is where the ones before it ended). Balanced lays out all 10,000 at the first question, by necessity. Not built: pages, a rule between columns, widow and orphan control, cutting a quote, keeping a table's header with its first row |
-| 5 | what DiffView needs | **done** in `be40444` (stage 0 of task `tables-core`): **R1** is `BlockFlags.FixedLineHeight`, **R1b** is `face_has_glyph`; names and behaviour under "API changes", reasons in `docs/decisions.md` D56, tests in `tests/test_api_requests.cpp` and `tests/python/test_binding.py` (`Requests`). *Agent decisions (the builder's): a flag and not a style field; the line's box is the pitch and taller ink overhangs it.* One thing to know: ink that overhangs its line by more than 2 px can go undrawn in the strip where its line is just outside the clip rectangle. The reproduction here used U+2320, U+27E8 and U+0416: the Inconsolata bundled in this tree has U+2502 and U+1EB2, so FS-S1's 22.4 px was not re-measured. **Declined**, as the request itself asks: anything exposing nodes, packing or draw commands — FS-S1 asks for none |
+| 3 | tables in the core | **done** in `be40444` (task `tables-core`): a table is a block of the Document in C++, C and Python. Names and behaviour under "API changes", "Tables"; decisions in `docs/decisions.md` D57; what is not the reference's in `docs/divergences.md`. RQ-T1 to T10 of `FS-S2` are each answered there. Not built: a table laid out in pieces (it is one block, laid out whole when first seen; an appended row costs that row, measured: see "After `ce4d66d`"), cell borders or fills, column spans, hard breaks in a cell |
+| 4 | columns in the core | **done** in `0b21807` (task `columns-core`): a document is shown in columns through C++, C and Python. Names and behaviour under "API changes", "Columns"; decisions in `docs/decisions.md` D58; what is not the reference's in `docs/divergences.md`, "columns-core". RQ-C1 and RQ-C2 of `FS-S2` are answered by `set_columns` with a height (the cut is the reference's, held by `tests/golden/tables` exactly, at the core and through the public calls: 28 cases, 247 columns); RQ-C3 by `ColumnFlags.Balance`. **What stands on a golden:** where a column is cut and why, the glue at its head, what is dropped at a cut, an overfull column, what `count` columns leave over, and every command a column draws, under the reference's rules. **What stands on a decision alone, with its own tests and no oracle** (the reference draws columns and never selects in them, and does not balance): hit testing, selection, rectangles and copy across columns in reading order; balanced columns; a column ending between two blocks and not after a heading; the top skip; the gutter and where a column is on the page; per-column geometry. **Lazy layout:** filled in order, a frame of three columns of a 10,000-paragraph document lays out 14 blocks; the last column costs all 10,000 (where a column starts is where the ones before it ended). Balanced lays out all 10,000 at the first question, by necessity. Not built: pages, a rule between columns, widow and orphan control (a border question below), cutting a quote. A table's header is kept with its rule and the row under it since task `tables-fixes` |
+| 5 | what DiffView needs | **done** in `be40444` (stage 0 of task `tables-core`): **R1** is `BlockFlags.FixedLineHeight`, **R1b** is `face_has_glyph`; names and behaviour under "API changes", reasons in `docs/decisions.md` D56, tests in `tests/test_api_requests.cpp` and `tests/python/test_binding.py` (`Requests`). *Agent decisions (the builder's): a flag and not a style field; the line's box is the pitch and taller ink overhangs it.* Ink that overhangs its line is drawn when only the overhang is inside the clip rectangle, within stated bounds, since task `tables-fixes` (it could go undrawn past 2 px). The reproduction here used U+2320, U+27E8 and U+0416: the Inconsolata bundled in this tree has U+2502 and U+1EB2, so FS-S1's 22.4 px was not re-measured. **Declined**, as the request itself asks: anything exposing nodes, packing or draw commands — FS-S1 asks for none |
 | 6 | specimen and formula galleries | **done** in `12d77ac` (task `galleries`): see "Galleries (item 6)" |
 | 7 | open API questions, and C1–C8 | **done** for (a)–(g), in `12d77ac`: see "Answers (item 7)". Of C1–C8: C1 done, C3 in part, C8 answered in the header; C5 is item 3; C2, C4, C6, C7 queued, each with its reason |
 | 8 | output that is not ImGui | **needs the user**: assessed, nothing built; the recommendation and what each choice costs are under "Border questions" |
@@ -267,6 +293,42 @@ functions. What a caller can notice:
   could not serve that script's debug page or a third of its tests anyway. If
   vector output is wanted later, the cheaper route is a program in this tree
   that uses the internals directly, not a public query.
+
+- **The space under a table's header** (task `tables-fixes`; *needs the user*). The first row
+  under a header is two leadings below it, with the rule nearer the body than the header
+  (21.4 px of blank at a 19 px size where other rows are 0 to 1.6 px apart). It reads as
+  unbalanced. It is exactly what the reference sets and every golden with a header holds it:
+  the rule is a box of the stack and gets a `\baselineskip` above its foot and another below
+  (`docs/divergences.md`, T20; TeX's own `\noalign{\hrule}` gets no interline glue at all).
+  Choices, each a product rule off under reference rules: (a) leave it; (b) TeX's way: the rule
+  flush between the header's strut and the next row's, no extra space (tight; most tables add a
+  little); (c) a fixed space above and below the rule, say a third of a leading each, as a
+  document option. *Not decided; nothing changed. An agent's leaning: (c), default a third.*
+- **Single lines at a column's head or foot** (task `tables-fixes`; *needs the user*). A cut
+  leaves the first line of a paragraph at a column's foot or its last line at the next column's
+  head (seen at two, three and four columns). TeX's club and widow penalties cannot prevent it
+  here: a document's list has nothing to stretch, so every column that is not full costs the
+  same whatever the penalty (`src/columns.h`). What would: making the glue after a paragraph's
+  first line and before its last a kern in the list the columns are cut from, as rule 17 now
+  does round a table's header. It is about ten lines in `Document::unit_vlist`. Its cost is the
+  typographic choice: columns end up to a line short of their foot (ragged feet, in order; a
+  taller page, balanced), and a paragraph of two or three lines can no longer be cut at all.
+  *Not decided; not built.*
+- **A common first baseline across columns** (task `tables-fixes`; *needs the user*). A column
+  that starts with a heading has its first baseline lower than its neighbours' (5 px at 19 px):
+  the top skip is a body line's height, and a taller first line starts flush with the top
+  (TeX's `\splittopskip`: the glue is the skip less the first box's height, and no less than
+  nothing). Choices: (a) leave it; (b) a top skip as tall as the tallest line that can head a
+  column, which lines the baselines up and leaves that much blank over every column that starts
+  with body text; (c) let a tall first line rise above the column's top, which keeps body
+  columns flush and needs room above the page. *Not decided; nothing changed.*
+- **Two product rules taken by an agent in task `tables-fixes`, to confirm or overturn**
+  (D60, D63): a hit in a table answers the cell whose rectangle holds the point, and a range is
+  highlighted cell by cell, where your reference answers the next cell from the far half of a
+  cell's blank and draws one bar across a row; and in columns, `\splitmaxdepth` is a body line's
+  depth and a table's header is kept with its rule and the row under it, where your reference has
+  `\maxdimen` and no such keeping. All are off under reference rules, which is what the goldens
+  replay.
 
 ### The oracle (item 2)
 
@@ -485,70 +547,73 @@ plain text); the count of atoms and glyphs per pane. What a gallery cannot be
 without advtext: nothing. The demo's stream is a paragraph re-given as bytes
 arrive, not `advtext.stream`'s commit policies, which stay advtext's.
 
-## Known defects in tables at `be40444` (from a read-only review; a fix task follows columns)
+## Known defects in tables at `be40444`: all fixed by task `tables-fixes` (not yet committed)
 
-Found by reading, not by running; each will be reproduced before it is fixed
-(task `tables-fixes`). Plan around them until a later commit is named here.
+Each was reproduced by running before it was changed and is held by a test now. `docs/decisions.md`
+D60 to D62 and D64 have the measurements. The workarounds this section gave are no longer needed
+once you build from the commit named under "Build from".
 
-- **A click in the blank part of a cell reports the next cell** (in the last
-  column, the next row): `hit_test`'s `Row`/`Column` and `Position` come from
-  the item nearest the point, and a cell's filling blank is an item split at its
-  middle. For short text in a wide column a large part of the cell answers the
-  wrong column. Until fixed, take the cell from `GetDocumentTableRow` /
-  `GetDocumentTableCell` geometry and the point, not from the hit.
-- The caret rectangle at the end of an unwrapped right-aligned cell is drawn at
-  the next cell's first glyph; in a wrapped row a caret rectangle is the whole
-  row tall.
-- `FixedLineHeight` on a TABLE whose last row wraps makes the block too short
-  (the next block overlaps). Code blocks, which DiffView uses, are not affected.
-- A held table keeps its old column widths after a style change (font size).
-- Appending rows one at a time costs time proportional to the rows already
-  there (about 0.2 us a row an append): fine at hundreds of rows, not at tens of
-  thousands.
+- ~~**A click in the blank part of a cell reports the next cell** (in the last column, the next
+  row).~~ **Fixed (D60).** Reproduced: 60 % of the way across a cell answered the next cell; of the
+  1,848 golden probes in a table your reference's own index is in another cell than the point for
+  465. A point in a cell's rectangle now answers that cell, and the position is a byte of it. Your
+  reference's index is untouched and still replayed exactly.
+- ~~The caret rectangle at the end of an unwrapped right-aligned cell is drawn at the next cell's
+  first glyph; in a wrapped row a caret rectangle is the whole row tall.~~ **Fixed (D60).**
+- ~~`FixedLineHeight` on a TABLE whose last row wraps makes the block too short.~~ **Fixed
+  (D62)**: per line; rows tile.
+- ~~A held table keeps its old column widths after a style change (font size).~~ **Fixed**: also
+  for a change of face, of the fonts, of the cell padding.
+- ~~Appending rows one at a time costs time proportional to the rows already there.~~ **Fixed
+  (D64)**: 4.3 us an append at 10,000 rows (was 2,100); 65,536 rows one at a time in 0.39 s.
+- ~~**A table not yet laid out is estimated without the space its header's rule takes.**~~
+  **Fixed**: a view scrolled to the end reaches the last row the first time (looked at).
+- ~~In a row selected from its start, the blank between the first column's text and a
+  right-aligned second column is highlighted; in a row selected from mid-cell it is not.~~
+  **Changed (D61)**: a highlight is one rectangle a cell, in both (looked at). What was seen was
+  your reference's own rule (one bar a line, and an unwrapped row is one line), which stays under
+  reference rules.
+- **A held table's other columns DO move** when the table has grown as wide as the pane. **Not a
+  defect; not changed.** It is what the header says and what your `StreamView._sized_to` does:
+  held widths that no longer fit give way to the ordinary fitting. The demo's sentence said
+  otherwise and was corrected.
+- **The space between a header row and the first body row is two leadings, with the rule nearer
+  the body. Not changed: it is your reference's**, held by every golden with a header
+  (`docs/divergences.md`, T20: the rule is a box appended like a row, where TeX's rule between
+  rows gets no interline glue). A border question above.
 
-**Seen by eye and measured, task `swap-fixes`** (the demo's Document section through the software
-rasteriser, and the public API; none of it fixed, all of it for task `tables-fixes`):
+**Still true of tables:** a row that widens a column sets every row again; a REPLACE of a held
+table sets every row; text written with NOTHING between two cells cannot have a caret at the end
+of the earlier cell (the header says what happens instead); a table narrower than its longest
+words is wider than the document.
 
-- **A table not yet laid out is estimated without the space its header's rule takes.** A
-  four-row table with a header: 88 px estimated, 111.2 px laid out. `document.size()` right
-  after `layout()` is short by that much (23 px here) until the table has been drawn or asked
-  for its geometry, and a view scrolled to the end the first time stops one row short of a
-  table that ends the document; the second scroll reaches it.
-- The space between a header row and the first body row is 21.4 px at a 19 px size, with the
-  rule nearer the body than the header; other rows are 0 to 1.6 px apart. Not judged against
-  the reference.
-- **A held table's other columns DO move** when text arriving in the last cell makes the table
-  as wide as the pane: the first two columns were squeezed until "The golden ratio" stood on
-  three lines. Until then they hold.
-- In a row selected from its start, the blank between the first column's text and a
-  right-aligned second column is highlighted; in a row selected from mid-cell it is not.
+## Known defects in columns at `0b21807`: fixed by task `tables-fixes` (not yet committed)
 
-## Known defects in columns at `0b21807` (from a read-only review; fixed with the table defects)
+Each was reproduced by running first (seven new tests of `tests/test_api_columns.cpp` fail on
+`ce4d66d` and pass now; one of `tests/test_columns.cpp`). `docs/decisions.md` D63.
 
-Found by reading, not by running; each will be reproduced before it is fixed
-(task `tables-fixes`). The cutting itself is held by goldens and was re-derived
-by hand in two cases; these are in the layer the reference has no answer for.
+- ~~**A caret or range rectangle asked for before the columns are cut that far can name the
+  wrong column** (or be one line off after an edit under balance).~~ **Fixed.** No call order is
+  needed any more.
+- ~~With columns filled in order inside `DocumentView`, content that overflows the last column is
+  not reachable by scrolling.~~ **Fixed**: the page is as tall as an overfull column holds, and the
+  view scrolls down to it (looked at, with text arriving).
+- ~~Under `Balance`, `Overfull` can be true for columns that fit.~~ **Fixed**: never set under
+  `Balance`.
+- **`GetDocumentColumnPos` maps a point, not a rectangle.** Unchanged, and now said in the
+  header with how to carry a rectangle: map its top-left corner and keep its size.
+- ~~An empty block between a heading and its text lets a column end after the heading.~~
+  **Fixed.** (An empty paragraph sets a blank line; the heading is now kept with the next block
+  that has something in it.)
+- ~~A table can be cut between its header row and the rule under it.~~ **Fixed** (looked at).
+- ~~Filled in order inside `DocumentView`, a table row that grows past the column's foot is
+  clipped there and cannot be scrolled to.~~ **Fixed.** Looking at it found two more, also fixed:
+  while text arrived the page was estimated as many columns wide as the growing row is tall, so a
+  view at the right end showed columns that were not there; and it lost its extra height every
+  frame.
+- A table row whose cells wrapped hung below its column's foot by all its lines but the first,
+  unflagged (found by this task's test of a table cut across columns). **Fixed.**
 
-- **A caret or range rectangle asked for before the columns are cut that far
-  can name the wrong column** (or be one line off after an edit under balance).
-  Until fixed, ask for rectangles after the frame's draw, or call
-  `GetDocumentColumnCount` first so the cut is settled.
-- With columns filled in order inside `DocumentView`, content that overflows
-  the last column is not reachable by scrolling.
-- Under `Balance`, `Overfull` can be true for columns that fit (a document
-  with no more uncuttable pieces than columns).
-- `GetDocumentColumnPos` maps a point, not a rectangle: the bottom edge of a
-  column's last line maps to the head of the next column.
-- An empty block between a heading and its text lets a column end after the
-  heading.
-
-**Seen by eye, task `swap-fixes`** (the same pictures; for task `tables-fixes`):
-
-- A table can be cut between its header row and the rule under it: the header at the foot of
-  one column, the rule and the body at the head of the next.
-- Filled in order inside `DocumentView`, a table row that grows past the column's foot is
-  clipped there and cannot be scrolled to (the second item above, seen).
-- Columns do not share a first baseline (a column that starts with a heading has its first
-  baseline 5 px lower than its neighbours at 19 px), and a cut leaves single lines of a
-  paragraph at the head or the foot of a column (the line breaker hands over no club or widow
-  penalties: `docs/divergences.md`, B10). Neither was checked against what the reference shows.
+**Still to be seen in columns, and not changed** (border questions above): columns do not share
+a first baseline when one starts with a heading; a cut leaves single lines of a paragraph at the
+head or the foot of a column.

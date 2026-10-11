@@ -593,6 +593,9 @@ void apply_spec(ImTypesetDocument& d, size_t i)
     block.style.marker_gap = spec.marker_gap;
     block.style.interline = spec.interline;
     block.style.strut = spec.strut;
+    // Ink may stand outside a block of exact lines: see `exact_reach`.
+    if (spec.strut.exact)
+        d.exact_reach = std::max(d.exact_reach, 4 * std::max<Scaled>(spec.font.size, 0));
     block.style.ragged_total_fit = d.style.line_break == ImTypesetLineBreak_TotalFit;
     block.space_above = spec.space_above;
     block.space_below = spec.space_below;
@@ -700,6 +703,7 @@ void build_cells(ImTypesetDocument& d, DocBlock& b, Block& block)
         }
     } guard{d, b, table, arena, arena.mark()};
 
+    const uint32_t built_before = b.cells_built;
     if (b.cells_built == 0) {
         table.clear();
         b.source_offsets.clear();
@@ -785,19 +789,25 @@ void build_cells(ImTypesetDocument& d, DocBlock& b, Block& block)
 
     // The widths held are each column's widest so far (the reference's
     // `StreamView._held`): never narrower as cells arrive, and started afresh
-    // when the number of columns changes.
+    // when the number of columns changes or what they were measured under
+    // does. They already hold every cell built before this call, so only the
+    // cells built by it are added: a row that arrives costs its own cells.
     if (table.held) {
-        std::vector<Scaled> widest(b.columns, 0);
-        for (const DocCell& cell : b.cells) {
-            const size_t k = static_cast<size_t>(&cell - b.cells.data());
-            if (cell.column < widest.size() && k < table.natural.size())
-                widest[cell.column] = std::max(widest[cell.column], table.natural[k]);
+        const DocBlock::HeldUnder under{b.font.face, b.font.size, table.cell_padding, d.generation};
+        size_t from = built_before;
+        if (!(b.held_under == under) || b.held.size() != b.columns) {
+            b.held.assign(b.columns, 0);
+            from = 0;
+        } else if (b.held_cells < built_before) {
+            from = 0;
         }
-        if (b.held.size() == widest.size()) {
-            for (size_t c = 0; c < widest.size(); ++c)
-                widest[c] = std::max(widest[c], b.held[c]);
+        b.held_under = under;
+        for (size_t k = from; k < b.cells.size() && k < table.natural.size(); ++k) {
+            const DocCell& cell = b.cells[k];
+            if (cell.column < b.held.size())
+                b.held[cell.column] = std::max(b.held[cell.column], table.natural[k]);
         }
-        b.held.swap(widest);
+        b.held_cells = b.cells_built;
         table.widths.assign(b.held.begin(), b.held.end());
     }
     guard.finished = true;
@@ -1008,8 +1018,18 @@ void apply_column_rules(ImTypesetDocument& d)
     // baseline, so that a column headed by something shorter than a line (a
     // rule, a table's rule, small type) has it where a line's baseline would
     // be, and one headed by a line or anything taller is flush.
-    if (!d.reference_rules)
-        rules.split_top_skip.width = Strut::filling(d.style.baselineskip).height;
+    //
+    // The reference's \splitmaxdepth is \maxdimen, as plain TeX's is: the
+    // last box of a column may be as deep as it likes below the foot, and a
+    // table row whose cells wrapped is a box one line high and all its other
+    // lines deep. The product's is the depth of a line of the document's
+    // style, so what is deeper counts as height (tex.web section 971) and a
+    // column holds the whole of its last row or does not take it.
+    if (!d.reference_rules) {
+        const Strut line = Strut::filling(d.style.baselineskip);
+        rules.split_top_skip.width = line.height;
+        rules.split_max_depth = line.depth;
+    }
     d.columns.set_rules(rules);
     d.gutter = given.Gutter < 0.0f
                    ? 0
@@ -1046,6 +1066,14 @@ struct Shown {
     Scaled dx = 0;
     Scaled dy = 0;
 };
+
+// Whether the position a point in a table answers is held to the cell whose
+// rectangle holds the point (the product's rule) or is the reference's
+// index's.
+bool product_hits(const ImTypesetDocument& d)
+{
+    return !d.reference_rules || d.product_table_hits;
+}
 
 Scaled pitch_of(const ImTypesetDocument& d)
 {
@@ -1144,23 +1172,40 @@ void map_code_indices(const DocBlock& b, const BlockLayout& layout, std::vector<
 // first character, that character's byte, and after its last, the END of the
 // cell's text: a caret at the end of a cell is the cell's own end, not the
 // next cell's start. A cell the row lacks is where the cell before it ended.
-void map_table_indices(DocBlock& b, const BlockLayout& layout)
+// The map is made from row `from_row` on, whose cells' nodes begin at
+// `from_node`: the rows before it keep what they have, which a layout that
+// went on from them left where it was.
+void map_table_indices(DocBlock& b, const BlockLayout& layout, size_t from_row, size_t from_node)
 {
     constexpr uint32_t UNSET = 0xFFFFFFFFu;
     const uint32_t items = layout.item_count;
-    std::vector<uint32_t>& bytes = b.table_bytes;
-    bytes.assign(static_cast<size_t>(items) + 1, UNSET);
-    const size_t nodes = std::min(layout.shipped.size(), b.source_offsets.size());
-    for (size_t n = 0; n < nodes; ++n) {
-        const uint32_t index = layout.shipped[n];
-        if (index < items)
-            bytes[index] = std::min(bytes[index], b.source_offsets[n]);
-    }
     const TableLayout& table = layout.table;
     const size_t rows = table.rows.size();
     const size_t columns = rows != 0 ? (table.cell_index.size() - 1) / rows : 0;
+    std::vector<uint32_t>& bytes = b.table_bytes;
+    // What stands: the indices of the rows before `from_row`, whose bytes
+    // are below every later one's, and the nodes of their cells.
+    uint32_t first_index = 0;
+    size_t first_node = 0;
     uint32_t last_end = 0;
-    for (size_t r = 0; r < rows && r + 1 < b.row_first.size(); ++r) {
+    if (from_row != 0 && from_row <= rows && from_row < b.row_first.size() &&
+        b.row_first[from_row] != 0) {
+        first_index = std::min(table.rows[from_row - 1].index_after, items);
+        const size_t cell = b.row_first[from_row] - 1;
+        last_end = b.cells[cell].end;
+        first_node = from_node;
+    } else {
+        from_row = 0;
+    }
+    bytes.resize(first_index);
+    bytes.resize(static_cast<size_t>(items) + 1, UNSET);
+    const size_t nodes = std::min(layout.shipped.size(), b.source_offsets.size());
+    for (size_t n = first_node; n < nodes; ++n) {
+        const uint32_t index = layout.shipped[n];
+        if (index < items && index >= first_index)
+            bytes[index] = std::min(bytes[index], b.source_offsets[n]);
+    }
+    for (size_t r = from_row; r < rows && r + 1 < b.row_first.size(); ++r) {
         const size_t have = b.row_first[r + 1] - b.row_first[r];
         for (size_t c = 0; c < columns; ++c) {
             const size_t k = r * columns + c;
@@ -1178,10 +1223,87 @@ void map_table_indices(DocBlock& b, const BlockLayout& layout)
         }
     }
     bytes[items] = static_cast<uint32_t>(b.text.size());
-    for (uint32_t index = items; index-- > 0;) {
+    for (uint32_t index = items; index-- > first_index;) {
         if (bytes[index] > bytes[index + 1])
             bytes[index] = bytes[index + 1];
     }
+}
+
+// A table whose layout went on from the rows of the layout this block last
+// saw: what is kept beside it is brought up to date from the first row that
+// was set again, and the rows that stand are not gone over. False, with
+// nothing changed, if the block's layout is not one of those.
+bool sync_grown_table(ImTypesetDocument& d, size_t i, uint64_t had)
+{
+    DocBlock& b = d.blocks[i];
+    const BlockLayout& layout = d.doc.layout(i);
+    const TableLayout& table = layout.table;
+    const TableCells& cells = d.doc.block(i).table;
+    const size_t standing = table.resumed_rows;
+    if (had == 0 || table.resumed_from != had || standing == 0 || standing > table.rows.size() ||
+        standing >= cells.row_first.size() || standing >= b.row_first.size() || !b.lines.sorted)
+        return false;
+    const TableRowLayout& last = table.rows[standing - 1];
+    const size_t cmd_from = last.out_cmd_end;
+    const uint32_t index_from = last.index_after;
+    const size_t cell_from = cells.row_first[standing];
+    const size_t node_from = cell_from == 0 ? 0 : cells.cell_end[cell_from - 1];
+    const uint32_t items = layout.item_count;
+    if (cmd_from > layout.cmds.size() || index_from > items || b.table_bytes.size() <= index_from ||
+        node_from > layout.shipped.size())
+        return false;
+
+    // The lines: the spans of the rows that stand end where the first row
+    // set again begins, which is a LINE.
+    std::vector<LineSpan>& spans = b.lines.spans;
+    while (!spans.empty() && spans.back().first >= cmd_from)
+        spans.pop_back();
+    if (!spans.empty() && spans.back().end > cmd_from)
+        return false;
+    LineIndex& tail = d.lines_scratch;
+    index_lines(layout.cmds.data() + cmd_from, layout.cmds.size() - cmd_from, tail);
+    for (LineSpan span : tail.spans) {
+        span.first += static_cast<uint32_t>(cmd_from);
+        span.end += static_cast<uint32_t>(cmd_from);
+        if (!span.bounded ||
+            (!spans.empty() && (span.top < spans.back().top || span.bottom < spans.back().bottom)))
+            b.lines.sorted = false;
+        spans.push_back(span);
+    }
+    b.lines.sorted = b.lines.sorted && tail.sorted;
+    if (d.doc.block(i).style.strut.exact)
+        b.lines.overhang = std::max(b.lines.overhang, ink_overhang(layout.cmds.data() + cmd_from,
+                                                                   layout.cmds.size() - cmd_from));
+
+    // The colours: the ranges of the rows that stand end at or before their
+    // last index, and a run is one cell's.
+    while (!b.inks.empty() && b.inks.back().end > index_from)
+        b.inks.pop_back();
+    const auto first_span =
+        std::partition_point(b.ink_spans.begin(), b.ink_spans.end(),
+                             [&](const InkSpan& span) { return span.first < node_from; });
+    for (auto span = first_span; span != b.ink_spans.end(); ++span) {
+        uint32_t low = NOT_SHIPPED;
+        uint32_t high = 0;
+        for (size_t m = span->first; m < span->end && m < layout.shipped.size(); ++m) {
+            const uint32_t index = layout.shipped[m];
+            if (index == NOT_SHIPPED)
+                continue;
+            if (low == NOT_SHIPPED)
+                low = index;
+            high = std::max(high, index + 1);
+        }
+        if (low == NOT_SHIPPED)
+            continue;
+        if (!b.inks.empty() && low < b.inks.back().end)
+            low = b.inks.back().end;
+        if (low < high)
+            b.inks.push_back(InkRange{low, high, span->colour});
+    }
+
+    map_table_indices(b, layout, standing, node_from);
+    d.table_rows_synced += table.rows.size() - standing;
+    return true;
 }
 
 // Brings what is kept beside a block's layout up to date with it.
@@ -1191,9 +1313,20 @@ void sync(ImTypesetDocument& d, size_t i)
     const BlockLayout& layout = d.doc.layout(i);
     if (b.seen == layout.serial)
         return;
+    const uint64_t had = b.seen;
     // Not up to date until all of it is: see the end. (No layout has serial 0.)
     b.seen = 0;
+    if (is_table(b.kind) && sync_grown_table(d, i, had)) {
+        if (!layout.ok() && b.error.ok())
+            b.error.set(ImTypesetError_LayoutFailed,
+                        "a character could not be measured; its line is set without it");
+        b.seen = layout.serial;
+        return;
+    }
     index_lines(layout.cmds.data(), layout.cmds.size(), b.lines);
+    // Lines set to an exact height do not hold what is in them.
+    if (d.doc.block(i).style.strut.exact)
+        b.lines.overhang = ink_overhang(layout.cmds.data(), layout.cmds.size());
     b.inks.clear();
     b.marker_items = 0;
     if (is_text(b.kind)) {
@@ -1201,7 +1334,8 @@ void sync(ImTypesetDocument& d, size_t i)
         ink_ranges(layout.shipped, b.ink_spans, d.inks_scratch);
     } else if (is_table(b.kind)) {
         ink_ranges(layout.shipped, b.ink_spans, d.inks_scratch);
-        map_table_indices(b, layout);
+        map_table_indices(b, layout, 0, 0);
+        d.table_rows_synced += layout.table.rows.size();
     } else {
         d.inks_scratch.clear();
         if (is_code(b.kind) && !b.marker.empty()) {
@@ -1234,6 +1368,19 @@ bool layout_block(ImTypesetDocument& d, int block)
     d.doc.layout_unit(d.composer, u);
     sync(d, i);
     return d.doc.laid_out(i);
+}
+
+// Where block `i` starts in the uncut column, for something that is about to
+// be put on the page. Shown in columns, a block's top is exact only once
+// every unit above it is laid out, and cutting the columns is what lays them
+// out: read before the cut it is an estimate, and the column the cut then
+// names is not the one that height was in. So the columns are cut past the
+// block's unit first. The block is laid out.
+Scaled settled_top(ImTypesetDocument& d, size_t i)
+{
+    if (d.columned)
+        d.columns.cut_past_unit(d.doc, d.composer, d.doc.unit_of(i));
+    return d.doc.block_top(i);
 }
 
 // The block as a paragraph: its commands, its index-to-byte map, and from
@@ -1353,6 +1500,200 @@ Selection span_of(const DocBlock& b, const ImTypesetParagraph& p, const ImTypese
     return out;
 }
 
+// --- A table's cells, where they are ------------------------------------------------------
+
+// One cell of a laid-out table: its rectangle, down and across from the
+// block's top-left corner (the column's edges, the row's top and bottom), the
+// indices its items have, and its number among the block's cells.
+struct CellBox {
+    size_t row = 0;
+    size_t column = 0;
+    size_t cell = 0;
+    Scaled left = 0;
+    Scaled right = 0;
+    Scaled top = 0;
+    Scaled bottom = 0;
+    uint32_t first = 0;
+    uint32_t end = 0;
+};
+
+// How many rows of a table are both described and laid out, and how many
+// columns each has in the layout's cell index.
+size_t table_rows(const DocBlock& b, const TableLayout& table)
+{
+    const size_t rows = std::min<size_t>(table.rows.size(), b.row_count());
+    return table.row_top.size() > rows ? rows : 0;
+}
+
+size_t table_columns(const TableLayout& table)
+{
+    const size_t rows = table.rows.size();
+    const size_t columns =
+        rows != 0 && !table.cell_index.empty() ? (table.cell_index.size() - 1) / rows : 0;
+    return std::min(columns, table.columns.size());
+}
+
+// The cell of `row` in `column`, or the row's last if it has no cell there.
+// False for a row with no cells and for a table that is not laid out.
+bool cell_box(const DocBlock& b, const TableLayout& table, size_t row, size_t column, CellBox& out)
+{
+    const size_t rows = table_rows(b, table);
+    const size_t columns = table_columns(table);
+    if (row >= rows || columns == 0)
+        return false;
+    const size_t have = std::min<size_t>(b.row_first[row + 1] - b.row_first[row], columns);
+    if (have == 0)
+        return false;
+    column = std::min(column, have - 1);
+    out.row = row;
+    out.column = column;
+    out.cell = b.row_first[row] + column;
+    out.left = table.indent;
+    for (size_t k = 0; k < column; ++k)
+        out.left = add_saturating(out.left, table.columns[k]);
+    out.right = add_saturating(out.left, table.columns[column]);
+    out.top = table.row_top[row];
+    out.bottom = add_saturating(
+        out.top, add_saturating(table.rows[row].dims.height, table.rows[row].dims.depth));
+    out.first = table.cell_index[row * columns + column];
+    out.end = table.cell_index[row * columns + column + 1];
+    return true;
+}
+
+// The cell whose rectangle holds a point of the block, or the nearest one: a
+// point between two rows (in the space the rule under a header takes, say) is
+// the nearer row's and the upper one's when it is as near to both; a point
+// beside the table is the first or the last column's; a point in a column the
+// row has no cell for is the row's last cell's.
+bool cell_under(const DocBlock& b, const TableLayout& table, Point at, CellBox& out)
+{
+    const size_t rows = table_rows(b, table);
+    const size_t columns = table_columns(table);
+    if (rows == 0 || columns == 0)
+        return false;
+    const auto bottom_of = [&](size_t r) {
+        return add_saturating(table.row_top[r],
+                              add_saturating(table.rows[r].dims.height, table.rows[r].dims.depth));
+    };
+    // The last row that starts at or above the point.
+    size_t row = static_cast<size_t>(
+        std::upper_bound(table.row_top.begin(),
+                         table.row_top.begin() + static_cast<std::ptrdiff_t>(rows), at.y) -
+        table.row_top.begin());
+    row = row == 0 ? 0 : row - 1;
+    if (row + 1 < rows && at.y >= bottom_of(row) &&
+        table.row_top[row + 1] - at.y < at.y - bottom_of(row) + 1)
+        ++row;
+    size_t column = 0;
+    Scaled right = add_saturating(table.indent, table.columns[0]);
+    while (column + 1 < columns && at.x >= right) {
+        ++column;
+        right = add_saturating(right, table.columns[column]);
+    }
+    return cell_box(b, table, row, column, out);
+}
+
+// The bytes of a table's text a caret may stand at and be in `cell`: from the
+// cell's start to its end. A cell that ends where the next one starts (text
+// written with nothing between two cells) does not own that byte, which is
+// the later cell's start: its last position is then the start of its last
+// item, or its own start if it is empty.
+void own_bytes(const DocBlock& b, const ImTypesetParagraph& p, const CellBox& cell, uint32_t& low,
+               uint32_t& high)
+{
+    const DocCell& given = b.cells[cell.cell];
+    low = given.start;
+    high = std::max(given.end, given.start);
+    if (cell.cell + 1 >= b.cells.size() || b.cells[cell.cell + 1].start != high || high == low)
+        return;
+    uint32_t last = low;
+    const size_t end = std::min<size_t>(cell.end, p.index_bytes.size());
+    for (size_t index = cell.first; index < end; ++index) {
+        const uint32_t byte = p.index_bytes[index];
+        if (byte >= low && byte < high && byte > last)
+            last = byte;
+    }
+    high = last;
+}
+
+// The padding a table's cells were set with.
+Scaled padding_of(const ImTypesetDocument& d, size_t i)
+{
+    return std::max<Scaled>(clamp_dimen(d.doc.block(i).table.cell_padding), 0);
+}
+
+// The rectangles of a stretch of a block's text, in the block's own
+// coordinates, appended to `out`. `from` and `to` are heights down from the
+// block's top: a table's rows wholly outside them may be left out.
+//
+// PRODUCT RULE (docs/decisions.md D61). In a table the rectangles are made
+// cell by cell and kept inside each cell's text area. The reference's are
+// made line by line, and a row set on one line is one line: a range through
+// several of its cells is one rectangle over the blanks and the padding
+// between them, while a wrapped row's is one per cell. Under reference rules
+// that is what is answered.
+void range_rects(const ImTypesetDocument& d, size_t i, const DocBlock& b,
+                 const ImTypesetParagraph& p, const ImTypesetTextRange& range,
+                 std::vector<Rect>& out, Scaled from = 0, Scaled to = MAX_BLOCK_EXTENT + 1)
+{
+    if (range.Start >= range.End)
+        return;
+    if (!is_table(b.kind) || d.reference_rules) {
+        p.model.rects(span_of(b, p, range), out);
+        return;
+    }
+    const TableLayout& table = d.doc.layout(i).table;
+    const size_t rows = table_rows(b, table);
+    const size_t columns = table_columns(table);
+    const int first_cell = cell_at(b, range.Start);
+    const int last_cell = cell_at(b, range.End);
+    if (rows == 0 || columns == 0 || first_cell < 0 || last_cell < 0)
+        return;
+    const Scaled padding = padding_of(d, i);
+    const size_t last_row = std::min<size_t>(b.cells[static_cast<size_t>(last_cell)].row, rows - 1);
+    for (size_t r = b.cells[static_cast<size_t>(first_cell)].row; r <= last_row; ++r) {
+        const Scaled row_top = table.row_top[r];
+        const Scaled row_bottom = add_saturating(
+            row_top, add_saturating(table.rows[r].dims.height, table.rows[r].dims.depth));
+        if (row_bottom <= from || row_top >= to)
+            continue;
+        const size_t have = std::min<size_t>(b.row_first[r + 1] - b.row_first[r], columns);
+        for (size_t c = 0; c < have; ++c) {
+            CellBox cell;
+            if (!cell_box(b, table, r, c, cell))
+                continue;
+            const DocCell& given = b.cells[cell.cell];
+            const int low = std::max(range.Start, static_cast<int>(given.start));
+            const int high = std::min(range.End, static_cast<int>(given.end));
+            if (low >= high)
+                continue;
+            Selection span;
+            span.start = std::min(std::max(index_of(b, p, low), cell.first), cell.end);
+            span.end = high >= static_cast<int>(given.end)
+                           ? cell.end
+                           : std::min(std::max(index_of(b, p, high), span.start), cell.end);
+            const size_t before = out.size();
+            p.model.rects(span, out);
+            // A rectangle of the model runs to the next item's left edge,
+            // which for a cell's last item is across the padding.
+            const Scaled area_left = add_saturating(cell.left, padding);
+            const Scaled area_right = std::max(sub_saturating(cell.right, padding), area_left);
+            size_t kept = before;
+            for (size_t k = before; k < out.size(); ++k) {
+                Rect rect = out[k];
+                const Scaled x0 = std::max(rect.x, area_left);
+                const Scaled x1 = std::min(rect.x + rect.width, area_right);
+                if (x1 <= x0)
+                    continue;
+                rect.x = x0;
+                rect.width = x1 - x0;
+                out[kept++] = rect;
+            }
+            out.resize(kept);
+        }
+    }
+}
+
 // The part of a document range that is in block `i`, as bytes of its text.
 // False if none of it is. `whole` is set when the block lies strictly inside
 // the range or the range covers all its text.
@@ -1461,10 +1802,13 @@ ImU32 shown(ImU32 colour)
 // One block, with its top-left corner at (`left`, `top`) on the screen.
 // `from` and `to` are heights down from the block's top: only its lines whose
 // tops are at or after the one and before the other are drawn, which is all
-// of them unless a column is cut inside the block.
+// of them unless a column is cut inside the block. `see_from` and `see_to`
+// are the heights the clip rectangle shows: what is highlighted or marked
+// wholly outside them need not be worked out.
 void draw_block(ImTypesetDocument& d, size_t i, double left, double top, const Target& target,
                 const ImTypesetDocumentDraw* draw, const ImTypesetDocumentRange& selection,
-                DrawArgs& args, Scaled from = 0, Scaled to = MAX_BLOCK_EXTENT + 1)
+                DrawArgs& args, Scaled see_from, Scaled see_to, Scaled from = 0,
+                Scaled to = MAX_BLOCK_EXTENT + 1)
 {
     ImTypesetContext& ctx = *d.ctx;
     DocBlock& b = d.blocks[i];
@@ -1511,7 +1855,7 @@ void draw_block(ImTypesetDocument& d, size_t i, double left, double top, const T
         if (textual && local.Start < local.End) {
             const ImTypesetParagraph& view = view_of(d, i);
             ensure_model(view);
-            view.model.rects(span_of(b, view, local), d.highlights);
+            range_rects(d, i, b, view, local, d.highlights, see_from, see_to);
         } else if (is_host(b.kind) && (whole || local.Start < local.End)) {
             // A host block in a selection is selected whole: its rectangle.
             const Scaled x = d.doc.block(i).style.left_indent;
@@ -1541,7 +1885,7 @@ void draw_block(ImTypesetDocument& d, size_t i, double left, double top, const T
             }
             ensure_model(view);
             ctx.rects.clear();
-            view.model.rects(span, ctx.rects);
+            range_rects(d, i, b, view, local, ctx.rects, see_from, see_to);
             if (mark.Place == ImTypesetMarkPlace_Behind) {
                 for (const Rect& rect : ctx.rects)
                     d.fills.push_back(Fill{rect, shown(mark.Color)});
@@ -1755,7 +2099,8 @@ void draw_columns(ImTypesetDocument& d, const Target& target, double left, doubl
                 if (trouble == nullptr && !d.blocks[i].error.ok())
                     trouble = &d.blocks[i].error;
                 draw_block(d, i, column_left, top + px_of(d, add_saturating(block_top, dy)), target,
-                           draw, selection, args, sub_saturating(column.top, block_top),
+                           draw, selection, args, sub_saturating(from, block_top),
+                           sub_saturating(to, block_top), sub_saturating(column.top, block_top),
                            sub_saturating(column.limit, block_top));
             }
             y += unit.extent;
@@ -1773,10 +2118,10 @@ bool draw_document(ImTypesetDocument& d, const Target& target, const ImVec2& pos
     ready(d);
     const double left = is_finite(pos.x) ? static_cast<double>(pos.x) : 0.0;
     const double top = is_finite(pos.y) ? static_cast<double>(pos.y) : 0.0;
-    const Scaled window_top =
-        coordinate_sp(d, static_cast<double>(clip.y) - top - WINDOW_MARGIN_PX);
-    const Scaled window_bottom =
-        coordinate_sp(d, static_cast<double>(clip.w) - top + WINDOW_MARGIN_PX);
+    const Scaled window_top = sub_saturating(
+        coordinate_sp(d, static_cast<double>(clip.y) - top - WINDOW_MARGIN_PX), d.exact_reach);
+    const Scaled window_bottom = add_saturating(
+        coordinate_sp(d, static_cast<double>(clip.w) - top + WINDOW_MARGIN_PX), d.exact_reach);
     if (!(clip.w > clip.y) || !(clip.z > clip.x) || d.blocks.empty())
         return succeed();
 
@@ -1808,8 +2153,10 @@ bool draw_document(ImTypesetDocument& d, const Target& target, const ImVec2& pos
             ++blocks;
             if (trouble == nullptr && !d.blocks[i].error.ok())
                 trouble = &d.blocks[i].error;
+            const Scaled block_top = add_saturating(y, d.doc.top_in_unit(i));
             draw_block(d, i, left, unit_top + px_of(d, d.doc.top_in_unit(i)), target, draw,
-                       selection, args);
+                       selection, args, sub_saturating(window_top, block_top),
+                       sub_saturating(window_bottom, block_top));
         }
         y += unit.extent;
         if (u + 1 < range.end)
@@ -1896,6 +2243,205 @@ ImTypesetPosition position_at(ImTypesetDocument& d, Scaled y)
     return out;
 }
 
+// PRODUCT RULE (docs/decisions.md D60). In a table a point answers the cell
+// whose rectangle holds it. The reference's model splits every item of a row
+// at its middle, the glue that fills a cell included, and lets an item reach
+// to the next one across the padding and the column's edge: the far half of a
+// cell's blank answers the next cell and, in the last column, the next row.
+// That index is still what `SelectionModel::hit` returns. Here only the
+// cell's own items are asked, on the line of the cell nearest the point, each
+// split at its middle as the reference splits it, the last of them ending
+// where the cell's text area does; and the byte is held between the cell's
+// own first and last.
+uint32_t hit_in_cell(const DocBlock& b, const ImTypesetParagraph& p, const TableLayout& table,
+                     const CellBox& cell, Scaled padding, Point at)
+{
+    const size_t cmd_first = cell.row == 0 ? 0 : table.rows[cell.row - 1].out_cmd_end;
+    const size_t cmd_end = std::min<size_t>(table.rows[cell.row].out_cmd_end, p.cmds.size());
+    const auto in_cell = [&](uint32_t index) { return index >= cell.first && index < cell.end; };
+    // The line: in a row set on one line, the row's own, which is the row's
+    // first command and of which the cell has a stretch; in a wrapped row,
+    // the nearest in height of the cell's lines.
+    const bool whole_row = !table.rows[cell.row].wrapped;
+    size_t line = cmd_end;
+    Scaled line_far = 0;
+    for (size_t c = cmd_first; c < cmd_end; ++c) {
+        const DrawCmd& cmd = p.cmds[c];
+        if (!cmd.is(CmdType::LINE))
+            continue;
+        if (whole_row) {
+            line = c;
+            break;
+        }
+        if (c == cmd_first || !in_cell(cmd.index) || cmd.end > cell.end)
+            continue;
+        const Scaled far = std::max<Scaled>(
+            std::max(cmd.y - cmd.height - at.y, at.y - (cmd.y + cmd.depth) + 1), 0);
+        if (line == cmd_end || far < line_far) {
+            line = c;
+            line_far = far;
+        }
+    }
+    uint32_t low = 0;
+    uint32_t high = 0;
+    own_bytes(b, p, cell, low, high);
+    if (line == cmd_end)
+        return low;
+    const DrawCmd& held = p.cmds[line];
+    const Scaled text_end =
+        whole_row ? sub_saturating(cell.right, padding) : add_saturating(held.x, held.width);
+
+    // The boundary: before the first item for a point left of it, after the
+    // last for one right of the text's end, and otherwise at the nearer edge
+    // of the item under the point.
+    uint32_t boundary = cell.end;
+    bool any = false;
+    bool settled = false;
+    Scaled left = 0;
+    uint32_t index = 0;
+    for (size_t c = line + 1; c < cmd_end && !settled; ++c) {
+        const DrawCmd& cmd = p.cmds[c];
+        if (cmd.is(CmdType::LINE)) {
+            if (whole_row)
+                continue;
+            break;
+        }
+        if (!is_item(cmd) || !in_cell(cmd.index) || (any && cmd.index == index))
+            continue;
+        if (!any) {
+            if (at.x < cmd.x) {
+                boundary = cmd.index;
+                settled = true;
+            }
+        } else if (at.x < cmd.x) {
+            boundary = index + (at.x - left < cmd.x - at.x ? 0u : 1u);
+            settled = true;
+        }
+        any = true;
+        left = cmd.x;
+        index = cmd.index;
+    }
+    if (any && !settled) {
+        const Scaled right = std::max(text_end, left);
+        boundary = at.x < right ? index + (at.x - left < right - at.x ? 0u : 1u) : index + 1;
+    }
+    const uint32_t byte =
+        boundary < cell.end && boundary < p.index_bytes.size() ? p.index_bytes[boundary] : high;
+    return std::min(std::max(byte, low), high);
+}
+
+// Where a caret at a byte of a table's text stands: in the cell the byte is
+// in (the later of two that share it), on the line of that cell the byte's
+// item is on and as tall as that line, not the row. The byte that ends a
+// cell's text is the right edge of the last thing the text set, wherever the
+// alignment put it; in an empty cell, where its text would begin. False if
+// the table has no such cell laid out.
+bool table_caret(const ImTypesetDocument& d, size_t i, const DocBlock& b,
+                 const ImTypesetParagraph& p, int offset, Scaled& x, Scaled& top, Scaled& bottom)
+{
+    const BlockLayout& layout = d.doc.layout(i);
+    const TableLayout& table = layout.table;
+    const int k = cell_at(b, offset);
+    if (k < 0)
+        return false;
+    const DocCell& given = b.cells[static_cast<size_t>(k)];
+    CellBox cell;
+    if (!cell_box(b, table, given.row, given.column, cell) || cell.column != given.column ||
+        cell.first >= cell.end || cell.end >= p.index_bytes.size())
+        return false;
+    const uint32_t cell_end = std::max(given.end, given.start);
+    const uint32_t byte =
+        std::min(std::max(offset <= 0 ? 0u : static_cast<uint32_t>(offset), given.start), cell_end);
+    // The cell's items carry ascending bytes, and the item a byte names is
+    // the last of those at the first byte at or after it: a character
+    // follows the glue that shares its byte.
+    const auto first = p.index_bytes.begin() + cell.first;
+    const auto end = p.index_bytes.begin() + cell.end;
+    auto found = std::lower_bound(first, end, byte);
+    const bool at_end = found == end || *found >= cell_end;
+    if (!at_end)
+        found = std::upper_bound(found, end, *found) - 1;
+    const uint32_t index = at_end ? 0 : static_cast<uint32_t>(found - p.index_bytes.begin());
+
+    const bool whole_row = !table.rows[cell.row].wrapped;
+    const Scaled padding = padding_of(d, i);
+    const size_t cmd_first = cell.row == 0 ? 0 : table.rows[cell.row - 1].out_cmd_end;
+    const size_t cmd_end = std::min<size_t>(table.rows[cell.row].out_cmd_end, p.cmds.size());
+    // Where the text of the line whose LINE command is at `line` may reach.
+    const auto area = [&](size_t line, Scaled& from, Scaled& to) {
+        const DrawCmd& held = p.cmds[line];
+        from = whole_row ? add_saturating(cell.left, padding) : held.x;
+        to = whole_row ? sub_saturating(cell.right, padding) : add_saturating(held.x, held.width);
+        to = std::max(to, from);
+    };
+    const auto is_text = [](const DrawCmd& cmd) {
+        return cmd.is(CmdType::GLYPH) || cmd.is(CmdType::ATOM) ||
+               (cmd.is(CmdType::SET_GLUE) && cmd.natural() != 0);
+    };
+    size_t line = cmd_end;       // the innermost LINE the walk is in
+    size_t caret_line = cmd_end; // and the one the caret is on
+    size_t first_line = cmd_end; // the first that holds an item of the cell
+    bool placed = false;
+    bool texted = false;
+    bool followed = false;
+    for (size_t c = cmd_first; c < cmd_end; ++c) {
+        const DrawCmd& cmd = p.cmds[c];
+        if (cmd.is(CmdType::LINE)) {
+            line = c;
+            continue;
+        }
+        if (!is_item(cmd) || cmd.index < cell.first || cmd.index >= cell.end || line == cmd_end)
+            continue;
+        if (first_line == cmd_end)
+            first_line = line;
+        if (!at_end) {
+            if (cmd.index == index) {
+                x = cmd.x;
+                caret_line = line;
+                placed = true;
+                break;
+            }
+            continue;
+        }
+        if (is_text(cmd)) {
+            texted = true;
+            followed = false;
+            caret_line = line;
+        } else if (texted && !followed && line == caret_line) {
+            // The glue after the text: the text ends where it begins.
+            x = cmd.x;
+            followed = true;
+        }
+    }
+    if (at_end) {
+        Scaled from = 0;
+        Scaled to = 0;
+        if (texted) {
+            area(caret_line, from, to);
+            if (!followed)
+                x = to;
+        } else {
+            if (first_line == cmd_end)
+                return false;
+            caret_line = first_line;
+            area(caret_line, from, to);
+            const std::vector<ColumnAlign>& aligns = d.doc.block(i).table.aligns;
+            const ColumnAlign align =
+                cell.column < aligns.size() ? aligns[cell.column] : ColumnAlign::LEFT;
+            x = align == ColumnAlign::RIGHT
+                    ? to
+                    : (align == ColumnAlign::CENTER ? from + (to - from) / 2 : from);
+        }
+        placed = true;
+    }
+    if (!placed || caret_line == cmd_end)
+        return false;
+    const DrawCmd& held = p.cmds[caret_line];
+    top = held.y - held.height;
+    bottom = held.y + held.depth;
+    return true;
+}
+
 ImTypesetDocumentHit hit_test(ImTypesetDocument& d, const ImVec2& local_pos)
 {
     ImTypesetDocumentHit out = {{0, 0}, -1, 0, false, false, -1, -1};
@@ -1915,21 +2461,21 @@ ImTypesetDocumentHit hit_test(ImTypesetDocument& d, const ImVec2& local_pos)
     if (p.line_boxes.empty())
         return out;
     ensure_model(p);
-    const uint32_t index = p.model.hit(at.local);
+    uint32_t index = p.model.hit(at.local);
     out.Position.Offset = std::min(byte_at_index(p, index), text_size_of(b));
-    if (is_table(b.kind)) {
-        // The cell the index is in: the last that starts at or before it.
-        const TableLayout& table = d.doc.layout(i).table;
-        const size_t rows = table.rows.size();
-        const size_t columns = rows != 0 ? (table.cell_index.size() - 1) / rows : 0;
-        if (columns != 0) {
-            const auto after =
-                std::upper_bound(table.cell_index.begin(), table.cell_index.end() - 1, index);
-            const size_t k = after == table.cell_index.begin()
-                                 ? 0
-                                 : static_cast<size_t>(after - table.cell_index.begin()) - 1;
-            out.Row = static_cast<int>(k / columns);
-            out.Column = static_cast<int>(k % columns);
+    CellBox under_cell;
+    if (is_table(b.kind) && cell_under(b, d.doc.layout(i).table, at.local, under_cell)) {
+        // Row and Column are the cell whose rectangle holds the point. The
+        // position is a byte of that cell under the product's rule, and the
+        // reference's index's, whatever cell that is in, under its own.
+        out.Row = static_cast<int>(under_cell.row);
+        out.Column = static_cast<int>(under_cell.column);
+        if (product_hits(d)) {
+            out.Position.Offset =
+                std::min(static_cast<int>(hit_in_cell(b, p, d.doc.layout(i).table, under_cell,
+                                                      padding_of(d, i), at.local)),
+                         text_size_of(b));
+            index = index_of(b, p, out.Position.Offset);
         }
     }
     out.Line = static_cast<int>(line_of_index(p, index) - p.line_boxes.begin());
@@ -2062,6 +2608,14 @@ size_t column_count(ImTypesetDocument& d)
     // Balanced columns are all cut or none; in order, the first is enough to
     // bring the cuts up to date with the document.
     d.columns.cut_through(d.doc, d.composer, 0);
+    // With every block laid out, cutting the rest lays nothing out, and the
+    // count is then the count: the estimate is the height left over in
+    // columns, which takes a piece that cannot be cut and is many columns
+    // tall (a table row that wrapped) for that many columns, and a view
+    // scrolled to the end of such a page would show columns that are not
+    // there.
+    if (!d.columns.finished() && d.doc.settled())
+        d.columns.cut_all(d.doc, d.composer);
     return std::max<size_t>(d.columns.estimated_count(d.doc), 1);
 }
 
@@ -2247,9 +2801,12 @@ bool ReplaceDocumentBlocks(ImTypesetDocument* document, int first, int count,
     }
     // The widths a held table had, for the table that takes its place.
     std::vector<Scaled> held_widths;
+    DocBlock::HeldUnder held_under;
     if (removed == 1 && incoming == 1 && is_table(d->blocks[at].kind) &&
-        (d->blocks[at].flags & ImTypesetBlockFlags_TableHeld) != 0)
+        (d->blocks[at].flags & ImTypesetBlockFlags_TableHeld) != 0) {
         held_widths.swap(d->blocks[at].held);
+        held_under = d->blocks[at].held_under;
+    }
     // The same rotation the block layer made, so that a block and what is
     // kept beside it stay together.
     if (incoming >= removed) {
@@ -2284,8 +2841,10 @@ bool ReplaceDocumentBlocks(ImTypesetDocument* document, int first, int count,
         describe(*d, d->blocks[at + k], given, given.Blocks[k], static_cast<int>(at + k), trouble);
         DocBlock& described = d->blocks[at + k];
         if (is_table(described.kind) && (described.flags & ImTypesetBlockFlags_TableHeld) != 0 &&
-            held_widths.size() == described.columns)
+            held_widths.size() == described.columns) {
             described.held.swap(held_widths);
+            described.held_under = held_under;
+        }
         if (d->has_style && !d->specs_stale)
             apply_spec(*d, at + k);
     }
@@ -2566,7 +3125,9 @@ ImVec2 GetDocumentSize(ImTypesetDocument* document)
         const Scaled count = static_cast<Scaled>(column_count(*d));
         const Scaled across =
             add_saturating(count * d->width, (count - 1) * std::max<Scaled>(d->gutter, 0));
-        return ImVec2(ceil_px(px_of(*d, across)), ceil_px(px_of(*d, d->columns.height())));
+        // As tall as the columns, and as what an overfull one holds: the
+        // whole of the page is then inside what a view scrolls over.
+        return ImVec2(ceil_px(px_of(*d, across)), ceil_px(px_of(*d, d->columns.reach())));
     }
     return ImVec2(ceil_px(px_of(*d, d->width)), ceil_px(px_of(*d, d->doc.height())));
 }
@@ -2730,7 +3291,7 @@ int GetDocumentRangeRects(ImTypesetDocument* document, const ImTypesetDocumentRa
         // not keep a view of every block.
         ++d->tick;
         const DocBlock& b = d->blocks[i];
-        const Scaled top = d->doc.block_top(i);
+        const Scaled top = settled_top(*d, i);
         if (is_host(b.kind)) {
             if (whole || local.Start < local.End) {
                 const Scaled x = d->doc.block(i).style.left_indent;
@@ -2747,7 +3308,7 @@ int GetDocumentRangeRects(ImTypesetDocument* document, const ImTypesetDocumentRa
         ensure_model(p);
         ImTypesetContext& ctx = *d->ctx;
         ctx.rects.clear();
-        p.model.rects(span_of(b, p, local), ctx.rects);
+        range_rects(*d, i, b, p, local, ctx.rects);
         for (const Rect& rect : ctx.rects)
             append_px(*d, rect, top, out_rects);
         count += static_cast<int>(ctx.rects.size());
@@ -2766,7 +3327,7 @@ ImVec4 GetDocumentCaretRect(ImTypesetDocument* document, const ImTypesetPosition
         return none;
     const size_t i = static_cast<size_t>(position.Block);
     const DocBlock& b = d->blocks[i];
-    const Scaled top = d->doc.block_top(i);
+    const Scaled top = settled_top(*d, i);
     if (!is_lined(b.kind)) {
         const Scaled extent = d->doc.layout(i).extent;
         const Scaled x = d->doc.block(i).style.left_indent;
@@ -2779,6 +3340,16 @@ ImVec4 GetDocumentCaretRect(ImTypesetDocument* document, const ImTypesetPosition
     ensure_lines(p);
     if (p.line_boxes.empty())
         return none;
+    if (is_table(b.kind)) {
+        Scaled x = 0;
+        Scaled line_top = 0;
+        Scaled line_bottom = 0;
+        if (table_caret(*d, i, b, p, position.Offset, x, line_top, line_bottom)) {
+            const Shown at = shown_at(*d, top + line_top + (line_bottom - line_top) / 2);
+            return ImVec4(pxf(*d, x + at.dx), pxf(*d, top + line_top + at.dy), pxf(*d, x + at.dx),
+                          pxf(*d, top + line_bottom + at.dy));
+        }
+    }
     const uint32_t index = index_of(b, p, position.Offset);
     const auto line = line_of_index(p, index);
     Scaled x = index >= line->index_end ? line->x1 : line->x0;
@@ -3114,8 +3685,13 @@ bool SetDocumentColumns(ImTypesetDocument* document, const ImTypesetColumns* col
         given.Gutter = is_finite(columns->Gutter) ? columns->Gutter : 0.0f;
         given.Flags = columns->Flags;
     }
+    // The height a view lent is the view's while what is said stands: a host
+    // may say the same columns every frame and ask before the view is drawn.
+    const ImTypesetColumns& had = d->columns_given;
+    if (had.Count != given.Count || had.Height != given.Height || had.Gutter != given.Gutter ||
+        had.Flags != given.Flags)
+        d->view_height = 0.0f;
     d->columns_given = given;
-    d->view_height = 0.0f;
     return succeed();
 }
 

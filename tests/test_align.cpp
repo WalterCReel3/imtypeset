@@ -111,6 +111,7 @@ struct Flat {
     {
         TableInput in;
         in.cells = cells.data();
+        in.cell_count = cells.size();
         in.row_first = row_first.data();
         in.rows = table.rows.size();
         in.has_header = table.has_header;
@@ -783,6 +784,7 @@ struct Table {
     const TableInput& input(const TableStyle& style)
     {
         in.cells = cells.data();
+        in.cell_count = cells.size();
         in.row_first = row_first.data();
         in.rows = row_first.size() - 1;
         in.style = style;
@@ -1215,6 +1217,7 @@ TEST(a_hand_built_cell_is_set_without_a_contract_being_broken)
     const uint32_t backwards[] = {2, 0, 3, 1};
     TableInput in;
     in.cells = cells;
+    in.cell_count = 3;
     in.row_first = backwards;
     in.rows = 3;
     in.align_count = 9;
@@ -1222,6 +1225,21 @@ TEST(a_hand_built_cell_is_set_without_a_contract_being_broken)
     CHECK(aligner.fin_align(arena, in, 100 * UNITY, prose_breaking(), measure, out));
     REQUIRE_EQ(out.boxes.size(), size_t(3));
     CHECK_EQ(out.solve.columns.size(), size_t(3));
+    CHECK_EQ(contracts.broken(), 0);
+
+    // Offsets past the cells there are: a row is the cells it names that are
+    // there, and nothing past them is read. Three cells, and offsets that
+    // say there are a thousand.
+    const uint32_t beyond[] = {0, 2, 1000, 2000};
+    in.row_first = beyond;
+    CHECK(aligner.fin_align(arena, in, 100 * UNITY, prose_breaking(), measure, out));
+    REQUIRE_EQ(out.boxes.size(), size_t(3));
+    CHECK_EQ(out.natural.size(), size_t(3));
+    CHECK_EQ(out.solve.columns.size(), size_t(2));
+    // And none at all said to be there: every row is empty.
+    in.cell_count = 0;
+    CHECK(aligner.fin_align(arena, in, 100 * UNITY, prose_breaking(), measure, out));
+    CHECK_EQ(out.natural.size(), size_t(0));
     CHECK_EQ(contracts.broken(), 0);
 }
 

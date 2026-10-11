@@ -1033,3 +1033,643 @@ TEST(the_view_shows_columns_across_its_width_and_selects_across_them)
     CHECK_EQ(ImTypeset::GetDocumentColumnCount(document), 3);
     CHECK(ImTypeset::GetDocumentSize(document).y > 2000.0f);
 }
+
+// --- Rectangles asked for before the cuts they depend on were made --------------------------
+
+namespace
+{
+
+bool same_rect(const ImVec4& a, const ImVec4& b)
+{
+    return a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
+}
+
+// The column a caret rectangle is drawn in, by its x, and whether the
+// position it was asked for is among those the column says it holds.
+void caret_in_its_column(ImTypesetDocument* document, const ImTypesetPosition& position,
+                         const ImVec4& caret)
+{
+    const int count = ImTypeset::GetDocumentColumnCount(document);
+    int found = -1;
+    for (int k = 0; k < count && found < 0; ++k) {
+        const ImTypesetColumnGeometry column = ImTypeset::GetDocumentColumn(document, k);
+        if (caret.x >= column.Min.x && caret.x <= column.Max.x)
+            found = k;
+    }
+    if (!CHECK(found >= 0))
+        return;
+    const ImTypesetColumnGeometry column = ImTypeset::GetDocumentColumn(document, found);
+    CHECK(!before(position, column.Start));
+    CHECK(before(position, column.End) || same(position, column.End));
+    CHECK(caret.y >= column.Min.y - 0.01f);
+    CHECK(caret.w <= column.ContentMax.y + 0.01f);
+}
+
+} // namespace
+
+TEST(a_caret_and_a_range_asked_before_anything_is_cut_are_where_the_cut_columns_put_them)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    Frame frame;
+    const Content content = prose(10000);
+    const ImTypesetPosition position = {5000, 0};
+    const ImTypesetDocumentRange range = {{5000, 0}, {5000, 200}};
+
+    // IN ORDER, and the very first question the document is asked.
+    Shown document(content, 300.0f);
+    in_order(document, 600.0f, 20.0f);
+    CHECK_EQ(ImTypeset::GetDocumentStats(document).BlocksLaidOut, ImU64(0));
+    const ImVec4 first = ImTypeset::GetDocumentCaretRect(document, position);
+    ImVector<ImVec4> first_rects;
+    ImTypeset::GetDocumentRangeRects(document, range, &first_rects);
+    const ImVec4 second = ImTypeset::GetDocumentCaretRect(document, position);
+    // Everything cut and laid out, and the same questions.
+    REQUIRE(ImTypeset::LayoutDocumentWindow(document, 0.0f, 1.0e9f));
+    const int count = ImTypeset::GetDocumentColumnCount(document);
+    ImTypeset::GetDocumentColumn(document, count - 1);
+    const ImVec4 settled = ImTypeset::GetDocumentCaretRect(document, position);
+    ImVector<ImVec4> settled_rects;
+    ImTypeset::GetDocumentRangeRects(document, range, &settled_rects);
+    CHECK(same_rect(first, settled));
+    CHECK(same_rect(second, settled));
+    REQUIRE(settled_rects.Size >= 2);
+    REQUIRE_EQ(first_rects.Size, settled_rects.Size);
+    for (int k = 0; k < settled_rects.Size; ++k)
+        CHECK(same_rect(first_rects[k], settled_rects[k]));
+    CHECK(settled.w > settled.y);
+    caret_in_its_column(document, position, settled);
+    // And a point on the caret is that position.
+    const ImTypesetDocumentHit hit = ImTypeset::HitTestDocument(
+        document, ImVec2(settled.x + 1.0f, (settled.y + settled.w) * 0.5f));
+    CHECK_EQ(hit.Position.Block, 5000);
+    CHECK_EQ(hit.Position.Offset, 0);
+
+    // A second document, asked a RANGE first.
+    Shown other(content, 300.0f);
+    in_order(other, 600.0f, 20.0f);
+    ImVector<ImVec4> cold_rects;
+    ImTypeset::GetDocumentRangeRects(other, range, &cold_rects);
+    REQUIRE_EQ(cold_rects.Size, settled_rects.Size);
+    for (int k = 0; k < settled_rects.Size; ++k)
+        CHECK(same_rect(cold_rects[k], settled_rects[k]));
+}
+
+TEST(after_an_edit_under_balance_a_caret_below_it_is_where_the_next_draw_puts_it)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    Frame frame;
+    const Content content = prose(60);
+    Shown document(content, 300.0f);
+    balanced(document, 3, 20.0f);
+    Buffers buffers;
+    const ImVec4 clip(0.0f, 0.0f, 2000.0f, 100000.0f);
+    REQUIRE(ImTypeset::DrawDocumentToBuffers(document, ImVec2(0.0f, 0.0f), clip, &buffers.vertices,
+                                             &buffers.indices));
+    // Every block below the edit, near each cut and far from one.
+    const int edited = 8;
+    std::vector<ImVec4> before_edit;
+    for (int block = edited + 1; block < 60; ++block)
+        before_edit.push_back(
+            ImTypeset::GetDocumentCaretRect(document, ImTypesetPosition{block, 0}));
+
+    // Block 8 becomes several lines taller.
+    Content longer;
+    longer.styles = content.styles;
+    std::string text = "8";
+    for (int k = 0; k < 6; ++k)
+        text += std::string(" ") + SENTENCE;
+    longer.add(ImTypesetBlockKind_Paragraph, text);
+    ImTypesetDocumentContent replacement = longer.view();
+    replacement.Styles = nullptr; // the document has them already
+    replacement.StyleCount = 0;
+    REQUIRE(ImTypeset::ReplaceDocumentBlocks(document, edited, 1, &replacement));
+
+    // Asked before any draw, then after one: the same, block by block.
+    std::vector<ImVec4> asked;
+    std::vector<ImVector<ImVec4>> asked_rects(60);
+    for (int block = edited + 1; block < 60; ++block) {
+        asked.push_back(ImTypeset::GetDocumentCaretRect(document, ImTypesetPosition{block, 0}));
+        const ImTypesetDocumentRange range = {{block, 0}, {block, 40}};
+        ImTypeset::GetDocumentRangeRects(document, range, &asked_rects[static_cast<size_t>(block)]);
+    }
+    buffers.vertices.resize(0);
+    buffers.indices.resize(0);
+    REQUIRE(ImTypeset::DrawDocumentToBuffers(document, ImVec2(0.0f, 0.0f), clip, &buffers.vertices,
+                                             &buffers.indices));
+    int moved = 0;
+    for (int block = edited + 1; block < 60; ++block) {
+        CHECK_CONTEXT("block %d", block);
+        const size_t k = static_cast<size_t>(block - edited - 1);
+        const ImTypesetPosition position = {block, 0};
+        const ImVec4 drawn = ImTypeset::GetDocumentCaretRect(document, position);
+        CHECK(same_rect(asked[k], drawn));
+        ImVector<ImVec4> rects;
+        const ImTypesetDocumentRange range = {{block, 0}, {block, 40}};
+        ImTypeset::GetDocumentRangeRects(document, range, &rects);
+        const ImVector<ImVec4>& early = asked_rects[static_cast<size_t>(block)];
+        if (CHECK_EQ(early.Size, rects.Size)) {
+            for (int r = 0; r < rects.Size; ++r)
+                CHECK(same_rect(early[r], rects[r]));
+        }
+        moved += same_rect(before_edit[k], drawn) ? 0 : 1;
+        if (block % 7 == 0)
+            caret_in_its_column(document, position, drawn);
+    }
+    // The edit did move what is below it: the test is not comparing a
+    // document with itself.
+    CHECK(moved > 40);
+}
+
+// --- What overflows a column, and what a heading is kept with -----------------------------------
+
+TEST(the_page_is_as_tall_as_what_an_overfull_column_holds_so_a_view_can_scroll_to_it)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    Content content;
+    ImTypesetBlockStyle body;
+    body.SpaceBelow = 8.0f;
+    content.styles.push_back(body);
+    for (int i = 0; i < 4; ++i)
+        content.add(ImTypesetBlockKind_Paragraph, SENTENCE);
+    content.add(ImTypesetBlockKind_Host, "[a widget]").Extent = 900.0f; // block 4
+    for (int i = 0; i < 4; ++i)
+        content.add(ImTypesetBlockKind_Paragraph, SENTENCE);
+
+    // Columns of a stated height: the page is the columns' height until the
+    // overfull column is cut, and as tall as that column's content after.
+    {
+        Frame frame;
+        Shown document(content);
+        in_order(document, 300.0f, 10.0f);
+        CHECK(ImTypeset::LayoutDocumentWindow(document, 0.0f, 1.0e9f));
+        const int count = ImTypeset::GetDocumentColumnCount(document);
+        float lowest = 0.0f;
+        int overfull = 0;
+        for (int k = 0; k < count; ++k) {
+            const ImTypesetColumnGeometry column = ImTypeset::GetDocumentColumn(document, k);
+            overfull += column.Overfull ? 1 : 0;
+            if (column.Overfull)
+                lowest = std::max(lowest, column.ContentMax.y);
+        }
+        CHECK_EQ(overfull, 1);
+        CHECK(lowest >= 900.0f);
+        const ImVec2 page = ImTypeset::GetDocumentSize(document);
+        CHECK(page.y >= lowest);
+        CHECK(page.y < lowest + 1.0f);
+    }
+    // With nothing overfull the page is the columns' height exactly: a last
+    // line's descender below the foot does not make it taller.
+    {
+        Frame frame;
+        const Content plain = prose(40);
+        Shown document(plain);
+        in_order(document, 300.0f, 10.0f);
+        CHECK(ImTypeset::LayoutDocumentWindow(document, 0.0f, 1.0e9f));
+        const int count = ImTypeset::GetDocumentColumnCount(document);
+        bool below = false;
+        for (int k = 0; k < count; ++k) {
+            const ImTypesetColumnGeometry column = ImTypeset::GetDocumentColumn(document, k);
+            CHECK(!column.Overfull);
+            below = below || column.ContentMax.y > column.Max.y;
+        }
+        CHECK(below);
+        CHECK_EQ(ImTypeset::GetDocumentSize(document).y, 300.0f);
+    }
+    // In a view that lends its own height (Count 2, Height 0): what the view
+    // scrolls over holds the widget's foot, which is far below the view's.
+    Shown document(content);
+    ImTypesetColumns columns;
+    columns.Count = 2;
+    columns.Gutter = 20.0f;
+    CHECK(ImTypeset::SetDocumentColumns(document, &columns));
+    for (int f = 0; f < 4; ++f) {
+        Frame frame;
+        ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+        ImGui::SetNextWindowSize(ImVec2(700.0f, 500.0f));
+        ImGui::Begin("columns", nullptr, ImGuiWindowFlags_NoDecoration);
+        CHECK(ImTypeset::DocumentView("##view", document, ImVec2(660.0f, 420.0f), nullptr));
+        ImGui::End();
+    }
+    const ImTypesetColumnGeometry first = ImTypeset::GetDocumentColumn(document, 0);
+    CHECK(first.Max.y <= 420.0f);
+    int holder = -1;
+    for (int k = 0; k < 4; ++k) {
+        if (ImTypeset::GetDocumentColumn(document, k).Overfull)
+            holder = k;
+    }
+    REQUIRE(holder >= 0);
+    const ImTypesetColumnGeometry tall = ImTypeset::GetDocumentColumn(document, holder);
+    CHECK(tall.ContentMax.y >= 900.0f);
+    CHECK(ImTypeset::GetDocumentSize(document).y >= tall.ContentMax.y);
+}
+
+TEST(balanced_columns_are_never_overfull_the_page_is_as_tall_as_the_tallest)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    Frame frame;
+    // As many one-line paragraphs as columns: the least height that "holds"
+    // them is nothing at all, and each column simply has its paragraph.
+    Content three;
+    for (int i = 0; i < 3; ++i)
+        three.add(ImTypesetBlockKind_Paragraph, "One line " + std::to_string(i) + ".");
+    Shown document(three);
+    balanced(document, 3, 10.0f);
+    REQUIRE_EQ(ImTypeset::GetDocumentColumnCount(document), 3);
+    for (int k = 0; k < 3; ++k) {
+        CHECK_CONTEXT("column %d", k);
+        const ImTypesetColumnGeometry column = ImTypeset::GetDocumentColumn(document, k);
+        CHECK(column.Exists);
+        CHECK(!column.Overfull);
+        CHECK_EQ(column.Start.Block, k);
+        CHECK_EQ(column.ContentMax.y, column.Max.y);
+    }
+    // Something that cannot be cut and is taller than everything else makes
+    // the page as tall as it is; no column reaches past the page's foot.
+    Content mixed;
+    for (int i = 0; i < 6; ++i)
+        mixed.add(ImTypesetBlockKind_Paragraph, SENTENCE);
+    mixed.add(ImTypesetBlockKind_Host, "[a widget]").Extent = 500.0f;
+    for (int i = 0; i < 6; ++i)
+        mixed.add(ImTypesetBlockKind_Paragraph, SENTENCE);
+    Shown other(mixed);
+    balanced(other, 4, 10.0f);
+    const ImVec2 page = ImTypeset::GetDocumentSize(other);
+    CHECK(page.y >= 500.0f);
+    for (int k = 0; k < 4; ++k) {
+        CHECK_CONTEXT("column %d", k);
+        const ImTypesetColumnGeometry column = ImTypeset::GetDocumentColumn(other, k);
+        CHECK(!column.Overfull);
+        CHECK(column.ContentMax.y <= column.Max.y);
+        CHECK(column.Max.y <= page.y);
+    }
+}
+
+TEST(a_heading_is_kept_with_what_follows_it_through_a_block_with_nothing_in_it)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    Frame frame;
+    // Paragraphs, then: heading, [an empty paragraph], a paragraph. `lead`
+    // says what stands where the heading does; `gap` whether the empty block
+    // is there.
+    const auto build = [](ImTypesetBlockKind lead, bool gap, int* follower) {
+        Content content;
+        ImTypesetBlockStyle body;
+        body.SpaceBelow = 8.0f;
+        content.styles.push_back(body);
+        for (int i = 0; i < 5; ++i)
+            content.add(ImTypesetBlockKind_Paragraph, SENTENCE);
+        content.add(lead, "A heading");
+        if (gap)
+            content.add(ImTypesetBlockKind_Paragraph, "");
+        *follower = static_cast<int>(content.blocks.size());
+        content.add(ImTypesetBlockKind_Paragraph, std::string(SENTENCE) + " " + SENTENCE);
+        for (int i = 0; i < 3; ++i)
+            content.add(ImTypesetBlockKind_Paragraph, SENTENCE);
+        return content;
+    };
+    // How many of the column heights tried put the head of a column at the
+    // start of the block after the heading: the heading at a column's foot.
+    const auto stranded = [](const Content& content, int follower) {
+        int found = 0;
+        Shown document(content);
+        for (float height = 120.0f; height <= 420.0f; height += 3.0f) {
+            in_order(document, height, 10.0f);
+            const int count = ImTypeset::GetDocumentColumnCount(document);
+            for (int k = 0; k < count && k < 64; ++k) {
+                const ImTypesetColumnGeometry column = ImTypeset::GetDocumentColumn(document, k);
+                if (!column.Exists)
+                    break;
+                if (column.Start.Block == follower && column.Start.Offset == 0)
+                    ++found;
+            }
+        }
+        return found;
+    };
+    int follower = 0;
+    // The yardstick: a paragraph where the heading is can be left at a foot.
+    const Content loose = build(ImTypesetBlockKind_Paragraph, true, &follower);
+    CHECK(stranded(loose, follower) > 0);
+    // A heading never is, with the empty block between or without it.
+    const Content direct = build(ImTypesetBlockKind_Heading, false, &follower);
+    CHECK_EQ(stranded(direct, follower), 0);
+    const Content through = build(ImTypesetBlockKind_Heading, true, &follower);
+    CHECK_EQ(stranded(through, follower), 0);
+}
+
+TEST(a_host_that_says_the_same_columns_every_frame_keeps_the_height_the_view_lent)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    const Content content = prose(200);
+    Shown document(content);
+    ImTypesetColumns columns;
+    columns.Count = 3;
+    columns.Gutter = 20.0f;
+    int asked_before_the_view = 0;
+    for (int f = 0; f < 3; ++f) {
+        Frame frame;
+        CHECK(ImTypeset::SetDocumentColumns(document, &columns));
+        // From the second frame on the view has lent its height, and a
+        // question asked before the view is drawn is answered in columns.
+        asked_before_the_view = ImTypeset::GetDocumentColumnCount(document);
+        if (f > 0)
+            CHECK(asked_before_the_view > 10);
+        ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+        ImGui::SetNextWindowSize(ImVec2(700.0f, 500.0f));
+        ImGui::Begin("columns", nullptr, ImGuiWindowFlags_NoDecoration);
+        CHECK(ImTypeset::DocumentView("##view", document, ImVec2(660.0f, 420.0f), nullptr));
+        ImGui::End();
+    }
+    // Other columns are other columns: the lent height goes with what was said.
+    columns.Count = 2;
+    {
+        Frame frame;
+        CHECK(ImTypeset::SetDocumentColumns(document, &columns));
+        CHECK_EQ(ImTypeset::GetDocumentColumnCount(document), 1);
+    }
+}
+
+// --- A table cut across columns ---------------------------------------------------------------
+
+namespace
+{
+
+// A table of `rows` rows and three columns under a header, every third row
+// with a cell long enough to wrap at the widths used here.
+Content cut_table(int rows, ImTypesetBlockFlags flags)
+{
+    Content content;
+    ImTypesetBlockStyle body;
+    body.SpaceBelow = 8.0f;
+    content.styles.push_back(body);
+    content.add(ImTypesetBlockKind_Paragraph, SENTENCE);
+    ImTypesetBlock block;
+    block.Kind = ImTypesetBlockKind_Table;
+    block.Flags = flags;
+    block.TextStart = static_cast<int>(content.text.size());
+    block.CellStart = 0;
+    const size_t base = content.text.size();
+    for (int r = 0; r < rows; ++r) {
+        if (r != 0)
+            content.text += '\n';
+        for (int c = 0; c < 3; ++c) {
+            if (c != 0)
+                content.text += '\t';
+            ImTypesetCell cell;
+            cell.TextStart = static_cast<int>(content.text.size() - base);
+            content.text += "r" + std::to_string(r) + "c" + std::to_string(c);
+            if (r % 3 == 2 && c == 2)
+                content.text += " with several more words in it so that it is broken";
+            cell.TextEnd = static_cast<int>(content.text.size() - base);
+            cell.Flags = c == 0 ? ImTypesetCellFlags_RowStart : 0;
+            content.cells.push_back(cell);
+        }
+    }
+    block.TextEnd = static_cast<int>(content.text.size());
+    block.CellCount = static_cast<int>(content.cells.size());
+    content.blocks.push_back(block);
+    content.add(ImTypesetBlockKind_Paragraph, SENTENCE);
+    return content;
+}
+
+// Everything a table cut across columns must still answer, at one column
+// height. Returns how many columns the table's rows are in.
+int hold_cut_table(ImTypesetDocument* document, int rows, float height, bool fixed)
+{
+    const int table = 1;
+    const float pitch = 21.6f;
+    const int count = ImTypeset::GetDocumentColumnCount(document);
+    std::vector<ImTypesetColumnGeometry> columns;
+    for (int k = 0; k < count; ++k)
+        columns.push_back(ImTypeset::GetDocumentColumn(document, k));
+    const auto column_of = [&](float x) {
+        for (int k = 0; k < count; ++k) {
+            if (x >= columns[static_cast<size_t>(k)].Min.x &&
+                x < columns[static_cast<size_t>(k)].Max.x)
+                return k;
+        }
+        return -1;
+    };
+    // No column is overfull: a row is never taller than the columns here.
+    for (const ImTypesetColumnGeometry& column : columns)
+        CHECK(!column.Overfull);
+
+    int used = 0;
+    int last_column = -1;
+    int wrapped = 0;
+    float last_bottom = 0.0f;
+    for (int r = 0; r < rows; ++r) {
+        CHECK_CONTEXT("height %.0f row %d", static_cast<double>(height), r);
+        const ImTypesetTableRowGeometry row = ImTypeset::GetDocumentTableRow(document, table, r);
+        wrapped += row.Wrapped ? 1 : 0;
+        const float tall = row.Max - row.Min;
+        if (fixed)
+            CHECK_NEAR(tall / pitch, std::round(tall / pitch), 1.0e-3f);
+        // The row on the page: its top-left corner carried, its size kept.
+        const ImTypesetTableColumnGeometry middle =
+            ImTypeset::GetDocumentTableColumn(document, table, 1);
+        const ImVec2 corner = ImTypeset::GetDocumentColumnPos(document, ImVec2(0.0f, row.Min));
+        const int k = column_of(corner.x);
+        if (!CHECK(k >= 0))
+            continue;
+        const ImTypesetColumnGeometry& column = columns[static_cast<size_t>(k)];
+        // Rows go down a column and then to the next, never back.
+        CHECK(k >= last_column);
+        if (k == last_column)
+            CHECK(corner.y >= last_bottom - 0.01f);
+        used += k != last_column ? 1 : 0;
+        last_column = k;
+        last_bottom = corner.y + tall;
+        // The whole row is inside its column, top to bottom: nothing of it
+        // hangs below the column's content, and that is within a line's
+        // depth of the foot.
+        CHECK(corner.y >= column.ContentMin.y - 0.01f);
+        CHECK(corner.y + tall <= column.ContentMax.y + 0.01f);
+        CHECK(column.ContentMax.y <= column.Max.y + pitch);
+        // The header is in the column of the row under it: a column does
+        // not end between a header, its rule and the first row below.
+        if (r == 1) {
+            const ImVec2 header = ImTypeset::GetDocumentColumnPos(
+                document, ImVec2(0.0f, ImTypeset::GetDocumentTableRow(document, table, 0).Min));
+            CHECK_EQ(column_of(header.x), k);
+            CHECK(header.y < corner.y);
+        }
+        // A point in the middle cell of the row, on the page, is that cell;
+        // its caret is in the row's rectangle there; and the caret's own
+        // middle is the same position.
+        const ImVec2 point(corner.x + (middle.Min + middle.Max) * 0.5f, corner.y + tall * 0.5f);
+        const ImTypesetDocumentHit hit = ImTypeset::HitTestDocument(document, point);
+        CHECK_EQ(hit.Position.Block, table);
+        CHECK_EQ(hit.Row, r);
+        CHECK_EQ(hit.Column, 1);
+        const ImVec4 caret = ImTypeset::GetDocumentCaretRect(document, hit.Position);
+        CHECK(caret.x >= corner.x + middle.Min && caret.x <= corner.x + middle.Max);
+        CHECK(caret.y >= corner.y - 0.01f);
+        CHECK(caret.w <= corner.y + tall + 0.01f);
+        const ImTypesetDocumentHit again =
+            ImTypeset::HitTestDocument(document, ImVec2(caret.x, (caret.y + caret.w) * 0.5f));
+        CHECK_EQ(again.Position.Offset, hit.Position.Offset);
+        // The last cell's blank, a pixel inside the row's right edge: that
+        // cell, not the next row and not the head of the next column.
+        const ImTypesetTableColumnGeometry right =
+            ImTypeset::GetDocumentTableColumn(document, table, 2);
+        const ImTypesetDocumentHit edge = ImTypeset::HitTestDocument(
+            document, ImVec2(corner.x + right.Max - 1.0f, corner.y + tall - 1.0f));
+        CHECK_EQ(edge.Row, r);
+        CHECK_EQ(edge.Column, 2);
+        // The row's rectangles are all in its column and inside the row.
+        ImVector<ImVec4> rects;
+        const ImTypesetDocumentRange whole = {
+            ImTypeset::GetDocumentTablePosition(document, table, r, 0, 0),
+            ImTypeset::GetDocumentTablePosition(document, table, r, 2, 1 << 20)};
+        CHECK(ImTypeset::GetDocumentRangeRects(document, whole, &rects) >= 3);
+        for (int i = 0; i < rects.Size; ++i) {
+            CHECK_EQ(column_of(rects[i].x), k);
+            CHECK(rects[i].y >= corner.y - 0.01f);
+            CHECK(rects[i].w <= corner.y + tall + 0.01f);
+        }
+    }
+    CHECK(wrapped >= rows / 3 - 1);
+    return used;
+}
+
+} // namespace
+
+TEST(a_table_cut_across_columns_keeps_its_rows_whole_and_its_header_with_its_rule)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    Frame frame;
+    const int rows = 31;
+    for (const bool fixed : {false, true}) {
+        CHECK_CONTEXT("FixedLineHeight %d", fixed ? 1 : 0);
+        const Content content =
+            cut_table(rows, ImTypesetBlockFlags_TableHeader |
+                                (fixed ? ImTypesetBlockFlags_FixedLineHeight : 0));
+        Shown document(content, 300.0f);
+        // What the uncut document draws, to hold the columns' draw to.
+        Buffers uncut;
+        const ImVec4 all(-100.0f, -100.0f, 100000.0f, 100000.0f);
+        REQUIRE(ImTypeset::DrawDocumentToBuffers(document, ImVec2(0.0f, 0.0f), all, &uncut.vertices,
+                                                 &uncut.indices));
+        int most = 0;
+        for (float height = 150.0f; height <= 420.0f; height += 9.0f) {
+            in_order(document, height, 10.0f);
+            REQUIRE(ImTypeset::LayoutDocumentWindow(document, 0.0f, 1.0e9f));
+            most = std::max(most, hold_cut_table(document, rows, height, fixed));
+            // Cut, the table draws what it drew whole: nothing twice, nothing
+            // left out.
+            Buffers cut;
+            REQUIRE(ImTypeset::DrawDocumentToBuffers(document, ImVec2(0.0f, 0.0f), all,
+                                                     &cut.vertices, &cut.indices));
+            CHECK_EQ(cut.vertices.Size, uncut.vertices.Size);
+            CHECK_EQ(cut.indices.Size, uncut.indices.Size);
+        }
+        // The table was in several columns at some height tried.
+        CHECK(most >= 4);
+        // Column heights a pixel apart round where the header row ends: at
+        // some of them the header fits at a column's foot and the rule under
+        // it does not, or the rule fits and the next row does not. The
+        // header, the rule and that row go to the next column together.
+        const float header_foot =
+            ImTypeset::GetDocumentTableRow(document, 1, 0).Max; // in the uncut column
+        int moved_together = 0;
+        for (float height = header_foot - 30.0f; height <= header_foot + 60.0f; height += 1.0f) {
+            CHECK_CONTEXT("height %.0f", static_cast<double>(height));
+            in_order(document, height, 10.0f);
+            const float gutter_pitch = 300.0f + 10.0f;
+            const ImVec2 header = ImTypeset::GetDocumentColumnPos(
+                document, ImVec2(0.0f, ImTypeset::GetDocumentTableRow(document, 1, 0).Min));
+            const ImVec2 under = ImTypeset::GetDocumentColumnPos(
+                document, ImVec2(0.0f, ImTypeset::GetDocumentTableRow(document, 1, 1).Min));
+            const int header_column = static_cast<int>(header.x / gutter_pitch);
+            const int under_column = static_cast<int>(under.x / gutter_pitch);
+            CHECK_EQ(header_column, under_column);
+            // The rule is between them: the row under the header is two
+            // leadings below the header's top in whatever column they are.
+            CHECK(under.y - header.y > 30.0f);
+            CHECK(under.y - header.y < 60.0f);
+            moved_together += header_column == 1 ? 1 : 0;
+        }
+        CHECK(moved_together > 20);
+        // Balanced, too.
+        balanced(document, 3, 10.0f);
+        CHECK(hold_cut_table(document, rows, 0.0f, fixed) >= 2);
+    }
+}
+
+// A table whose last cell grows while a view shows the document in columns,
+// scrolled to its right end: the row that wraps becomes taller than a column,
+// cannot be cut, and is overfull. The page is as many columns wide as there
+// are -- not as many as that row is tall -- before the frame's draw as after
+// it, so the view stays on the last column and shows it, and the page is
+// tall enough to scroll down the row.
+TEST(a_view_at_the_end_of_columns_stays_on_the_last_column_while_text_arrives)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    Content content;
+    ImTypesetBlockStyle body;
+    body.SpaceBelow = 8.0f;
+    content.styles.push_back(body);
+    for (int i = 0; i < 6; ++i)
+        content.add(ImTypesetBlockKind_Paragraph,
+                    std::string(SENTENCE) + " " + SENTENCE + " " + SENTENCE);
+    content.table(4, 3).Flags = ImTypesetBlockFlags_TableHeader | ImTypesetBlockFlags_TableHeld;
+    Shown document(content, 300.0f);
+    ImTypesetColumns columns;
+    columns.Count = 3;
+    columns.Gutter = 20.0f;
+    CHECK(ImTypeset::SetDocumentColumns(document, &columns));
+    int settled_frames = 0;
+    int overfull_frames = 0;
+    for (int f = 0; f < 300; ++f) {
+        CHECK_CONTEXT("frame %d", f);
+        CHECK(ImTypeset::AppendDocumentText(document, " more"));
+        Frame frame;
+        // What the view is about to make its page from, asked as it asks.
+        const int before = ImTypeset::GetDocumentColumnCount(document);
+        const float tall_before = ImTypeset::GetDocumentSize(document).y;
+        const ImU64 drawn = ImTypeset::GetDocumentStats(document).BlocksDrawn;
+        ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+        ImGui::SetNextWindowSize(ImVec2(1100.0f, 300.0f));
+        ImGui::Begin("columns", nullptr, ImGuiWindowFlags_NoDecoration);
+        if (f > 20)
+            ImGui::SetNextWindowScroll(ImVec2(1.0e6f, 0.0f));
+        CHECK(ImTypeset::DocumentView("##view", document, ImVec2(1060.0f, 230.0f), nullptr));
+        ImGui::End();
+        if (f <= 40)
+            continue;
+        // The view is on the page's right end, and every column is cut.
+        const int after = ImTypeset::GetDocumentColumnCount(document);
+        ++settled_frames;
+        // A column more at the most, in the frame the row first outgrows one.
+        CHECK(after == before || after == before + 1);
+        // The table was drawn: the view is not looking at columns that are
+        // not there.
+        CHECK(ImTypeset::GetDocumentStats(document).BlocksDrawn > drawn);
+        const ImTypesetColumnGeometry last = ImTypeset::GetDocumentColumn(document, after - 1);
+        CHECK(last.Exists);
+        CHECK_EQ(last.End.Block, 6);
+        if (last.Overfull) {
+            ++overfull_frames;
+            const float tall = ImTypeset::GetDocumentSize(document).y;
+            CHECK(tall >= last.ContentMax.y);
+            CHECK(last.ContentMax.y > last.Max.y);
+            // And the page the view made this frame, before it drew, was
+            // already as tall as the row was a frame ago: within a line of
+            // what it is now, so the view can be scrolled down the row
+            // while the row grows.
+            if (overfull_frames > 1)
+                CHECK(tall_before >= tall - 22.0f);
+        }
+    }
+    CHECK_EQ(settled_frames, 259);
+    CHECK(overfull_frames > 150);
+    CHECK(ImTypeset::GetDocumentColumnCount(document) <= 8);
+}

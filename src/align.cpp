@@ -213,7 +213,8 @@ bool fin_col(std::vector<Scaled>& widths, size_t column, Scaled w)
     // been recorded in: the reference's `[0] * columns`.
     if (widths.size() <= column)
         widths.resize(column + 1, 0);
-    // tex.web section 796: if w > width(cur_align) then width(cur_align) := w.
+    // tex.web section 796, inside fin_col (section 791): if w >
+    // width(cur_align) then width(cur_align) := w.
     if (w > widths[column])
         widths[column] = w;
     return true;
@@ -271,6 +272,13 @@ bool shared(const double* fractions, size_t columns, ColumnSolve& out)
 {
     // What the reference's `_checked_fractions` refuses when the table is
     // made.
+    //
+    // The sum is one addition a term, left to right: what Python's sum() of
+    // floats is up to 3.11, the interpreter the goldens were written by
+    // (tests/golden/PROVENANCE.md). From Python 3.12 sum() carries a compensation
+    // term and can differ from this in the last bit, which the rounding of a
+    // share can turn into a scaled point: an oracle run under 3.12 or later
+    // would have to be looked at before its widths were taken.
     double total = 0.0;
     for (size_t c = 0; c < columns; ++c) {
         if (!std::isfinite(fractions[c]) || !(fractions[c] > 0.0)) {
@@ -632,6 +640,8 @@ bool Aligner::set_row(NodeArena& arena, const RowInput& row, const TableStyle& s
             // tex.web section 810: the entry becomes an hlist as wide as its
             // column, its glue set to reach it. The \hss is what the
             // template's \hfil is there, and the padding is inside the box.
+            // The box keeps the height and depth hpack finds, where section
+            // 810 gives it the row's.
             _cell.clear();
             _cell.push_back(kern(padding));
             const size_t first = _cell.size();
@@ -676,9 +686,19 @@ bool Aligner::set_row(NodeArena& arena, const RowInput& row, const TableStyle& s
     out.unstrutted.contents = arena.add_nodes(_row);
 
     // One strut on the row and none on a cell: a cell is a box of the row's
-    // list, so flooring the row floors them all.
+    // list, so flooring the row floors them all. An exact strut is what one
+    // LINE is, and a wrapped row is several, each of them already on it
+    // (cell_lines): the row then takes the strut's height for its first line
+    // and keeps the depth its cells' lines came to, where replacing the depth
+    // would leave every line below the first outside the row's box.
     Box strutted = out.unstrutted;
-    style.strut.apply_to(strutted);
+    if (style.strut.exact && !fits) {
+        strutted.height = style.strut.height;
+        if (strutted.depth < style.strut.depth)
+            strutted.depth = style.strut.depth;
+    } else {
+        style.strut.apply_to(strutted);
+    }
     out.box = arena.add_box(strutted);
     out.lowest = lowest;
     // After a row of \vtops the interline glue of tex.web section 679 would
@@ -723,7 +743,10 @@ bool Aligner::fin_align(NodeArena& arena, const TableInput& table, Scaled width,
 
     const size_t rows = table.row_first != nullptr ? table.rows : 0;
     const Scaled padding = align_length(table.style.cell_padding);
-    const auto row_begin = [&](size_t r) { return static_cast<size_t>(table.row_first[r]); };
+    const size_t cell_count = table.cells != nullptr ? table.cell_count : 0;
+    const auto row_begin = [&](size_t r) {
+        return std::min(static_cast<size_t>(table.row_first[r]), cell_count);
+    };
     // Offsets that run backwards are an empty row, as is any row of a table
     // with no cells; a row longer than a table may be wide is cut there.
     const auto row_length = [&](size_t r) {

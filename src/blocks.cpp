@@ -169,6 +169,7 @@ DocumentRules DocumentRules::product(Scaled em)
     rules.widen_marker_gutter = true;
     rules.rule_in_container = true;
     rules.break_between_blocks = true;
+    rules.keep_table_header = true;
     return rules;
 }
 
@@ -211,10 +212,9 @@ NodeView TableCells::cell(size_t i) const
 
 size_t TableCells::columns() const
 {
-    size_t longest = 0;
-    for (size_t r = 0; r + 1 < row_first.size(); ++r)
-        longest = std::max<size_t>(longest, row_first[r + 1] - row_first[r]);
-    return longest;
+    const size_t rows = row_first.size();
+    const size_t last = rows >= 2 ? row_first[rows - 1] - row_first[rows - 2] : 0;
+    return std::max<size_t>(longest_closed, last);
 }
 
 void TableCells::start_row()
@@ -226,6 +226,10 @@ void TableCells::start_row()
     if (row_first.size() >= 2 && row_first.back() == row_first[row_first.size() - 2] &&
         row_first.back() == count)
         return;
+    // The row that ends here is closed: nothing is added to it again.
+    if (row_first.size() >= 2)
+        longest_closed =
+            std::max(longest_closed, row_first.back() - row_first[row_first.size() - 2]);
     row_first.back() = count;
     row_first.push_back(count);
     row_stamp.push_back(table_stamp());
@@ -259,6 +263,8 @@ void TableCells::clear()
     natural.clear();
     row_first.clear();
     row_stamp.clear();
+    epoch = table_stamp();
+    longest_closed = 0;
 }
 
 void TableLayout::clear()
@@ -280,6 +286,16 @@ void TableLayout::clear()
     stated = false;
     rows_set = 0;
     rows_kept = 0;
+    widest_closed.clear();
+    widest_rows = 0;
+    widest_epoch = 0;
+    narrowest_closed.clear();
+    narrowest_rows = 0;
+    narrowest_epoch = 0;
+    narrowest_padding = 0;
+    epoch = 0;
+    resumed_from = 0;
+    resumed_rows = 0;
 }
 
 void Block::clear_content()
@@ -779,6 +795,7 @@ void BlockComposer::table_boxes(NodeArena& arena, const Block& block, Scaled ind
         _cells.push_back(cells.cell(i));
     TableInput table;
     table.cells = _cells.data();
+    table.cell_count = _cells.size();
     table.row_first = cells.row_first.data();
     table.rows = cells.rows();
     table.has_header = cells.has_header;
@@ -1185,10 +1202,18 @@ void DocumentComposer::table_narrowest(NodeArena& arena, const Block& block, Tab
         padding = 0;
     kept.word.resize(cells.cells(), 0);
     kept.word_stamp.resize(rows, 0);
-    kept.narrowest.assign(columns, 0);
-    for (size_t r = 0; r < rows; ++r) {
+    // The rows before the last cannot change under one epoch: what fin_col
+    // made of them is kept, and only the rows closed since are added to it.
+    const size_t closed = rows == 0 ? 0 : rows - 1;
+    if (kept.narrowest_epoch != cells.epoch || kept.word_serial != params_serial ||
+        kept.narrowest_padding != padding || kept.narrowest_rows > closed) {
+        kept.narrowest_closed.clear();
+        kept.narrowest_rows = 0;
+    }
+    const auto measured = [&](size_t r) {
         const size_t first = cells.row_first[r];
         const size_t count = std::min<size_t>(cells.row_first[r + 1] - first, columns);
+        ++table_rows_visited;
         if (kept.word_stamp[r] != cells.row_stamp[r] || kept.word_serial != params_serial) {
             for (size_t c = 0; c < count; ++c) {
                 kept.word[first + c] =
@@ -1197,6 +1222,24 @@ void DocumentComposer::table_narrowest(NodeArena& arena, const Block& block, Tab
             }
             kept.word_stamp[r] = cells.row_stamp[r];
         }
+        return count;
+    };
+    // A change of the parameters measures every row again, the last first
+    // or not: the serial is taken once all of them are.
+    for (size_t r = kept.narrowest_rows; r < closed; ++r) {
+        const size_t first = cells.row_first[r];
+        const size_t count = measured(r);
+        for (size_t c = 0; c < count; ++c)
+            fin_col(kept.narrowest_closed, c, add_saturating(kept.word[first + c], 2 * padding));
+    }
+    kept.narrowest_rows = closed;
+    kept.narrowest_epoch = cells.epoch;
+    kept.narrowest_padding = padding;
+    kept.narrowest.assign(kept.narrowest_closed.begin(), kept.narrowest_closed.end());
+    kept.narrowest.resize(columns, 0);
+    if (rows != 0) {
+        const size_t first = cells.row_first[rows - 1];
+        const size_t count = measured(rows - 1);
         for (size_t c = 0; c < count; ++c)
             fin_col(kept.narrowest, c, add_saturating(kept.word[first + c], 2 * padding));
     }
@@ -1238,6 +1281,7 @@ void DocumentComposer::layout_table(NodeArena& arena, const Block& block, Scaled
     const size_t columns = std::min(cells.columns(), MAX_TABLE_COLUMNS);
 
     ++blocks_composed;
+    const uint64_t previous = out.serial;
     out.serial = ++_serial;
     out.budget_exhausted = false;
     out.clipped = false;
@@ -1245,15 +1289,30 @@ void DocumentComposer::layout_table(NodeArena& arena, const Block& block, Scaled
     out.hard_breaks.clear();
     out.marker_items = 0;
 
-    // The widest cell of each column: fin_col (tex.web section 796) over
-    // what was measured when the cells were made.
-    kept.widest.assign(columns, 0);
-    for (size_t r = 0; r < rows; ++r) {
+    // The widest cell of each column: the second half of tex.web section 796
+    // (fin_col here) over what was measured when the cells were made. The
+    // rows before the last cannot change under one epoch of the cells, so
+    // what they came to is kept and only the rows closed since are added.
+    const size_t closed = rows == 0 ? 0 : rows - 1;
+    if (kept.widest_epoch != cells.epoch || kept.widest_rows > closed) {
+        kept.widest_closed.clear();
+        kept.widest_rows = 0;
+        kept.widest_epoch = cells.epoch;
+    }
+    const auto widen = [&](std::vector<Scaled>& widths, size_t r) {
+        ++table_rows_visited;
         const size_t first = cells.row_first[r];
         const size_t count = std::min<size_t>(cells.row_first[r + 1] - first, columns);
         for (size_t c = 0; c < count; ++c)
-            fin_col(kept.widest, c, cells.natural[first + c]);
-    }
+            fin_col(widths, c, cells.natural[first + c]);
+    };
+    for (size_t r = kept.widest_rows; r < closed; ++r)
+        widen(kept.widest_closed, r);
+    kept.widest_rows = closed;
+    kept.widest.assign(kept.widest_closed.begin(), kept.widest_closed.end());
+    kept.widest.resize(columns, 0);
+    if (rows != 0)
+        widen(kept.widest, rows - 1);
 
     // The widths (section 801, and the reference's `_column_widths`). The
     // longest words are measured only if the solve asks for them, and then
@@ -1281,13 +1340,24 @@ void DocumentComposer::layout_table(NodeArena& arena, const Block& block, Scaled
     size_t standing = 0;
     if (same) {
         const size_t most = std::min(rows, kept.rows.size());
-        while (standing < most && kept.rows[standing].stamp == cells.row_stamp[standing])
-            ++standing;
+        if (kept.epoch == cells.epoch && most != 0) {
+            // Under one epoch every kept row but the last is the row it was.
+            standing = most - 1;
+            if (kept.rows[standing].stamp == cells.row_stamp[standing])
+                ++standing;
+        } else {
+            while (standing < most && kept.rows[standing].stamp == cells.row_stamp[standing])
+                ++standing;
+            table_rows_visited += standing;
+        }
     }
     // The rows that stand are also where the last layout put them, with the
     // indices it gave them: what the block holds of them is kept, and the
     // stacking goes on from the last of them.
     const bool resumed = standing != 0 && kept.assembled;
+    kept.resumed_from = resumed ? previous : 0;
+    kept.resumed_rows = resumed ? static_cast<uint32_t>(standing) : 0;
+    kept.epoch = cells.epoch;
     kept.valid = false;
     kept.assembled = false;
     if (!resumed) {
@@ -1420,6 +1490,7 @@ void DocumentComposer::layout_table(NodeArena& arena, const Block& block, Scaled
     };
     const bool ruled = cells.has_header && style.rule_thickness != 0;
     for (size_t r = resumed ? standing : 0; r < rows; ++r) {
+        ++table_rows_visited;
         TableRowLayout& row = kept.rows[r];
         const Scaled top = place(row.dims);
         kept.row_top.push_back(top);
@@ -1550,6 +1621,11 @@ bool Document::splice(size_t first, size_t removed, size_t inserted)
     if (_count - removed > MAX_DOCUMENT_BLOCKS || inserted > MAX_DOCUMENT_BLOCKS ||
         _count - removed + inserted > MAX_DOCUMENT_BLOCKS)
         return false;
+    // From the unit the first block touched is in, the document is not the
+    // one that stood: said here, where it is known, and not left to what
+    // `prepare` can tell from the units' numbers and heights.
+    if (_prepared && (removed != 0 || inserted != 0))
+        note_changed(first < _unit_of.size() ? _unit_of[first] : _units.size());
     // The spare blocks kept past `_count` take the place of what is inserted
     // and what is removed joins them, so that neither loses its buffers: the
     // three sequences are rotated alike.
@@ -1749,6 +1825,12 @@ Scaled Document::estimate(size_t block) const
         return clamp_extent(clamp_dimen(b.thickness));
     case BlockType::TABLE:
         lines = static_cast<double>(b.table.rows() != 0 ? b.table.rows() : b.length_hint);
+        // The rule under a header is a box of the stack like a row: the
+        // interline glue of tex.web section 679 puts its foot one
+        // \baselineskip below the header's baseline and the next row's
+        // baseline one below that.
+        if (lines > 0.0 && b.table.has_header && b.table.rule_thickness > 0)
+            lines += 1.0;
         break;
     }
     const double extent = lines * leading;
@@ -1824,7 +1906,10 @@ void Document::prepare(DocumentComposer& composer)
         if (!unit.exact)
             ++_inexact;
         // Whether it is the unit that stood here: the same blocks at the
-        // same height under the same gap, laid out then and now.
+        // same height under the same gap, laid out then and now, and from
+        // the same layout (a block of another shape can be as tall).
+        if (!unit.barred && unit.exact)
+            unit.serial = _layouts[i].serial;
         const size_t index = _units.size();
         if (index >= _units_before.size()) {
             note_changed(index);
@@ -1832,7 +1917,7 @@ void Document::prepare(DocumentComposer& composer)
             const DocumentUnit& was = _units_before[index];
             if (!(was.exact && unit.exact && was.first_block == unit.first_block &&
                   was.block_count == unit.block_count && was.barred == unit.barred &&
-                  was.gap == unit.gap && was.extent == unit.extent))
+                  was.gap == unit.gap && was.extent == unit.extent && was.serial == unit.serial))
                 note_changed(index);
         }
         _units.push_back(unit);
@@ -1959,6 +2044,7 @@ void Document::ensure_unit(DocumentComposer& composer, size_t u)
     } else {
         _slots[first].top = 0;
         set_extent(u, _layouts[first].extent);
+        unit.serial = _layouts[first].serial;
     }
     unit.exact = true;
     --_inexact;
@@ -2125,9 +2211,24 @@ void Document::unit_vlist(size_t u, std::vector<Node>& out) const
     const size_t first = unit.first_block;
     const bool boxes = unit.barred || (unit.block_count != 0 && !_layouts[first].lines.empty());
 
-    // The gap. In the stack it is a kern, there when it is not zero.
-    const bool breakable = _rules.break_between_blocks && u > 0 && boxes && first > 0 &&
-                           !_blocks[first - 1].keep_with_next;
+    // The gap. In the stack it is a kern, there when it is not zero. What it
+    // follows is the nearest block above that has something in it: a text
+    // with nothing in it is a blank line or no line at all, and a heading
+    // above it is kept with this unit as it would be without it.
+    bool kept_with_above = false;
+    for (size_t above = first; above-- > 0;) {
+        const Block& block = _blocks[above];
+        const bool nothing =
+            slot_valid(above) && (_layouts[above].lines.empty() ||
+                                  (block.type == BlockType::TEXT && block.text.run.nodes.empty() &&
+                                   block.text.marker.nodes.empty()));
+        if (!nothing) {
+            kept_with_above = block.keep_with_next;
+            break;
+        }
+    }
+    const bool breakable =
+        _rules.break_between_blocks && u > 0 && boxes && first > 0 && !kept_with_above;
     if (breakable)
         out.push_back(glue(GlueSpec{unit.gap, 0, GlueOrder::NORMAL, 0, GlueOrder::NORMAL}));
     else if (unit.gap != 0)
@@ -2151,9 +2252,23 @@ void Document::unit_vlist(size_t u, std::vector<Node>& out) const
     }
     if (unit.block_count == 0)
         return;
+    // Rule 17: the boxes a header is kept with are the one after it (its
+    // rule, or the next row of a table that draws none) and, after a rule,
+    // the row under that.
+    const Block& block = _blocks[first];
+    size_t kept = 0;
+    if (_rules.keep_table_header && block.type == BlockType::TABLE && block.table.has_header)
+        kept = clamp_dimen(block.table.rule_thickness) > 0 ? 2 : 1;
+    size_t boxes_out = 0;
     walk_lines(
-        _blocks[first], _layouts[first], [&](const Node& above, Scaled) { out.push_back(above); },
-        [&](size_t, const LineDims& dims, Scaled) { box(dims.width, dims.height, dims.depth); });
+        block, _layouts[first],
+        [&](const Node& above, Scaled) {
+            out.push_back(boxes_out <= kept ? kern(above.width()) : above);
+        },
+        [&](size_t, const LineDims& dims, Scaled) {
+            box(dims.width, dims.height, dims.depth);
+            ++boxes_out;
+        });
 }
 
 bool Document::flatten(std::vector<DrawCmd>& out, std::vector<BlockSpan>* spans) const

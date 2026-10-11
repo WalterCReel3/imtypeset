@@ -68,6 +68,7 @@
 #include "units.h"
 #include "vsplit.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -125,7 +126,8 @@ struct DocumentColumn {
     uint32_t next_unit = 0;
     uint64_t next_unit_node = 0;
     // It holds something taller than itself: its one legal cut was already
-    // past its height.
+    // past its height. Never under BALANCE, where the columns are as tall as
+    // the tallest of them turns out.
     bool overfull = false;
     // Nothing was left for it.
     bool empty = false;
@@ -155,6 +157,12 @@ public:
     // it, the first for anything above that. Zero for a document with
     // nothing in it.
     size_t column_at(Document& document, DocumentComposer& composer, Scaled y);
+    // The same, as far as the column after which nothing of unit `unit` is
+    // left to place. Every unit up to it has then been laid out, so where the
+    // document puts the unit's blocks is exact and no further cut moves it:
+    // what a caller does before it reads a block's top to say where on the
+    // page something of the block is.
+    void cut_past_unit(Document& document, DocumentComposer& composer, size_t unit);
     // Cuts every column.
     void cut_all(Document& document, DocumentComposer& composer);
 
@@ -163,14 +171,29 @@ public:
     // How many columns are cut, and whether those are all there are.
     size_t count() const { return _columns.size(); }
     bool finished() const { return _finished; }
-    // How many there will be: count() when finished, and otherwise that plus
-    // what the document's height below the last cut, estimates included,
-    // comes to in columns.
+    // How many there will be: count() when finished. Otherwise, if every
+    // column was cut under these rules before the document last changed, how
+    // many there were then (an edit rarely changes the count by more than one,
+    // and a page whose width follows this does not jump while text arrives);
+    // and failing that, count() plus what the document's height below the
+    // last cut, estimates included, comes to in columns, which takes a piece
+    // that cannot be cut for as many columns as it is tall.
     size_t estimated_count(const Document& document) const;
     const DocumentColumn& column(size_t k) const;
     // How tall a column is: the rule's height, or the balanced one, which is
     // how far the tallest column's material reaches.
     Scaled height() const { return _height; }
+    // How far down the page the columns cut so far reach: height(), or past
+    // it by as much as the tallest overfull column's material goes past its
+    // foot. A column that is not overfull is not counted, though its last
+    // line's depth may hang below the foot. While columns dropped by a change
+    // to the document are still to be cut again, what they reached before it
+    // counts too: a page that is scrolled down an overfull column does not
+    // lose its height each time text arrives in it.
+    Scaled reach() const
+    {
+        return std::max(std::max(_height, _reach), _finished ? Scaled(0) : _known_reach);
+    }
     // The least height at which the balanced columns held the document: what
     // the cut was made at. Zero under FILL.
     Scaled balanced_at() const { return _balanced_at; }
@@ -204,7 +227,13 @@ private:
     std::vector<DocumentColumn> _columns;
     bool _finished = false;
     Scaled _height = 0;
+    Scaled _reach = 0;
     Scaled _balanced_at = 0;
+    // How many columns there were, and how far down the page they reached,
+    // the last time all of them were cut under these rules; zero if they
+    // never were.
+    size_t _known_count = 0;
+    Scaled _known_reach = 0;
 
     // The working copy of the list: the nodes from _list_first_node on, with
     // the top of each in the uncut document and the unit it is of. `_start`

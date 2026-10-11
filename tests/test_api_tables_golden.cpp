@@ -1601,30 +1601,99 @@ void ask_probes(Replayed& replay, const LayoutIn& layout, Tally& tally)
             CHECK_EQ(hit.Column, -1);
             continue;
         }
-        // The cell: the reference's index is in one by the golden's `tmap`;
-        // an index at the table's end is in its last cell.
-        const int64_t in_cell = std::min(std::max(seen_hit, span.start), span.end - 1);
-        Pos expected;
-        if (!CHECK(convention_pos(replay, layout, in_cell, &expected)))
-            continue;
-        if (seen_hit != in_cell) {
-            const CellIn* cell = block.cell(expected.row, expected.column);
-            expected.byte = cell != nullptr ? cell->end - cell->start : 0;
+        // --- The cell (docs/decisions.md D60). The reference has no answer
+        // for which cell a point is in: its `hit` is an index, and the cell
+        // of that index is the NEXT cell for a point in the far half of a
+        // cell's blank. The product's Row and Column are the cell whose
+        // rectangle holds the point, and that is what is asserted, for every
+        // probe, against rectangles built from the golden alone: the column
+        // edges are `tgeom`'s left plus the reference's widths, the rows are
+        // `trow`'s top and height. A point between two rows is the nearer
+        // row's (the upper when as near to both), one beside the table the
+        // first or last column's, and one in a column its row has no cell
+        // for the row's last cell's: the product's rule, written out here.
+        const TGeom* geom = nullptr;
+        for (const TGeom& candidate : layout.tgeoms) {
+            if (candidate.block == static_cast<int>(b))
+                geom = &candidate;
         }
-        ++tally.n["probe: in a table, Row and Column and GetDocumentTableCell compared"];
+        if (!CHECK(geom != nullptr) || !CHECK(!geom->widths.empty()))
+            continue;
+        const Scaled seen_x = sp_from_px(static_cast<double>(at.x), replay.ppi);
+        const TRow* in_row = nullptr;
+        for (const TRow& row : layout.trows) {
+            if (row.block != static_cast<int>(b))
+                continue;
+            if (in_row == nullptr) {
+                in_row = &row;
+                continue;
+            }
+            // Rows come top to bottom. The later row is taken once the point
+            // is at or below its top, or nearer its top than the last scaled
+            // point of the row above.
+            const Scaled above_last = in_row->top + in_row->height - 1;
+            if (seen_y >= row.top ||
+                (seen_y > above_last && row.top - seen_y < seen_y - above_last))
+                in_row = &row;
+        }
+        if (!CHECK(in_row != nullptr))
+            continue;
+        int in_column = 0;
+        Scaled edge = geom->left + geom->widths[0];
+        while (static_cast<size_t>(in_column) + 1 < geom->widths.size() && seen_x >= edge)
+            edge += geom->widths[static_cast<size_t>(++in_column)];
+        const int have = static_cast<int>(block.row_first[static_cast<size_t>(in_row->row) + 1] -
+                                          block.row_first[static_cast<size_t>(in_row->row)]);
+        if (!CHECK(have > 0))
+            continue;
+        const int cell_column = std::min(in_column, have - 1);
+        const CellIn* under = block.cell(in_row->row, cell_column);
+        if (!CHECK(under != nullptr))
+            continue;
+        const bool in_rect = seen_y >= in_row->top && seen_y < in_row->top + in_row->height &&
+                             seen_x >= geom->left && seen_x < edge && in_column == cell_column;
+        ++tally.n["probe: in a table, Row and Column held to the cell under the point"];
+        if (in_rect)
+            ++tally.n["probe: in a table, the point is inside a cell's rectangle"];
+        // Row and Column are the same under either set of rules.
+        CHECK_EQ(hit.Row, in_row->row);
+        CHECK_EQ(hit.Column, cell_column);
+
+        // --- The public position under the product's rule: a byte of that
+        // cell's own text, whose cell (GetDocumentTableCell) is that cell,
+        // and which names itself back through GetDocumentTablePosition.
+        replay.document->product_table_hits = true;
+        const ImTypesetDocumentHit product = ImTypeset::HitTestDocument(replay.document, at);
+        replay.document->product_table_hits = false;
+        CHECK_EQ(product.Position.Block, hit.Position.Block);
         const ImTypesetCellPosition cell =
-            ImTypeset::GetDocumentTableCell(replay.document, hit.Position);
-        const bool rows = CHECK_EQ(hit.Row, expected.row) && CHECK_EQ(hit.Column, expected.column);
-        const bool cells = CHECK_EQ(cell.Row, expected.row) &&
-                           CHECK_EQ(cell.Column, expected.column) &&
-                           CHECK_EQ(cell.Offset, expected.byte);
+            ImTypeset::GetDocumentTableCell(replay.document, product.Position);
+        const bool rows =
+            CHECK_EQ(product.Row, in_row->row) && CHECK_EQ(product.Column, cell_column);
+        const bool cells = CHECK_EQ(cell.Row, in_row->row) && CHECK_EQ(cell.Column, cell_column) &&
+                           CHECK(cell.Offset >= 0) &&
+                           CHECK(cell.Offset <= under->end - under->start) &&
+                           CHECK_EQ(product.Position.Offset, under->start + cell.Offset);
         if (rows && cells)
-            ++tally.n["probe: in a table, (row, column, byte) is the `tmap`'s by the product's "
-                      "convention"];
-        // The position back from the cell is the same position.
+            ++tally.n["probe: in a table, the product's position is a byte of the cell under "
+                      "the point"];
         const ImTypesetPosition back = ImTypeset::GetDocumentTablePosition(
-            replay.document, hit.Position.Block, cell.Row, cell.Column, cell.Offset);
-        CHECK(same_position(back, hit.Position));
+            replay.document, product.Position.Block, cell.Row, cell.Column, cell.Offset);
+        CHECK(same_position(back, product.Position));
+        // How often the two rules give one position, and how often the
+        // reference's index is in another cell than the point: counted, and
+        // the counts are pinned by the test.
+        if (same_position(product.Position, hit.Position))
+            ++tally.n["probe: in a table, the product's position is the reference's index's"];
+        const int64_t in_cell = std::min(std::max(seen_hit, span.start), span.end - 1);
+        Pos reference_cell;
+        if (convention_pos(replay, layout, in_cell, &reference_cell) &&
+            (reference_cell.row != in_row->row || reference_cell.column != cell_column)) {
+            ++tally.n["probe: in a table, the reference's index is in ANOTHER cell than the "
+                      "point (the product answers the point's)"];
+            if (in_rect)
+                ++tally.n["probe:   ...of which the point is inside a cell's rectangle"];
+        }
         if (!moved)
             count_conventions(replay, layout, probe.hit, probe.pos, "a probe's `<pos>`", tally);
     }
@@ -2223,11 +2292,11 @@ void ask_tables(Replayed& replay, const LayoutIn& layout, Tally& tally)
             CHECK_EQ(tables_golden::counted("widths", table.solve.columns),
                      tables_golden::counted("widths", geom.widths)))
             ++tally.n["tgeom: column widths equal to the reference's, in scaled points"];
-        // `left` is the script's reading of the row's `line` command.
-        if (table.indent == geom.left)
-            ++tally.n["tgeom: left edge equal to the script's `left`"];
-        else
-            ++tally.n["tgeom: left edge NOT the script's `left` (counted, not failed)"];
+        // `left` is the script's arithmetic over the reference's own objects:
+        // the x of the `line` command the row box ships, plus the table's
+        // left indent. Both are the reference's, so it is held exactly.
+        if (CHECK_EQ(table.indent, geom.left))
+            ++tally.n["tgeom: left edge equal to the golden's `left`, in scaled points"];
         CHECK_EQ(got.Min.x, px_float(table.indent, ppi));
         CHECK_EQ(got.Min.y, px_float(replay.spans[b].top, ppi));
         Scaled left = table.indent;
@@ -2262,13 +2331,15 @@ void ask_tables(Replayed& replay, const LayoutIn& layout, Tally& tally)
             ++tally.n["trow: index range equal to the reference's"];
         const Scaled top = replay.spans[b].top + table.row_top[r];
         const Scaled height = table.rows[r].dims.height + table.rows[r].dims.depth;
-        // The script's reading of the row's `line` command and of its boxes.
-        ++tally.n[top == row.top && height == row.height
-                      ? "trow: top and height equal to the script's"
-                      : "trow: top or height NOT the script's (counted, not failed)"];
-        ++tally.n[table.rows[r].wrapped == row.wrapped
-                      ? "trow: wrapped equal to the script's"
-                      : "trow: wrapped NOT the script's (counted, not failed)"];
+        // `top` and `height` are the script's arithmetic over the `line`
+        // command the reference ships for the row box (y - height, height +
+        // depth), and `wrapped` is whether a cell box of the row is a
+        // vertical list: derived from the reference's objects with nothing
+        // chosen, so each is held exactly, in scaled points.
+        if (CHECK_EQ(top, row.top) && CHECK_EQ(height, row.height))
+            ++tally.n["trow: top and height equal to the golden's, in scaled points"];
+        if (CHECK(table.rows[r].wrapped == row.wrapped))
+            ++tally.n["trow: wrapped equal to the golden's"];
         const ImTypesetTableRowGeometry got =
             ImTypeset::GetDocumentTableRow(replay.document, row.block, row.row);
         const bool same = CHECK_EQ(got.Min, px_float(top, ppi)) &&
@@ -2445,12 +2516,11 @@ void ask_links(Replayed& replay, const LayoutIn& layout, Tally& tally)
                     column = cell.column;
                 }
             }
-            // `row` and `column` are the script's: the cell of the first
-            // index of the link's first run.
-            ++tally.n[row == area.row && column == area.column
-                          ? "linkarea: in a cell, the cell is the script's `row`, `column`"
-                          : "linkarea: in a cell, the cell is NOT the script's (counted, not "
-                            "failed)"];
+            // `row` and `column` are the script's arithmetic: the cell box
+            // that holds the first index of the link's first run, which is
+            // the cell whose links the link is counted among. Held exactly.
+            if (CHECK_EQ(row, area.row) && CHECK_EQ(column, area.column))
+                ++tally.n["linkarea: in a cell, the cell is the golden's `row`, `column`"];
         } else if (area.number >= 0 && static_cast<size_t>(area.number) < block.links.size()) {
             link = &block.links[static_cast<size_t>(area.number)];
         }
@@ -2592,8 +2662,27 @@ TEST(a_table_among_blocks_selects_hits_and_copies_as_the_reference_does)
     CHECK_EQ(tally.of("tcell: rects equal to the reference's, exactly in float pixels"), 309);
     CHECK_EQ(tally.of("probe: in a table, the model's index equal to the reference's `hit`"), 1848);
     CHECK_EQ(tally.of("probe: in a table, public position is the index's by the convention"), 1848);
-    CHECK(tally.of("probe: in a table, public position is the reference's `hit`") >= 1751);
-    CHECK(tally.of("drag: character, an end in a table, range equal to the reference's") >= 473);
+    CHECK_EQ(tally.of("probe: in a table, public position is the reference's `hit`"), 1751);
+    // The cell, by the product's rule (D60): every probe in a table, of
+    // which 1,284 are inside a cell's rectangle and the rest in the space
+    // between rows or beside the table. The reference's index is in another
+    // cell than the point for 465 of them, 253 of those inside a rectangle.
+    CHECK_EQ(tally.of("probe: in a table, Row and Column held to the cell under the point"), 1848);
+    CHECK_EQ(
+        tally.of("probe: in a table, the product's position is a byte of the cell under the point"),
+        1848);
+    CHECK_EQ(tally.of("probe: in a table, the point is inside a cell's rectangle"), 1284);
+    CHECK_EQ(tally.of("probe: in a table, the product's position is the reference's index's"),
+             1366);
+    CHECK_EQ(tally.of("probe: in a table, the reference's index is in ANOTHER cell than the point "
+                      "(the product answers the point's)"),
+             465);
+    CHECK_EQ(tally.of("probe:   ...of which the point is inside a cell's rectangle"), 253);
+    CHECK_EQ(tally.of("tgeom: left edge equal to the golden's `left`, in scaled points"), 29);
+    CHECK_EQ(tally.of("trow: top and height equal to the golden's, in scaled points"), 116);
+    CHECK_EQ(tally.of("trow: wrapped equal to the golden's"), 116);
+    CHECK_EQ(tally.of("linkarea: in a cell, the cell is the golden's `row`, `column`"), 19);
+    CHECK_EQ(tally.of("drag: character, an end in a table, range equal to the reference's"), 473);
     CHECK_EQ(tally.of("drag: word, an end in a table, range equal to the reference's"), 481);
     CHECK_EQ(tally.of("drag: line, an end in a table, range equal to the reference's"), 480);
     CHECK_EQ(tally.of("range: through a table, asked of AppendDocumentRangeText"), 1247);

@@ -40,10 +40,16 @@ void DocumentColumns::set_rules(const ColumnRules& rules)
         return;
     _rules = checked;
     drop_from(0);
+    _known_count = 0;
+    _known_reach = 0;
 }
 
 void DocumentColumns::drop_from(size_t k)
 {
+    if (_finished) {
+        _known_count = _columns.size();
+        _known_reach = _reach;
+    }
     if (k < _columns.size())
         _columns.resize(k);
     _finished = false;
@@ -55,6 +61,11 @@ void DocumentColumns::drop_from(size_t k)
     _start = NONE;
     _balanced_at = 0;
     _height = _rules.balance != 0 ? 0 : _rules.height;
+    _reach = 0;
+    for (const DocumentColumn& column : _columns) {
+        if (column.overfull)
+            _reach = std::max(_reach, column.used);
+    }
 }
 
 void DocumentColumns::bring_up_to_date(Document& document, DocumentComposer& composer)
@@ -214,6 +225,8 @@ bool DocumentColumns::cut_next(Document& document, DocumentComposer& composer, S
     // yet, too: a unit added after the last one changes it.
     column.read_end = _next_unit + (_next_unit >= document.unit_count() ? 1u : 0u);
     _columns.push_back(column);
+    if (column.overfull)
+        _reach = std::max(_reach, column.used);
     ++columns_cut;
     _start = next;
     if (next == NONE) {
@@ -296,8 +309,15 @@ void DocumentColumns::balance(Document& document, DocumentComposer& composer)
         while (!_finished && cut_next(document, composer, low)) {
         }
     }
-    for (const DocumentColumn& column : _columns)
+    // The page is as tall as its tallest column, so no column holds anything
+    // taller than a column is. The height the cuts were made at says nothing
+    // of that: where the document has no more pieces than columns it is one
+    // scaled point, at which every column's one legal cut is past its height.
+    for (DocumentColumn& column : _columns) {
         _height = std::max(_height, column.used);
+        column.overfull = false;
+    }
+    _reach = 0;
     while (_columns.size() < count) {
         DocumentColumn none;
         none.empty = true;
@@ -326,6 +346,20 @@ bool DocumentColumns::cut_through(Document& document, DocumentComposer& composer
             break;
     }
     return k < _columns.size();
+}
+
+void DocumentColumns::cut_past_unit(Document& document, DocumentComposer& composer, size_t unit)
+{
+    bring_up_to_date(document, composer);
+    if (_rules.balance != 0) {
+        if (!_finished)
+            balance(document, composer);
+        return;
+    }
+    while (!_finished && (_columns.empty() || _columns.back().next_unit <= unit)) {
+        if (!cut_next(document, composer, _rules.height))
+            break;
+    }
 }
 
 void DocumentColumns::cut_all(Document& document, DocumentComposer& composer)
@@ -359,6 +393,8 @@ size_t DocumentColumns::estimated_count(const Document& document) const
 {
     if (_finished)
         return _columns.size();
+    if (_rules.balance == 0 && _known_count > _columns.size())
+        return _known_count;
     const Scaled cut_to = _columns.empty() ? 0 : _columns.back().limit;
     const Scaled below = sub_saturating(document.height(), cut_to);
     const Scaled height = std::max<Scaled>(_rules.height, 1);

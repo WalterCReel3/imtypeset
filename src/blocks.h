@@ -224,6 +224,14 @@ struct DocumentRules {
     // and a run of one-line blocks cannot be cut at all. The uncut document
     // does not read this.
     bool break_between_blocks = false;
+    // 17. A table's header row is kept with the rule under it and with the
+    // row after: in the list a document's columns are cut from, the interline
+    // glue above the rule and above the first row under the header is a kern
+    // of its width, which is no legal break before a box (tex.web section
+    // 973). Off, they are the glue they are in the stack, and a column may
+    // end between a header and its rule. The uncut document does not read
+    // this.
+    bool keep_table_header = false;
 
     // What a document API should use: every switch on, code lines wrapped. `em`
     // is the body size; the least measure is eight of it and a continuation
@@ -297,6 +305,15 @@ struct TableCells {
     // A number per row that changes whenever the row's cells do: what a kept
     // row is checked against (TableLayout). From table_stamp().
     std::vector<uint64_t> row_stamp;
+    // A number that changes when the cells are emptied (`clear`). Between two
+    // changes of it the cells only grow at their end: a cell joins the last
+    // row, the last cell is made again, a row is started. So every row but
+    // the last is what it was when the next was started, and what was worked
+    // out over those rows under one epoch stands: a table that gains a row
+    // costs that row and not a pass over the rows before it.
+    uint64_t epoch = 0;
+    // The most cells any row but the last has.
+    uint32_t longest_closed = 0;
     // A number that changes whenever anything else a row is set from does
     // (the alignments, the padding, the fonts): whoever changes one of those
     // takes a new table_stamp().
@@ -316,7 +333,7 @@ struct TableCells {
     size_t rows() const { return row_first.empty() ? 0 : row_first.size() - 1; }
     size_t cells() const { return cell_end.size(); }
     NodeView cell(size_t i) const;
-    // The longest row's cells.
+    // The longest row's cells. Not a pass over the rows.
     size_t columns() const;
     // Ends the row being filled and starts another, which the cells added
     // next belong to. The first cell added starts a row by itself.
@@ -700,6 +717,11 @@ public:
     // measured.
     uint64_t table_rows_set = 0;
     uint64_t table_words_measured = 0;
+    // Table rows a layout went over for any reason: to take a row's widths
+    // into its columns', to compare what is kept of it, to set it, to stack
+    // it. A table that gains a row goes over that row and the one before it,
+    // not the table.
+    uint64_t table_rows_visited = 0;
     // Changed by whoever changes `params` or `measure`: a table's kept rows
     // were set under the number they remember.
     uint64_t params_serial = 1;
@@ -805,6 +827,26 @@ struct TableLayout {
     std::vector<uint64_t> word_stamp;
     uint64_t word_serial = 0;
 
+    // --- Over the rows that can no longer change (TableCells::epoch): every
+    // row but the last, as far as each was taken. fin_col over the cells'
+    // natural widths of rows [0, widest_rows) under `widest_epoch`, and over
+    // their longest words with `narrowest_padding` on both sides of rows
+    // [0, narrowest_rows) under `narrowest_epoch` and `word_serial`.
+    std::vector<Scaled> widest_closed;
+    size_t widest_rows = 0;
+    uint64_t widest_epoch = 0;
+    std::vector<Scaled> narrowest_closed;
+    size_t narrowest_rows = 0;
+    uint64_t narrowest_epoch = 0;
+    Scaled narrowest_padding = 0;
+    // The epoch of the cells the kept rows were set from.
+    uint64_t epoch = 0;
+    // If this layout went on from the rows of the one before it: that
+    // layout's serial, and how many rows stand as it left them, each with its
+    // commands, lines and indices where they were. Zero and zero otherwise.
+    uint64_t resumed_from = 0;
+    uint32_t resumed_rows = 0;
+
     // --- As assembled by the last layout
     ColumnSolve solve;
     std::vector<Scaled> widest;
@@ -881,6 +923,9 @@ struct DocumentUnit {
     Scaled gap = 0;
     // How tall it is, exact or estimated.
     Scaled extent = 0;
+    // For a unit of one block, exact when the units were last made: the
+    // serial of the block's layout then. Zero otherwise.
+    uint64_t serial = 0;
     // Its bars: Document::bar(first_bar) onwards. Tops are from the unit's top.
     uint32_t first_bar = 0;
     uint32_t bar_count = 0;

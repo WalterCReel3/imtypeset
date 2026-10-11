@@ -856,9 +856,13 @@ TEST(balanced_columns_of_a_short_document_and_of_none)
     h.columns.set_rules(how);
     CHECK(h.columns.cut_through(h.document, h.composer, 2));
     REQUIRE_EQ(h.columns.count(), size_t(3));
-    CHECK(h.columns.column(0).overfull);
+    // No column is overfull: the columns are as tall as the tallest, which
+    // is the rule's, and nothing reaches past that.
+    for (size_t k = 0; k < 3; ++k)
+        CHECK(!h.columns.column(k).overfull);
     CHECK_EQ(h.columns.column(0).used, 200 * PT);
     CHECK_EQ(h.columns.height(), 200 * PT);
+    CHECK_EQ(h.columns.reach(), 200 * PT);
     CHECK_EQ(h.columns.column(1).used, 6 * LEADING);
     CHECK_EQ(h.columns.column(2).used, 6 * LEADING);
 }
@@ -982,4 +986,58 @@ TEST(rules_nobody_vetted_are_cut_to_what_can_be_set)
     h.columns.set_rules(many);
     h.columns.cut_all(h.document, h.composer);
     CHECK_EQ(h.columns.count(), size_t(MAX_BALANCED_COLUMNS));
+}
+
+// What is kept of the columns across an edit is kept only where the document
+// is the same document. A block of another shape that is exactly as tall as
+// the one whose place it takes is not the unit that stood there: here a rule
+// two lines thick takes the place of a two-line paragraph that a column was
+// cut inside, and a rule cannot be cut.
+TEST(a_unit_of_the_same_height_but_another_shape_is_not_the_unit_that_stood_there)
+{
+    Harness h;
+    const std::string two_lines = "stored letters and other symbols are set in a column";
+    h.text(two_lines);
+    h.text(two_lines);
+    h.rule(2 * LEADING);
+    // And more of the same height after it, so that the document's end, where
+    // the number of units says something changed, is far from the cut.
+    for (int i = 0; i < 4; ++i)
+        h.text(two_lines);
+    // The product's rules: a column may end between two blocks.
+    const DocumentRules rules = DocumentRules::product(EM);
+    const Scaled width = 150 * PT;
+    h.fill(rules, width);
+    ColumnRules how;
+    how.height = LEADING + LEADING / 2;
+    h.columns.set_rules(how);
+    h.columns.cut_all(h.document, h.composer);
+    // The premise: both paragraphs are two lines, cut between them, and the
+    // rule is as tall as either.
+    REQUIRE_EQ(h.document.layout(0).lines.size(), size_t(2));
+    REQUIRE_EQ(h.document.layout(1).lines.size(), size_t(2));
+    REQUIRE_EQ(h.document.layout(0).extent, 2 * LEADING);
+    REQUIRE_EQ(h.document.layout(2).extent, h.document.layout(1).extent);
+    REQUIRE_EQ(h.columns.count(), size_t(13));
+
+    // The first paragraph goes: the second takes its place, and the rule the
+    // second's.
+    REQUIRE(h.document.splice(0, 1, 0));
+    h.columns.cut_all(h.document, h.composer);
+    DocumentColumns fresh;
+    fresh.set_rules(how);
+    fresh.cut_all(h.document, h.composer);
+    REQUIRE_EQ(fresh.count(), size_t(11));
+    REQUIRE_EQ(h.columns.count(), fresh.count());
+    for (size_t k = 0; k < fresh.count(); ++k) {
+        CHECK_CONTEXT("column %d", static_cast<int>(k));
+        CHECK_EQ(h.columns.column(k).top, fresh.column(k).top);
+        CHECK_EQ(h.columns.column(k).limit, fresh.column(k).limit);
+        CHECK_EQ(h.columns.column(k).first_unit, fresh.column(k).first_unit);
+        CHECK(h.columns.column(k).overfull == fresh.column(k).overfull);
+    }
+    // The rule is alone in the third column and overfull there.
+    CHECK(fresh.column(2).overfull);
+    CHECK_EQ(fresh.column(2).first_unit, uint32_t(1));
+    CHECK_EQ(fresh.column(3).first_unit, uint32_t(2));
 }

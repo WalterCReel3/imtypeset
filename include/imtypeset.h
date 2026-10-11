@@ -575,10 +575,15 @@ enum ImTypesetBlockFlags_ {
     // as that and moves every line below it. With it such a line keeps its
     // place and its ink reaches into its neighbours': what TeX sets with a
     // strut and \lineskiplimit at its lowest. The line's box, which is what
-    // a selection fills and ImTypesetLine reports, is the line height; a
-    // draw skips a line by that box grown by two pixels, so ink that
-    // overhangs by more can go missing on the one line at the very edge of
-    // a clip rectangle. For text and code blocks; not read for the others.
+    // a selection fills and ImTypesetLine reports, is the line height. A
+    // draw looks for such a block's ink four ems past the block's box, and
+    // for a line's as far past the line's box as two ems of its largest
+    // type and the tallest formula in the block reach: ink further out than
+    // that is not drawn while its block or its line is outside the clip
+    // rectangle. For text, code and table blocks. In a table it is per LINE:
+    // a row set on one line is one line height, and a row whose cells
+    // wrapped is as many as its tallest cell has lines, so the rows tile.
+    // Not read for the others.
     ImTypesetBlockFlags_FixedLineHeight = 1 << 3,
     // Table: its first row is a header, and a rule is drawn under it
     // (ImTypesetDocumentOptions::TableRuleThickness). How a header's cells
@@ -784,6 +789,24 @@ struct ImTypesetBlock {
 // range that runs from one cell into another covers everything between them
 // in reading order, whatever the mouse crossed.
 //
+// A POINT IN A CELL'S RECTANGLE IS THAT CELL'S: its column's edges, its
+// row's top and bottom. The blank a cell's alignment leaves, the padding and
+// the room under a short cell in a wrapped row all answer the cell they are
+// in, at the nearest caret position of its text: its end for the blank after
+// left-aligned text, its start for the blank before right-aligned text. A
+// point in a column the row has no cell for is the row's last cell's, and a
+// point between two rows (where the rule under a header is) the nearer row's.
+// The caret at a position (GetDocumentCaretRect) is inside that cell, one
+// line tall, and a point on it answers the same position again. The
+// rectangles of a range (GetDocumentRangeRects, a drawn selection, a mark)
+// are one a cell and line, inside the cell's text: the blank between two
+// cells is not highlighted.
+// Text written WITHOUT anything between two cells is the one case with an
+// exception: the byte the two share is the later cell's start, so the
+// earlier cell's last caret position is before its last character, and an
+// empty cell that shares its byte with the next has no position of its own
+// (a point in it says its Row and Column, and its Position names the next).
+//
 // WHAT A COPY GIVES for a table: each cell as a paragraph gives its text, a
 // tab ("\t") between the cells of a row and a newline ("\n") between rows,
 // for every cell from the one the range starts in to the one it ends in (a
@@ -817,10 +840,14 @@ struct ImTypesetBlock {
 // ImTypesetBlockFlags_TableHeld the columns are held instead: each is the
 // widest its cells have wanted at any layout since the block was described
 // (never narrower as rows arrive, and no wider than they need), and the
-// table is as wide as its columns, not the document. A column moves only
+// table is as wide as its columns, not the document. The widths are lengths
+// of the type they were measured in: a change of the block's size or face,
+// of the fonts or of the cell padding starts them afresh. A column moves only
 // when a cell wider than every one before it arrives in it. If the held
 // widths stop fitting the width, the table is fitted by the rules above
-// until they fit again. The widths held survive AppendDocumentTableCells(),
+// until they fit again: while it is, every column can move. A row that
+// arrives and moves no column costs that row; no pass is made over the rows
+// that stand. The widths held survive AppendDocumentTableCells(),
 // AppendDocumentText(), and ReplaceDocumentBlocks() of the one table by one
 // table with the flag and as many columns (a host that parses its source
 // again as it arrives); they are given up when the flag is. So a host that
@@ -1012,8 +1039,9 @@ struct ImTypesetDocumentHit {
     bool Inside;  // The point is on a line's content, not beside or between.
     bool InBlock; // The point is within the block's rectangle, top to bottom: false in the
                   // space between two blocks and outside the document.
-    // In a table: the row and the column of the cell Position is in. -1 in
-    // any other block.
+    // In a table: the row and the column of the cell whose rectangle holds
+    // the point, which is the cell Position is in (see A POINT IN A CELL'S
+    // RECTANGLE for the one exception). -1 in any other block.
     int Row;
     int Column;
 };
@@ -1090,13 +1118,18 @@ struct ImTypesetCellPosition {
 //
 // WHERE A COLUMN IS CUT is decided as TeX decides where to end a page (its
 // \vsplit): between two lines of a paragraph or of a code block, between two
-// rows of a table, and between two blocks; never inside a line, a table row,
-// a quote or a host block, and not after a heading, which stays with what
-// follows it. The space between two blocks is dropped where a cut falls in it.
+// rows of a table, and between two blocks; never inside a line, a table row
+// (a row whose cells wrapped is whole in its column or not in it), a quote
+// or a host block; not after a heading, which stays with what follows it, an
+// empty paragraph between them or not; and not between a table's header row,
+// the rule under it and the row after. The space between two blocks is
+// dropped where a cut falls in it. A column's last line may hang below the
+// column's foot by its depth (a descender) and no more.
 // What cannot be cut and is taller than a column is put in a column alone and
-// reaches past its foot: ImTypesetColumnGeometry::Overfull says so, and the
-// host decides whether to clip it, scroll to it or give the columns more
-// height.
+// reaches past its foot: ImTypesetColumnGeometry::Overfull says so, and
+// GetDocumentSize() is then as tall as what that column holds, so that a view
+// which scrolls over the page reaches all of it; the host decides whether to
+// clip it, scroll to it or give the columns more height.
 //
 // TWO WAYS OF FILLING.
 //
@@ -1114,7 +1147,8 @@ struct ImTypesetCellPosition {
 //   BALANCED   ImTypesetColumnFlags_Balance and a Count of two or more. Count
 //              columns of one height, the least at which that many hold the
 //              document; a block that cannot be cut and is taller than that
-//              makes its column, and so the page, as tall as it is. NOT LAZY:
+//              makes its column, and so the page, as tall as it is, and no
+//              column is ever Overfull: nothing reaches past the page. NOT LAZY:
 //              the height depends on every block, so all of them are laid out
 //              the first time anything is asked, and after any edit the height
 //              is searched for again (no block is laid out again for that:
@@ -1138,8 +1172,10 @@ struct ImTypesetCellPosition {
 // next. A drag from a point in one column to a point in a later one selects
 // from the first point to the foot of its column, every column between, and
 // the later column from its head to the second point; a point below a
-// column's last line is that line's end and a point in a gutter belongs to
-// the column on its left. A copy of such a range is the text in the order it
+// column's last line is taken as a point ON that line, at the same x (the
+// caret position of that line nearest it across), one above its first line
+// as a point on the first, and a point in a gutter belongs to the column on
+// its left. A copy of such a range is the text in the order it
 // is read, exactly as from the uncut document: a cut adds nothing to it.
 enum ImTypesetColumnFlags_ {
     ImTypesetColumnFlags_None = 0,
@@ -1180,7 +1216,7 @@ struct ImTypesetColumnGeometry {
     ImVec2 Max;
     // From the top of its first line to the foot of its last, descenders
     // included: what it holds. ContentMax.y is past Max.y when the column is
-    // Overfull, and can be by a descender when it is not.
+    // Overfull, and can be by the depth of a line when it is not.
     ImVec2 ContentMin;
     ImVec2 ContentMax;
     // The first position set in it, and the first set in the next column (the
@@ -1191,7 +1227,9 @@ struct ImTypesetColumnGeometry {
     // this column, y on the page is y there less UncutTop plus ContentMin.y,
     // and x on the page is x there plus Min.x.
     float UncutTop;
-    // It holds something taller than a column that cannot be cut.
+    // It holds something taller than a column that cannot be cut, and what
+    // it holds reaches past its foot. IN ORDER only: BALANCED columns are as
+    // tall as the tallest of them needs.
     bool Overfull;
     // False if there is no such column (the rest is then zero), or under IN
     // ORDER if it is past what GetDocumentColumnCount() counts.
@@ -1395,6 +1433,11 @@ IMTYPESET_API ImFont* GetFont(ImTypesetFace face);
 // be one cell wide. CodeBold answers for Bold's font until it has its own and
 // Default for Regular's, as GetFont does. False for a role with no font, for
 // a face that is not one, and with no context. Needs no ImGui context.
+// The answer is the font file's, for the codepoint a text would hold, and is
+// the same in a build whose ImWchar is 16 bits. For the Math role it is also
+// true of the private-use codepoints of plane 15 under which the library
+// keeps the glyph variants that have no codepoint of their own; no text a
+// host hands over holds those.
 IMTYPESET_API bool FaceHasGlyph(ImTypesetFace face, unsigned int codepoint);
 
 // --- Widgets -------------------------------------------------------------------------
@@ -1773,7 +1816,8 @@ IMTYPESET_API bool LayoutDocumentWindow(ImTypesetDocument* document, float top, 
 // height is an estimate until everything has been laid out at this width:
 // see LAYOUT IS LAZY. In columns, the page's: as wide as
 // GetDocumentColumnCount() columns and their gutters, and as tall as a
-// column.
+// column, or as what the tallest Overfull column cut so far holds if that
+// is more.
 IMTYPESET_API ImVec2 GetDocumentSize(ImTypesetDocument* document);
 // What was last found wrong with one block when its text was set and it was
 // laid out: what setting it found (a text cut at the limit, a run left out)
@@ -1802,6 +1846,9 @@ IMTYPESET_API bool DrawDocumentToBuffers(ImTypesetDocument* document, const ImVe
 
 // A point above the first block belongs to the first and one below the last
 // to the last; between two blocks, to the lower one, with InBlock false.
+// IN COLUMNS filled in order, a point costs the columns up to the one it is
+// in: a point far to the right of what has been shown cuts, and lays out,
+// everything before it, and one past the last column all of the document.
 IMTYPESET_API ImTypesetDocumentHit HitTestDocument(ImTypesetDocument* document,
                                                    const ImVec2& local_pos);
 // What a drag from `anchor` to `active` selects, across blocks. At Word and
@@ -1809,12 +1856,17 @@ IMTYPESET_API ImTypesetDocumentHit HitTestDocument(ImTypesetDocument* document,
 IMTYPESET_API ImTypesetDocumentRange
 SelectDocumentRange(ImTypesetDocument* document, const ImVec2& anchor, const ImVec2& active,
                     ImTypesetGranularity granularity = ImTypesetGranularity_Character);
-// Appends one rectangle per line the range touches, as (min x, min y, max x,
-// max y), and returns how many. Lays out every block of the range.
+// Appends one rectangle per line the range touches (in a table, per cell and
+// line), as (min x, min y, max x, max y), and returns how many. Lays out
+// every block of the range. In columns the rectangles are the page's, each in
+// the column its line is in, and cutting the columns as far as the range
+// goes is part of the call: the answer does not depend on what was drawn
+// before it.
 IMTYPESET_API int GetDocumentRangeRects(ImTypesetDocument* document,
                                         const ImTypesetDocumentRange& range,
                                         ImVector<ImVec4>* out_rects);
-// As GetParagraphCaretRect, in the document.
+// As GetParagraphCaretRect, in the document. In a table, see A POINT IN A
+// CELL'S RECTANGLE. In columns it is the page's, as for GetDocumentRangeRects.
 IMTYPESET_API ImVec4 GetDocumentCaretRect(ImTypesetDocument* document,
                                           const ImTypesetPosition& position);
 // Appends the text of the range: see WHAT A COPY GIVES. `block_separator`
@@ -1854,7 +1906,10 @@ IMTYPESET_API ImTypesetPosition GetDocumentTablePosition(const ImTypesetDocument
 // nothing out, lays nothing out AGAIN (a block's lines do not depend on the
 // columns), and costs nothing when what is said has not changed. Values that
 // are not numbers are zero; a Count past 4,096 is 4,096. False only for no
-// document. [E]
+// document. The height a DocumentView() lent (Count of two or more, Height 0)
+// stays lent while the same columns are said again, so a host may say them
+// every frame and ask its questions before the view is drawn; saying other
+// columns gives it up until the view is next drawn. [E]
 IMTYPESET_API bool SetDocumentColumns(ImTypesetDocument* document, const ImTypesetColumns* columns);
 // How many columns there are: 1 for a document shown uncut. BALANCED: Count,
 // and everything is laid out to say it. IN ORDER: the columns cut so far and
@@ -1872,8 +1927,14 @@ IMTYPESET_API ImTypesetColumnGeometry GetDocumentColumn(ImTypesetDocument* docum
 // is drawn. A point belongs to the column whose first line's top is the last
 // at or above it, to within what a float of pixels can say (a top answered by
 // one of those calls is its own line's); the space dropped at a cut goes with
-// the column above. The same point back for a document shown uncut. Cuts the columns up to the one
-// that shows the point.
+// the column above. The same point back for a document shown uncut. Cuts the
+// columns up to the one that shows the point.
+// To carry a RECTANGLE (a line's, a table row's, a cell's), carry its top-left
+// corner and keep its width and height: its bottom edge is the top of the
+// line below, which at a column's foot is the head of the next column. A
+// block's rectangle is one rectangle only while the block is in one column.
+// A float of pixels says a height to about a millionth of itself: at heights
+// past a million pixels the column is chosen to within a quarter pixel.
 IMTYPESET_API ImVec2 GetDocumentColumnPos(ImTypesetDocument* document, const ImVec2& uncut_pos);
 
 // A document in a child window that scrolls it: lays out and draws what is in

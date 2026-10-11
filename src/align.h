@@ -7,9 +7,12 @@
 // WHAT OF tex.web THIS IS. Part 37, "Alignment" (sections 768 to 812), as far
 // as an \halign of fixed templates goes:
 //
-//   section 796        an entry is packaged at its natural   natural_width,
-//                      width and the width recorded in its   fin_col
-//                      column's alignrecord
+//   sections 791, 796  fin_col: when an entry ends it is     natural_width,
+//                      packaged at its natural width and     fin_col
+//                      the width recorded in its column's
+//                      alignrecord (section 796, the one
+//                      part of section 791's routine that
+//                      is here)
 //   section 799        fin_row: the finished row goes into   fin_row
 //                      the vertical list by append_to_vlist
 //   section 800        fin_align                             Aligner::fin_align
@@ -27,6 +30,17 @@
 // and fin_align sets every row at the end. Here nothing is unset: a cell is a
 // list the caller keeps, its natural width is asked for when wanted, and a row
 // is built once, at the widths decided, so fin_row comes after set_row.
+//
+// WHAT THE TWO NAMES ARE HERE. `fin_col` and `fin_row` are tex.web's names
+// for two procedures that do a great deal more than the functions here. Of
+// section 791's fin_col -- which reads the template's <v_j> part, deals with
+// \omit, \span and \cr, inserts tabskip glue (sections 792 to 795) and
+// packages the entry (section 796) -- `fin_col` here is one statement: section
+// 796's `if w > width(cur_align) then width(cur_align) := w`. Of section 799's
+// fin_row -- which packages the row unset, appends it, and inserts
+// \everycr -- `fin_row` here is the append. Each keeps the name because it
+// is the step of that procedure this file has, at the place that procedure
+// has it.
 //
 // WHERE THIS IS NOT tex.web. Each of these is the reference's, and
 // docs/divergences.md lists them; what is this port's alone is under ERRORS.
@@ -61,7 +75,15 @@
 //     reads the row's own depth, which is every line below the first. Here it
 //     reads the depth of the row's lowest line (SetRow::prev_depth), which is
 //     what a document that assigned \prevdepth after the row would do.
-//   - A row is floored at the table's strut, once, on the row.
+//   - A cell keeps the height and depth of what is in it. Section 810 gives
+//     every entry of a row the row's own (`height(r) := height(q); depth(r)
+//     := depth(q)`); here a cell's box has what its hpack found and the row's
+//     box, packed from the cells, has the largest of each.
+//   - A row is floored at the table's strut, once, on the row; with an exact
+//     strut (Strut::exact) a row set on one line IS the strut, and a wrapped
+//     row is the strut's height and as deep as its cells' lines, each of
+//     which is the strut. Neither is tex.web's or the reference's: the
+//     reference has no exact strut.
 //
 // THE STEPS, each of which a caller takes alone, because the layer above keeps
 // what it learned of a cell and of a row and sets again only what changed:
@@ -147,9 +169,9 @@ Scaled natural_width(const NodeArena& arena, NodeView material, Scaled cell_padd
 // Records an entry's width in its column: `widths[column]` becomes the larger
 // of itself and `w`, the vector growing with zeros to hold the column. The
 // second half of tex.web section 796 (`if w > width(cur_align)`), for a span
-// of one. A column starts at zero where section 801 starts it at null_flag,
-// so a negative `w` leaves it at zero. False, and nothing recorded, for a
-// column at or past MAX_ALIGN_COLUMNS.
+// of one: the one statement of fin_col (section 791) this file has. A column starts at zero where
+// section 801 starts it at null_flag, so a negative `w` leaves it at zero. False, and nothing
+// recorded, for a column at or past MAX_ALIGN_COLUMNS.
 bool fin_col(std::vector<Scaled>& widths, size_t column, Scaled w);
 
 // --- The column widths --------------------------------------------------------------
@@ -399,10 +421,13 @@ Scaled fin_row(const NodeArena& arena, std::vector<Node>& vlist, const Node& row
 
 // A whole table to set. The arrays are the caller's.
 struct TableInput {
-    // Every cell, row after row. Material in storage the caller owns.
+    // Every cell, row after row: `cell_count` of them. Material in storage
+    // the caller owns.
     const NodeView* cells = nullptr;
+    size_t cell_count = 0;
     // Row r is cells[row_first[r]] to cells[row_first[r + 1]]: `rows + 1`
-    // offsets, not decreasing.
+    // offsets, not decreasing. An offset past `cell_count` is `cell_count`:
+    // a row is the cells it names that are there.
     const uint32_t* row_first = nullptr;
     size_t rows = 0;
     // Row 0 is a header: the rule goes under it.
@@ -490,7 +515,8 @@ public:
     // padding, than its column. It is then one hbox: a kern of the indent,
     // and for each column an hbox packed to exactly the column's width of
     // kern, the material with its \hss, kern (section 810, where the padding
-    // is tabskip glue outside the box).
+    // is tabskip glue outside the box, and where the box is given the row's
+    // height and depth: here it keeps its own).
     //
     // Otherwise every cell of the row, the ones that fit included, is broken
     // first fit at the column's width less its padding, from the material

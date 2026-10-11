@@ -203,13 +203,29 @@ struct LineIndex {
     // as they do down a page. Only then can the visible spans be found by
     // bisection; otherwise every span is tested.
     bool sorted = true;
+    // How far, in the commands' scaled points, ink may stand outside the box
+    // of the line it is on, above or below: zero for a list whose lines hold
+    // what is in them, which is every list but one whose lines were set to an
+    // exact height (Strut::exact). A span is skipped only when its box grown
+    // by this, and by CULL_MARGIN_PX, misses the clip rectangle. Not set by
+    // index_lines: whoever knows the list was set that way sets it
+    // (ink_overhang).
+    Scaled overhang = 0;
 
     void clear()
     {
         spans.clear();
         sorted = true;
+        overhang = 0;
     }
 };
+
+// A bound on how far the ink of `cmds` reaches from the baseline of the line
+// it is on, for LineIndex::overhang: a glyph's ink is taken to lie within two
+// ems of its own baseline (the tallest glyphs of a math face, at their size,
+// reach a little over one), and a formula's glyphs and rules to lie within
+// the formula's box, whose height and depth its ATOM command carries.
+Scaled ink_overhang(const DrawCmd* cmds, size_t count);
 
 // Builds the index of `cmds`, replacing what `out` held. A LINE command opens
 // a new span unless it lies inside the one that is open (a line of a box

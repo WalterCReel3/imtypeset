@@ -124,6 +124,51 @@ void bench_append(int rows, float width, bool wider)
     ImTypeset::DestroyDocument(document);
 }
 
+// A table built one row at a time, each row appended and the table laid out
+// before the next: what a pane does with a table that arrives. One sample is
+// the whole of it; the note says what an append costs at the start and at the
+// end, which is how flat it is.
+void bench_grow(int rows, float width)
+{
+    ImTypesetDocument* document = table_document(0, ImTypesetBlockFlags_TableHeld, width);
+    ImTypeset::LayoutDocumentWindow(document, 0.0f, 1.0e9f);
+    double first_us = 0.0;
+    double last_us = 0.0;
+    const int edge = rows / 16;
+    bench::Samples samples = bench::sample(1, 0, [&] {
+        std::string text;
+        std::vector<ImTypesetCell> cells;
+        size_t held = static_cast<size_t>(ImTypeset::GetDocumentBlockTextSize(document, 0));
+        double mark = bench::now_us();
+        for (int r = 0; r < rows; ++r) {
+            text = "\n";
+            cells.clear();
+            row_text(r, text, cells, 1);
+            for (ImTypesetCell& cell : cells) {
+                cell.TextStart += static_cast<int>(held) + 1;
+                cell.TextEnd += static_cast<int>(held) + 1;
+            }
+            held += text.size();
+            ImTypeset::AppendDocumentTableCells(document, text.data(), text.data() + text.size(),
+                                                cells.data(), static_cast<int>(cells.size()));
+            ImTypeset::LayoutDocumentWindow(document, 0.0f, 1.0e9f);
+            if (r + 1 == edge || r + 1 == rows) {
+                (r + 1 == edge ? first_us : last_us) = (bench::now_us() - mark) / edge;
+            }
+            if (r + 1 == rows - edge)
+                mark = bench::now_us();
+        }
+    });
+    char name[128];
+    char note[160];
+    std::snprintf(name, sizeof name,
+                  "%d rows appended one at a time to a held table, laid out after each", rows);
+    std::snprintf(note, sizeof note, "%.1f us an append over the first %d, %.1f over the last",
+                  first_us, edge, last_us);
+    bench::row(name, samples, note);
+    ImTypeset::DestroyDocument(document);
+}
+
 void bench_draw(int rows, float width)
 {
     ImTypesetDocument* document = table_document(rows, 0, width);
@@ -166,6 +211,8 @@ int main()
         bench_append(rows, 4.0f * width, false);
     bench_append(100, 16.0f * width, true);
     bench_append(1000, 16.0f * width, true);
+    bench_grow(4096, 4.0f * width);
+    bench_grow(65536, 4.0f * width);
 
     bench::table_head("a table drawn");
     bench_draw(100, 4.0f * width);

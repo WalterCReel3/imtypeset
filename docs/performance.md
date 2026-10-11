@@ -927,6 +927,40 @@ What the rows say.
 passes inside its time limit); the cost of the first hit test or selection after an append,
 which builds the block's view from all of its commands; a table with formulas; memory.
 
+### After task `tables-fixes` (D64): an append costs a row
+
+The same benchmark on the tree after `ce4d66d` (release, GNU 12.2.0 `-O3 -DNDEBUG` plus
+`-ffp-contract=off -fno-exceptions -fno-rtti`, FreeType 2.12.1, an eight-second warm-up, one
+run). **The machine was not quiet:** load average 3.0. The rows above this heading are the tree
+of `be40444` and are kept for the comparison.
+
+| what | n | min | median | p95 | unit |
+|---|---|---|---|---|---|
+| a row appended to a held table of 10 rows, and the table laid out | 200 | 3.6 | 6.0 | 9.8 | us |
+| ... of 100 rows | 200 | 3.6 | 4.3 | 8.4 | us |
+| ... of 1,000 rows | 200 | 3.5 | 4.5 | 8.7 | us |
+| ... of 10,000 rows | 200 | 3.5 | 4.3 | 4.8 | us |
+| a row appended to a held table of 100 rows that widens a column | 20 | 182 | 329 | 652 | us |
+| ... of 1,000 rows | 20 | 1,895 | 2,118 | 2,717 | us |
+| 4,096 rows appended one at a time to a held table, laid out after each | 1 | 24.3 | | | ms |
+| 65,536 rows, the same | 1 | 386 | | | ms |
+
+- **The append is flat**: 4.3 us at 10,000 rows where it was 2,140, and over 65,536 appends
+  5.0 us an append for the first 4,096 and 5.0 for the last. The passes over the whole table
+  are gone: the widest cell of each column, the longest words, which kept rows stand, the held
+  widths, and the line index, colours and index-to-byte map beside the layout are each brought
+  up from the rows closed since they were last taken (`TableCells::epoch`).
+- By the counters (`tests/test_api_tables.cpp`,
+  `a_row_appended_goes_over_that_row_and_not_the_table`, 3,000 appends): one row set, at most 3
+  rows gone over by layout (5 in a table fitted to 500 px), one row's lines and index map made,
+  an append.
+- A row that widens a column still sets every row, as it must.
+
+*Not measured:* any of this on a quiet machine; an append followed by a draw (the draw's cost is
+the window's, measured above; what is kept beside the layout is brought up by the counters'
+one row); the first hit test, caret or selection in the table after an append, which still
+copies the block's commands into a view.
+
 ## Columns (task `columns-core`, D58)
 
 No benchmark was written. These are single timings printed by the tests in a release build

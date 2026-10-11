@@ -3213,3 +3213,192 @@ scaled point.
 **Not measured, not run:** what the witness costs a draw (one search of the atlas's font list
 for an address and eight bytes compared, per call that looks); a wheel whose Dear ImGui rewrites
 `ImFontConfig::Name` (the probe row and `add_font`'s read-back are what would say so); MSVC.
+
+## D60. In a table a point answers the cell whose rectangle holds it (task `tables-fixes`, 2026-10-11)
+
+**Found by running** (review-6 items 1, 2, 3, 8, 9, all reproduced on `ce4d66d`). In a table of
+three columns at 600 px, a point 60 % of the way across the first cell of a row answered the
+SECOND cell, and the same in the last column answered the first cell of the NEXT row; a caret at
+the end of a right-aligned cell was drawn at the next cell's first glyph (443.3 px where the
+cell's text ends at 427.3); a caret in a wrapped row was the whole row tall; a hit in a column a
+row has no cell for said `Column 1` or `2` while `GetDocumentTableCell` of its position said 0.
+Over the 1,848 golden probes that fall in a table, the reference's own index is in another cell
+than the point for 465, of which 253 are inside a cell's rectangle.
+
+Why: the reference's selection model (`SelectionModel::boundary_in`) splits every item of a line
+at its middle, the `\hss` that fills a cell included, and an item reaches to the next one's left
+edge, across the padding and the column's edge. A row set on one line is one line. That index is
+the reference's return value and is still what `SelectionModel::hit` answers, exactly: the
+replay asks the model at the golden's scaled point for every probe.
+
+**Decided: the product's rule.**
+- `ImTypesetDocumentHit::Row` and `Column` are the cell whose rectangle holds the point: its
+  column's edges, its row's top and bottom. They are that under either set of rules, because the
+  reference has no answer for them (FORMAT-doc-tables.md §0: `tmap`'s row and column are the
+  dump script's arithmetic). A point between two rows is the nearer row's and the upper one's
+  when as near to both; a point beside the table is the first or last column's; a point in a
+  column the row has no cell for is the row's LAST cell's.
+- `Position` is a byte of that cell's own text: only the cell's own items are asked, on the line
+  of the cell nearest the point, each split at its middle as the reference splits it, the last
+  ending where the cell's text area does (the column's right edge less the padding, or a wrapped
+  cell's line end). So the blank after left-aligned text is the text's end, the blank before
+  right-aligned text its start, and the room under a short cell of a wrapped row that cell's
+  last line. Under reference rules (`ImTypesetDocument::reference_rules`, which no public call
+  sets) `Position` is the reference's index's, as before.
+- `GetDocumentCaretRect` in a table is in the cell the position is in, on the innermost line that
+  holds the position's item and as tall as that line, and the byte that ends a cell's text is the
+  right edge of the last thing the text set (the glue after it, or the text area's end where
+  right-aligned text has none). An empty cell's caret is where its text would begin: left, right
+  or middle by the column's alignment.
+- hit -> position -> caret rectangle -> hit is a fixed point, tested for every point of a grid in
+  every cell of four tables (unwrapped, wrapped, `FixedLineHeight`, cut across columns).
+- *Cells written with nothing between them* (`"abcdef"` as `[0,3)`, `[3,6)`): the header already
+  said the shared byte is the later cell's start. Kept. So the earlier cell's last caret position
+  is the start of its last item (before the `c`), which is what a point in its blank answers;
+  and an empty cell that shares its byte with the next has no position of its own: a point in it
+  says its Row and Column and a Position that names the next cell. Weighed against an affinity
+  bit on `ImTypesetPosition`: a field in three languages for text no host that writes its table
+  as advised (a tab between cells) produces.
+
+**Replay changed, and what each assertion compares now** (`tests/test_api_tables_golden.cpp`,
+`ask_probes`): (1) the model's index at the golden's scaled point `==` the reference's `hit`,
+1,848 of 1,848, unchanged; (2) under reference rules the public `Position` is that index's by
+the convention, 1,848 of 1,848, unchanged; (3) NEW: `Row`/`Column` `==` the cell under the point,
+worked out in the test from the golden alone (`tgeom`'s left plus the reference's widths; `trow`'s
+top and height), 1,848 of 1,848; (4) NEW: with the product's rule the public `Position` is a byte
+of that cell, names that cell through `GetDocumentTableCell`, and names itself back, 1,848 of
+1,848. REMOVED: the assertion that `Row`/`Column` are the cell of the reference's index, which
+pinned the next cell for 465 probes. Counts that were lower bounds (`>= 1751`, `>= 473`) are
+`==`; `trow` top/height/wrapped, `tgeom` left and a `linkarea`'s cell, which were counted, are
+asserted (they are script arithmetic over the reference's own line commands and boxes, and the
+test says so).
+
+## D61. A range through a table is highlighted cell by cell (task `tables-fixes`, 2026-10-11)
+
+**Seen** (`swap-fixes`, picture `shot-sel-table`): of two selected rows one had the blank between
+its first column's text and the right-aligned second column filled and the other did not.
+**Read and run:** the reference's `rects` is one rectangle a LINE from the first selected text
+item to the last, over whatever lies between, and a rectangle runs to the next item's left edge.
+A row set on one line is one line, so a range through three of its cells is one bar over the
+blanks and the padding; a row whose cells wrapped is one rectangle a cell. Both are the
+reference's (1,286 of 1,286 golden rectangles through tables equal, exactly, under its rules).
+
+**Decided: under the product's rules the rectangles of a range in a table are made cell by cell
+and kept inside each cell's text area** (`range_rects`), for `GetDocumentRangeRects`, a drawn
+selection and marks placed Behind or Under. A drawn selection or mark works out only the rows
+the clip rectangle shows. Under reference rules the reference's. Divergences D9.
+
+## D62. `FixedLineHeight` on a table is per line (task `tables-fixes`, 2026-10-11)
+
+**Found by running** (review-6 item 4, reproduced): three rows of which two wrap, 260 px,
+`FixedLineHeight`: every row's box was one pitch (21.6 px) whatever its lines, row 1's top was
+64.8 px where row 0's box ended at 21.6, and 73 checks of the test below failed (carets outside
+their row, the last row's lines outside every box). The exact strut was applied to the ROW,
+whose depth it replaced, and a wrapped row's depth is every line below its first.
+
+**Decided: the flag means every LINE is the line height**, which is what its name and the header
+say. A row set on one line is one line and is the strut exactly. A wrapped row's lines are each
+already the strut (`cell_lines`), so the row takes the strut's height for its first line and
+keeps the depth its cells' lines came to: rows tile, the block is its lines tall, every line is
+inside its row's box. `Aligner::set_row`. The reference has no exact strut: nothing to replay.
+
+**Decided: ink that overhangs an exact line is looked for** (review-6 item 5, reproduced: a
+formula 27 px tall on a line of 8 px, a clip starting 4 px below the line's box, 0 quads where 1
+reaches). A list whose lines were set to an exact height carries `LineIndex::overhang`, a bound on
+how far ink stands from its baseline (two ems of the largest type in the block, plus the tallest
+formula's height or depth), and a line is skipped only when its box grown by that misses the
+clip. A draw also looks for such blocks four ems of the largest of them past the clip
+(`ImTypesetDocument::exact_reach`). The header states both bounds. Cost: a few more lines and
+blocks visited at a clip's edge, in documents that use the flag only.
+
+## D63. Columns: what is settled before a rectangle is answered, what a column may not part, and what Overfull means (task `tables-fixes`, 2026-10-11)
+
+Review-7's findings, each run first.
+
+- **F1, reproduced.** 10,000 paragraphs in order, `GetDocumentCaretRect({5000, 0})` as the first
+  question: a rectangle that differed from the one the cut columns give (and a cold
+  `GetDocumentRangeRects` differed in all six of its rectangles). Balanced, 60 paragraphs, block
+  8 replaced by a longer one: the caret of block 9 asked before the next draw was not where the
+  draw put it. **Decided:** a rectangle to be put on the page is computed after the columns are
+  cut past the block's unit (`DocumentColumns::cut_past_unit`, `settled_top`): every unit above
+  is then laid out and the block's top is exact. In order that costs what column k always costs:
+  everything before it, once.
+- **F2, reproduced.** `GetDocumentSize().y` was the columns' height while a host block of 900 px
+  stood in a 300 px column. **Decided: the page is as tall as the tallest Overfull column cut so
+  far holds** (`DocumentColumns::reach`), so a view that scrolls over the page reaches it.
+  Weighed against scrolling the columns sideways inside the view to it: there is nowhere
+  sideways to go, the content is below. A column that is not overfull is not counted, though its
+  last line's depth hangs below its foot: counting it would give every columned view a vertical
+  scrollbar for a descender.
+- **F3, reproduced.** Three one-line paragraphs balanced into three: all three `Overfull`.
+  **Decided: no column is Overfull under BALANCED.** The page is as tall as the tallest column,
+  so nothing reaches past it; the height the search cut at (one scaled point when the document
+  has no more pieces than columns) says nothing about that. The search itself is unchanged: a
+  piece that cannot be cut still gets a column and the rest are balanced among themselves.
+  `tests/test_columns.cpp` asserted `overfull` for the column holding such a piece; it now
+  asserts that none is and that `used`, `height()` and `reach()` are that piece's height.
+- **F4, the premise was half wrong.** An empty paragraph DOES set a line (a blank one, 21.6 px);
+  the heading was kept with that line and the cut fell after it: heading, blank, cut. Reproduced
+  as that. **Decided: a text block with nothing in it is transparent to "kept with what
+  follows"** (`Document::unit_vlist`): the heading is kept with the next block that has
+  something in it.
+- **F6, reproduced at the block layer** (a rule two lines thick taking the index of a two-line
+  paragraph a column was cut inside: the kept cut fell inside the rule). **Decided:** a splice
+  says from which unit the document changed, and "the unit that stood here" also compares the
+  serial of the layout it had.
+- **F8 and the table cut across columns, which nobody had tested.** Run: a wrapped row at a
+  column's foot hung below it by all its lines but the first with no `Overfull`, with or without
+  `FixedLineHeight` (a wrapped row is a box one line high and the rest deep, and the reference's
+  `\splitmaxdepth` is `\maxdimen`, as plain TeX's is); and a header row was left at a column's
+  foot with its rule at the head of the next (seen by `swap-fixes`, picture `c2-end`; 13 of 91
+  column heights round the header's foot). **Decided, two product rules:**
+  `ColumnRules::split_max_depth` is the depth of a line of the document's style (tex.web §971
+  then counts what is deeper as height: a column holds the whole of its last row or does not take
+  it), and `DocumentRules::keep_table_header` (rule 17: the glue above a header's rule and above
+  the row under it is a kern in the list the columns are cut from). Both off under reference
+  rules; divergences C9, C10.
+- **F9.** `SetDocumentColumns` gave up the height a view lent on every call. **Decided:** only
+  when what is said changes.
+- **F5, F7, F10: the header was wrong or silent; the code stands.** A point below a column's last
+  line is a point ON that line at the same x, not "that line's end" (F7). `GetDocumentColumnPos`
+  carries a point; a rectangle is carried by its top-left corner and its size, and the header now
+  says so and says what a float of pixels can hold (F5). A hit test costs the columns up to the
+  one the point is in; the header says so (F10). An explicit rectangle-mapping call was weighed
+  and not added: it is two lines for a host and a declaration in three languages.
+
+**Not decided here, for the user** (docs/advtext-swap-status.md, "Border questions"): widows and
+orphans at a cut, and a common first baseline across columns.
+
+## D64. A table that gains a row costs that row (task `tables-fixes`, 2026-10-11)
+
+**Measured before** (`tables-core`'s own figure, and review-6 item 7): about 0.2 us for each row
+the table has, each append: 2.1 ms at 10,000 rows, and by that figure some 430 s to append 65,536
+rows one at a time. Nothing was typeset for the rows that stood; five passes over the whole table
+were made all the same.
+
+**Decided: `TableCells::epoch`.** Between two clears a table's cells only grow at their end (a
+cell joins the last row, the last cell is made again, a row is started), so every row but the
+last is final. What was worked out over those rows is kept under the epoch and only the rows
+closed since are added: the widest cell of each column, the longest words when a solve needs
+them, which kept rows stand (the last is the only one compared), the widths held, and beside the
+layout the line index, the colours and the index-to-byte map, which are brought up from the first
+row set again when the layout went on from the one they were made for (`sync_grown_table`).
+`TableCells::columns()` is no longer a pass either.
+
+**Measured after** (release, GCC 12.2 `-O3`, one run, the machine NOT quiet: load average 3.0):
+an append to a held table of 10, 100, 1,000 and 10,000 rows: 6.0, 4.3, 4.5, 4.3 us (median of
+200); 65,536 rows appended one at a time, the table laid out after each: 0.39 s in all, 5.0 us an
+append over the first 4,096 and 5.0 over the last. By the counters, which do not depend on the
+machine (`a_row_appended_goes_over_that_row_and_not_the_table`, 3,000 appends): one row set, at
+most 3 rows gone over by layout (5 in a table fitted to 500 px), one row's lines and index map
+made, an append; held to the unit by the test.
+
+**Held:** a table grown a row at a time, with text arriving in its last cell, has beside its
+layout exactly what the same table described whole has (line spans, colours, index bytes) and
+answers every question alike, at six sizes, held and fitted
+(`a_table_grown_a_row_at_a_time_is_the_table_described_whole`).
+
+**Not done:** a row that widens a column still sets every row again (it must); a view of the
+block (`view_of`, taken for a hit, a caret, a selection or a mark in the table) is still a copy
+of all of its commands, once per layout looked at that way; a REPLACE of a held table still sets
+every row. Timings on a quiet machine were not taken.

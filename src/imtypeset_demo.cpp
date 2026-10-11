@@ -1961,7 +1961,9 @@ void ShowDemoKnownLimits()
 // And at the end one table: a block whose text is its cells, each a stretch
 // of it, written as a copy of the table reads (a tab between cells, a newline
 // between rows). Its columns are held, so text that arrives in its last cell
-// (the Stream checkbox) widens that column and moves no other.
+// (the Stream checkbox) widens that column and moves no other while the table
+// is narrower than the document; once the held widths no longer fit, the table
+// is fitted to the width like any other and every column can move.
 void BuildDemoDocument(ImTypesetDocument* document, int count)
 {
     static const char HEADING[] = "A heading";
@@ -2103,7 +2105,9 @@ void ShowDemoDocument(DemoDocumentState* state, int fonts_added)
     HelpMarker("AppendDocumentText() on the last block, every frame: what a pane does while "
                "text arrives. One block is laid out again; no other is visited. The last "
                "block is the table at the document's end, and the text goes into its last "
-               "cell: scroll down to watch a held column grow.");
+               "cell: scroll down to watch a held column grow. The other columns keep their "
+               "places until the table is as wide as the pane; from there it is fitted to the "
+               "width and they are squeezed.");
     ImGui::SameLine();
     ImGui::Checkbox("Marks", &state->MarksOn);
     ImGui::SameLine();
