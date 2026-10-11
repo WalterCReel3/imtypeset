@@ -7,16 +7,15 @@ States: **done**, **in progress**, **queued**, **declined** (with the reason),
 **needs the user**. A decision an agent took is marked *agent decision*; the
 user is the only one who moves the border.
 
-Last updated: 2026-10-11. Commit `12d77ac` has items 2, 6, 7, 8. Item 5 (stage 0 of
-`tables-core`) is in the working tree, green in debug and under ASan + UBSan, and
-waits for its commit: the coordinating session names it under "Build from".
+Last updated: 2026-10-11, after commit `be40444`: items 2, 3, 5, 6, 7 and 8's assessment are
+committed. Item 4 (columns) is next.
 
 ## Build from
 
 | | |
 |---|---|
-| commit | **`12d77ac`** on `main` ("Pin the oracle, answer advtext's API questions, add the galleries"). Before it: `5654eee`, the tree the release gate passed |
-| what it is | `5654eee` (every preset from clean) plus items 2, 6 and 7. On `12d77ac` itself only the `debug` preset was run: 43 of 43. Rebuild the library: the Python package of this commit refuses one built from `5654eee` |
+| commit | **`be40444`** on `main` ("Tables in the core, and what DiffView asked for"). Before it: `7e259f4` (oracle only), `12d77ac`, `5654eee` (the tree the release gate passed) |
+| what it is | `5654eee` (every preset from clean) plus items 2, 3, 5, 6, 7. On `be40444` an export of the commit was built in debug and passed 46 of 46; its builder ran debug, ASan+UBSan, release, stb and 16-bit on the same sources in private directories. The eleven presets have not been run from clean since `5654eee`. Rebuild the library: the Python package of this commit refuses an older one, and `Hit` / `DocumentHit` are longer |
 | how | `python/host/build_bundle_library.sh` as before; one library per interpreter |
 | pushed? | no — the session cannot reach the network; the local repository has it |
 
@@ -44,7 +43,7 @@ Also new in `12d77ac`, from `galleries`: `ShowDemoSection` /
 | one section of the demo window, as a page of the host's | `ShowDemoSection(ImTypesetDemoSection)`, `GetDemoSectionName(section)`, `enum ImTypesetDemoSection_` (11 values, `_COUNT`) | `ImTypeset_ShowDemoSection`, `ImTypeset_GetDemoSectionName`, `enum ImTypeset_DemoSection_` | new module `imtypeset.demo`: `DemoSection`, `sections()`, `section_name(s)`, `show_demo_section(s)`, and `show_demo_window` again | new (task `galleries`): item 6 |
 | the demo window in the sidecar | | | `imtypeset.show_demo_window()` draws the window in a bundle-hosted library | was an empty function there (`IMTYPESET_DISABLE_DEMO`); the library is built with the demo now |
 
-**After `12d77ac`, not yet in a commit** (task `tables-core`, stage 0: item 5 and
+**In `be40444`** (task `tables-core`, stage 0: item 5 and
 FS-S2 section 4's notes; D56). Nothing was renamed or removed. Two things a
 caller can notice: `Hit` has a fourth field, and a library and a package (or a
 C++ host) from either side of this change refuse each other, because
@@ -101,9 +100,9 @@ in this section naming the commit.
 |---|---|---|
 | 1 | a committed, reproducible state | **done**: `5654eee` |
 | 2 | freeze the oracle at `advtext-reference` (32e3953); goldens for tables, columns, cross-block copy | **done** (task `oracle-freeze`). See "The oracle" below |
-| 3 | tables in the core | **in the working tree** (task `tables-core`; the commit is named under "Build from" when it exists): a table is a block of the Document in C++, C and Python. Names and behaviour under "API changes", "Tables"; decisions in `docs/decisions.md` D57; what is not the reference's in `docs/divergences.md`. RQ-T1 to T10 of `FS-S2` are each answered there. Not built: a table laid out in pieces (it is one block, laid out whole when first seen; an appended row costs that row plus about 0.2 microseconds for each row the table has, measured), cell borders or fills, column spans, hard breaks in a cell |
+| 3 | tables in the core | **done** in `be40444` (task `tables-core`): a table is a block of the Document in C++, C and Python. Names and behaviour under "API changes", "Tables"; decisions in `docs/decisions.md` D57; what is not the reference's in `docs/divergences.md`. RQ-T1 to T10 of `FS-S2` are each answered there. Not built: a table laid out in pieces (it is one block, laid out whole when first seen; an appended row costs that row plus about 0.2 microseconds for each row the table has, measured), cell borders or fills, column spans, hard breaks in a cell |
 | 4 | columns in the core | **queued** behind 3 (task `columns-core`) |
-| 5 | what DiffView needs | **done, in the working tree** (stage 0 of task `tables-core`; the commit is named under "Build from" when it exists): **R1** is `BlockFlags.FixedLineHeight`, **R1b** is `face_has_glyph`; names and behaviour under "API changes", reasons in `docs/decisions.md` D56, tests in `tests/test_api_requests.cpp` and `tests/python/test_binding.py` (`Requests`). *Agent decisions (the builder's): a flag and not a style field; the line's box is the pitch and taller ink overhangs it.* One thing to know: ink that overhangs its line by more than 2 px can go undrawn in the strip where its line is just outside the clip rectangle. The reproduction here used U+2320, U+27E8 and U+0416: the Inconsolata bundled in this tree has U+2502 and U+1EB2, so FS-S1's 22.4 px was not re-measured. **Declined**, as the request itself asks: anything exposing nodes, packing or draw commands — FS-S1 asks for none |
+| 5 | what DiffView needs | **done** in `be40444` (stage 0 of task `tables-core`): **R1** is `BlockFlags.FixedLineHeight`, **R1b** is `face_has_glyph`; names and behaviour under "API changes", reasons in `docs/decisions.md` D56, tests in `tests/test_api_requests.cpp` and `tests/python/test_binding.py` (`Requests`). *Agent decisions (the builder's): a flag and not a style field; the line's box is the pitch and taller ink overhangs it.* One thing to know: ink that overhangs its line by more than 2 px can go undrawn in the strip where its line is just outside the clip rectangle. The reproduction here used U+2320, U+27E8 and U+0416: the Inconsolata bundled in this tree has U+2502 and U+1EB2, so FS-S1's 22.4 px was not re-measured. **Declined**, as the request itself asks: anything exposing nodes, packing or draw commands — FS-S1 asks for none |
 | 6 | specimen and formula galleries | **done** in `12d77ac` (task `galleries`): see "Galleries (item 6)" |
 | 7 | open API questions, and C1–C8 | **done** for (a)–(g), in `12d77ac`: see "Answers (item 7)". Of C1–C8: C1 done, C3 in part, C8 answered in the header; C5 is item 3; C2, C4, C6, C7 queued, each with its reason |
 | 8 | output that is not ImGui | **needs the user**: assessed, nothing built; the recommendation and what each choice costs are under "Border questions" |
@@ -241,7 +240,7 @@ Each was first reproduced here by a test. Tests: `tests/test_api_answers.cpp`
 (C++, 8 tests), `tests/python/test_binding.py` (8 new), and in both wheels
 `tools/bundle_route/check_swap_answers.py` (18 checks, passing in
 imgui_bundle 1.92.900 and 1.92.801). The header says the same things at the
-places named. State: in the working tree, not committed.
+places named. State: in `be40444`.
 
 **(a) `range_text` around a block that gives nothing.** Reproduced: nothing
 and no separator. **Kept, stated and pinned.** The separator stands between
