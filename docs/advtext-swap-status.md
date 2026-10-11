@@ -7,16 +7,15 @@ States: **done**, **in progress**, **queued**, **declined** (with the reason),
 **needs the user**. A decision an agent took is marked *agent decision*; the
 user is the only one who moves the border.
 
-Last updated: 2026-10-11, after commit `0b21807`: items 2 to 7 and item 8's assessment are
-committed; task `swap-fixes` is finished in the working tree and not yet in a commit (see "After
-`0b21807`" under "API changes"). Next: task `tables-fixes`, then all presets from clean.
+Last updated: 2026-10-11, after commit `92847e6`. Next: the table and column defects listed at the
+end of this file (task `tables-fixes`), then all presets from clean.
 
 ## Build from
 
 | | |
 |---|---|
-| commit | **`0b21807`** on `main` ("Columns in the core"). Before it: `be40444` (tables, DiffView requests), `7e259f4`, `12d77ac`, `5654eee` (the tree the release gate passed) |
-| what it is | `5654eee` (every preset from clean) plus items 2 to 7. On `0b21807` an export of the commit was built in debug and passed 49 of 49; its builder ran debug, ASan+UBSan, release, stb and 16-bit on the same sources in private directories. The eleven presets have not been run from clean since `5654eee`. Rebuild the library with the package: they must come from one commit |
+| commit | **`92847e6`** on `main` ("Tell a role's font from a host's at the same address; hold the specimen exactly"). Before it: `0b21807` (columns), `be40444` (tables, DiffView requests), `12d77ac`, `5654eee` (the tree the release gate passed) |
+| what it is | `5654eee` (every preset from clean) plus items 2 to 7 and the fixes of D59. On `92847e6` an export of the commit was built in debug and passed 50 of 50; its builder ran debug, ASan+UBSan and release in private directories. The eleven presets have not been run from clean since `5654eee`. Library and package must come from one commit (the probe has two new rows) |
 | how | `python/host/build_bundle_library.sh` as before; one library per interpreter |
 | pushed? | no — the session cannot reach the network; the local repository has it |
 
@@ -60,8 +59,7 @@ C++ host) from either side of this change refuse each other, because
 | slices of a document under clips that meet | `DrawDocument` / `DrawDocumentToBuffers` | the same | `Document.draw` | **changed**: a glyph whose quad is wholly at or below the clip rectangle's bottom edge, or wholly above its top, is no longer emitted. A clip ending exactly at a line's top no longer emits that line; the half pixel FS-S2 subtracted is not needed. Glyphs a cut goes through are still in both slices |
 | a Table block in a copy | | | | **changed by the table stage, below**: a `BlockKind.Table` block is a table now, and copies as its cells |
 
-**Tables (item 3; task `tables-core`, table stage; D57). In the working tree, not yet in a
-commit.** A table is ONE block whose text is its cells; positions stay `(block, offset)`.
+**Tables (item 3; task `tables-core`, table stage; D57). In `be40444`.** A table is ONE block whose text is its cells; positions stay `(block, offset)`.
 Read "Tables" in `include/imtypeset.h` first: it is the specification. In Python a table is
 `Block(BlockKind.Table, rows=[[...], ...], columns=[...])` and nothing else changes shape.
 
@@ -123,7 +121,7 @@ with out-of-order runs likewise; `Document.edit_error` keeps what was cut.)
 Rule from here on: no public Python name is renamed or removed without a line
 in this section naming the commit.
 
-**After `0b21807`, in the working tree, not yet in a commit** (task `swap-fixes`; D59). No
+**In `92847e6`** (task `swap-fixes`; D59). No
 declaration was added, removed or changed in `imtypeset.h`, `imtypeset_c.h` or the Python package's
 functions. What a caller can notice:
 
@@ -353,8 +351,7 @@ ASan + UBSan, no report in any case below.
 - **A new ImGui context at the address of the destroyed one is taken for the
   old one, and finds every role empty.** An address is all `imgui.h` gives to
   know a context by, and the allocator reused it in every unsanitised run
-  here. **Fixed in task `swap-fixes` (D59), in the working tree after
-  `0b21807`:** the two collisions this entry used to call "reasoned, not
+  here. **Fixed in task `swap-fixes` (D59), in `92847e6`:** the two collisions this entry used to call "reasoned, not
   reproduced" were reproduced (a host font at an old role font's address with
   its `FontId` was handed out by `get_font` and REMOVED by `remove_font` and
   by `add_font`; with exactly as many host fonts as the roles had, `get_font`
