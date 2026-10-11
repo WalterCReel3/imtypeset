@@ -89,11 +89,14 @@ C++ exception into an error status at each entry.
 
 | interpreter | wheel | headers | gate | example |
 |---|---|---|---|---|
-| `../pptmstr/.venv` | imgui_bundle 1.92.801, Dear ImGui 1.92.8 | stand-in `v1.92.8-docking` | accepted, 22 probes | `examples/python/bundle_host.py --frames 30` on Xvfb: selection (74, 284), 2 layouts |
-| `../imgui-adv-text/.venv` | imgui_bundle 1.92.900, Dear ImGui 1.92.9 | stand-in `v1.92.9-docking` | accepted, 22 probes | the same numbers; screenshot looked at |
+| `../pptmstr/.venv` | imgui_bundle 1.92.801, Dear ImGui 1.92.8 | stand-in `v1.92.8-docking` | accepted, 24 probes | `examples/python/bundle_host.py --frames 30` on Xvfb: selection (74, 284), 2 layouts |
+| `../imgui-adv-text/.venv` | imgui_bundle 1.92.900, Dear ImGui 1.92.9 | stand-in `v1.92.9-docking` | accepted, 24 probes | the same numbers; screenshot looked at |
 
-The library exports 78 `ImTypeset_*` and 8 `ImTypesetBundle_*` symbols and
-leaves 51 ImGui symbols undefined for the wheel to supply.
+The library exports 95 `ImTypeset_*` and 8 `ImTypesetBundle_*` symbols (`nm -D
+--defined-only`, type `T`) and leaves 194 symbols undefined, 117 of them Dear
+ImGui's for the wheel to supply (99 `ImGui::` functions and 18 members of its
+classes, by `nm -D --undefined-only | c++filt`); counted on 2026-10-11, with
+the demo window built in, for both wheels alike.
 
 **The caveat that remains.** Both libraries above are built against stand-in
 headers. Dear ImGui's own layout check then refuses one size
@@ -390,32 +393,32 @@ a syntax check; 1.93 in any configuration but debug.
 test presets run four jobs. The two sanitised test presets set
 `ASAN_OPTIONS=hard_rss_limit_mb=3000`.
 
-| preset | what | ctest, 2026-10-10 |
+| preset | what | ctest, 2026-10-11 |
 |---|---|---|
-| `debug` | Debug; the consumer-project test runs here | 42 of 42 |
-| `release` | `-O3`; the one to take a timing from | 41 of 41 |
-| `asan` | ASan + UBSan, the C test included | 41 of 41 |
-| `stb` | stb_truetype in place of FreeType | 41 of 41 |
-| `wchar16` | ImGui's default 16-bit `ImWchar` | 41 of 41 |
-| `amalgamation` | the library built from the generated drop-in files | 41 of 41 |
-| `fp-host` | release, the drop-in files at `-O3 -march=native` with **no** `-ffp-contract=off` on the library (section 5) | 41 of 41 |
-| `exceptions` | ASan + UBSan, exceptions and RTTI on, `IM_ASSERT` throws (`tests/imconfig_throwing.h`); `test_exception_safety` does its work only here and in the next | 41 of 41 |
-| `bundle-config` | exceptions on, Dear ImGui Bundle's own configuration header from `../imgui_bundle` (throwing `IM_ASSERT`, 32-bit `ImDrawIdx`), `IMGUI_DISABLE_OBSOLETE_FUNCTIONS` | 41 of 41 |
-| `imgui-next` | the Dear ImGui checked out in `../imgui` (1.93.0 WIP, 19298) | 41 of 41 |
-| `python-host` | debug plus `python/` and the `python_binding` test (SDL2 from `.deps/sdl2`) | 42 of 42 |
+| `debug` | Debug; the consumer-project test runs here | 51 of 51 |
+| `release` | `-O3`; the one to take a timing from | 50 of 50 |
+| `asan` | ASan + UBSan, the C test included | 50 of 50 |
+| `stb` | stb_truetype in place of FreeType | 50 of 50 |
+| `wchar16` | ImGui's default 16-bit `ImWchar` | 50 of 50 |
+| `amalgamation` | the library built from the generated drop-in files | 50 of 50 |
+| `fp-host` | release, the drop-in files at `-O3 -march=native` with **no** `-ffp-contract=off` on the library (section 5) | 50 of 50 |
+| `exceptions` | ASan + UBSan, exceptions and RTTI on, `IM_ASSERT` throws (`tests/imconfig_throwing.h`); `test_exception_safety` does its work only here | 50 of 50 |
+| `bundle-config` | exceptions on, Dear ImGui Bundle's own configuration header from `../imgui_bundle` (throwing `IM_ASSERT`, 32-bit `ImDrawIdx`), `IMGUI_DISABLE_OBSOLETE_FUNCTIONS`. `test_exception_safety` reports itself skipped here: it catches the exception type of `tests/imconfig_throwing.h`, which this configuration does not use | 50 of 50 |
+| `imgui-next` | the Dear ImGui checked out in `../imgui` (1.93.0 WIP, 19298) | 50 of 50 |
+| `python-host` | debug plus `python/` and the `python_binding` and `python_demo_sections` tests (SDL2 from `.deps/sdl2`) | 52 of 52 |
 
-Each was run on the final tree (after D52's changes), one at a time in a
-single pass, from a directory under `build/` that did not exist before it, FreeType 2.12.1 except `stb`, 32-bit `ImWchar`
+Each was run on the tree with tables, columns and the galleries in it (D53 to
+D65), one at a time in a single pass, from a directory under `build/` that did not exist before it, FreeType 2.12.1 except `stb`, 32-bit `ImWchar`
 except `wchar16`. No warning from this tree's sources in any of them;
 `exceptions` and `bundle-config` each print four `-Wterminate` warnings, all in
 Dear ImGui's own destructors (`~ImDrawListSharedData`, `~ImFontAtlas`,
 `~ImGuiContext`, `~ImGuiWindow`), where the throwing `IM_ASSERT` is expanded.
-A build at `-O2` (`RelWithDebInfo`, a private directory, not a preset): 41 of 41,
-on the tree before D52's changes; not run again after them.
+A build at `-O2` (`RelWithDebInfo`, a private directory, not a preset): 41 of 41
+on 2026-10-10, on the tree before D52's changes; not run again since.
 
 Also run once in a private directory and not a preset: 1.93.0 WIP with
 `IMGUI_DISABLE_OBSOLETE_FUNCTIONS` (`-DIMTYPESET_IMGUI_DIR=../imgui
--DIMTYPESET_IMGUI_DEFINITIONS=IMGUI_DISABLE_OBSOLETE_FUNCTIONS`), debug: 41 of 41.
+-DIMTYPESET_IMGUI_DEFINITIONS=IMGUI_DISABLE_OBSOLETE_FUNCTIONS`), debug: 41 of 41 (2026-10-10; not run again since).
 
 `bundle-config` and `imgui-next` need a sibling checkout, and `python-host` an
 SDL2 (installed, or `.deps/sdl2`), and fail at configure where it is absent: CMake presets have no condition that tests for

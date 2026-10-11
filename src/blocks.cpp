@@ -13,6 +13,17 @@ namespace ImTypeset::detail
 namespace
 {
 
+// A document's blocks, their layouts and their slots are three sequences of
+// one length. Each is grown by its own length and not by another's: when the
+// allocation for one throws (a host's build may have exceptions on), the next
+// call finds the others already grown and makes this one their length.
+template<class Items>
+void grow_to(Items& items, size_t count)
+{
+    if (items.size() < count)
+        items.resize(count);
+}
+
 void note(PackError& error, PackError found)
 {
     if (error == PackError::NONE)
@@ -1583,13 +1594,12 @@ size_t Document::add_block()
     const size_t index = _count;
     if (index >= MAX_DOCUMENT_BLOCKS)
         return index;
-    if (_blocks.size() <= index) {
-        _blocks.emplace_back();
-        _layouts.emplace_back();
-        _slots.emplace_back();
-    } else {
+    const bool spare = _blocks.size() > index;
+    grow_to(_blocks, index + 1);
+    grow_to(_layouts, index + 1);
+    grow_to(_slots, index + 1);
+    if (spare)
         reset_block(index);
-    }
     ++_count;
     _prepared = false;
     return index;
@@ -1631,11 +1641,9 @@ bool Document::splice(size_t first, size_t removed, size_t inserted)
     // three sequences are rotated alike.
     const size_t old_count = _count;
     const size_t new_count = old_count - removed + inserted;
-    while (_blocks.size() < new_count) {
-        _blocks.emplace_back();
-        _layouts.emplace_back();
-        _slots.emplace_back();
-    }
+    grow_to(_blocks, new_count);
+    grow_to(_layouts, new_count);
+    grow_to(_slots, new_count);
     const auto rotate = [&](auto& items) {
         const auto begin = items.begin();
         if (inserted >= removed) {

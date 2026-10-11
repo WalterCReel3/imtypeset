@@ -3402,3 +3402,38 @@ answers every question alike, at six sizes, held and fitted
 block (`view_of`, taken for a hit, a caret, a selection or a mark in the table) is still a copy
 of all of its commands, once per layout looked at that way; a REPLACE of a held table still sets
 every row. Timings on a quiet machine were not taken.
+
+## D65. What the gate of 2026-10-11 changed, and what it found and left (task `swap-gate`, 2026-10-11)
+
+**Changed, one defect.** `Document::splice` and `Document::add_block` (`src/blocks.cpp`) grew the
+blocks, their layouts and their slots in one loop keyed on the blocks' length. In a build with
+exceptions on, a `bad_alloc` from the second or third growth left the blocks longer than the
+others, and the next call wrote a slot past the end of its array. Each sequence is now grown by
+its own length. *Measured:* found by a new sweep of `tests/test_exception_safety.cpp` (a table,
+columns in order and balanced) in the `exceptions` configuration under ASan, which reported a
+heap-buffer-overflow in `reset_block` on its first run and nothing after the change
+(`docs/hardening.md`, X6). *Read:* the defect is older than tables and columns and independent of
+both; the sweeps that existed described their documents before arming the allocator, so none
+reached it.
+
+**Decided, three things left as they are.**
+
+1. `test_exception_safety` reports itself skipped in the `bundle-config` preset, and always has:
+   it catches the exception type `tests/imconfig_throwing.h` throws, and that preset's
+   `IM_ASSERT` is Dear ImGui Bundle's, which throws `std::runtime_error`. `docs/distribution.md`
+   said the test did its work in both; the sentence is corrected and the preset is not changed.
+   Making the test work there means catching by a type both configurations share, which is a
+   change to the two tests that catch it, for a configuration whose allocator sweeps would then run
+   without ASan.
+2. `src/imtypeset_demo.cpp` places the second letter of a kerning pair with
+   `(float)(int)(left.x + 0.5f)`, the spelling D18 forbids. It is the demo standing in for a
+   host that rounds a positive width to a pixel as `IM_ROUND` does, nothing in layout reads it,
+   and changing it can move a drawn letter by a pixel at a tie. Reported, not changed.
+3. The pptmstr patch (`python/spike_bundle/pptmstr_overlay`) was not regenerated: against a
+   library built from this tree, with the longer `Hit` and `DocumentHit` and the renamed `Block`
+   fields, the overlay's proof run and its twelve fault scenarios give what they gave at the
+   release gate.
+
+**Not measured:** `AppendDocumentTableCells`, `AppendDocumentText` into a cell,
+`SetDocumentTableColumns` and `DocumentView` over columns under a throwing allocator; the same
+sweep under anything but GCC 12 with ASan.

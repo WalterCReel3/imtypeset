@@ -807,6 +807,166 @@ TEST(a_throw_from_anywhere_in_drawing_a_clipped_code_block_leaves_the_clip_stack
     CHECK(n < SWEEP_LIMIT);
 }
 
+namespace
+{
+
+// Two paragraphs round a table of `rows` rows of three cells under a header,
+// one cell in three long enough to be broken at the widths used here.
+struct TableContent {
+    std::string text;
+    std::vector<ImTypesetBlock> blocks;
+    std::vector<ImTypesetCell> cells;
+
+    explicit TableContent(int rows)
+    {
+        const char* const prose = "A paragraph of plain words, long enough to be broken into "
+                                  "several lines at the width the document is given here.";
+        paragraph(prose);
+        ImTypesetBlock table;
+        table.Kind = ImTypesetBlockKind_Table;
+        table.Flags = ImTypesetBlockFlags_TableHeader;
+        table.TextStart = static_cast<int>(text.size());
+        const size_t base = text.size();
+        for (int r = 0; r < rows; ++r) {
+            if (r != 0)
+                text += '\n';
+            for (int c = 0; c < 3; ++c) {
+                if (c != 0)
+                    text += '\t';
+                ImTypesetCell cell;
+                cell.TextStart = static_cast<int>(text.size() - base);
+                text += "r" + std::to_string(r) + "c" + std::to_string(c);
+                if (r % 3 == 2 && c == 2)
+                    text += " with several more words in it";
+                cell.TextEnd = static_cast<int>(text.size() - base);
+                cell.Flags = c == 0 ? ImTypesetCellFlags_RowStart : 0;
+                cells.push_back(cell);
+            }
+        }
+        table.TextEnd = static_cast<int>(text.size());
+        table.CellStart = 0;
+        table.CellCount = static_cast<int>(cells.size());
+        blocks.push_back(table);
+        paragraph(prose);
+    }
+
+    void paragraph(const char* body)
+    {
+        ImTypesetBlock block;
+        block.Kind = ImTypesetBlockKind_Paragraph;
+        block.TextStart = static_cast<int>(text.size());
+        text += body;
+        block.TextEnd = static_cast<int>(text.size());
+        blocks.push_back(block);
+    }
+
+    ImTypesetDocumentContent content() const
+    {
+        ImTypesetDocumentContent described;
+        described.Text = text.data();
+        described.TextSize = static_cast<int>(text.size());
+        described.Blocks = blocks.data();
+        described.BlockCount = static_cast<int>(blocks.size());
+        described.Cells = cells.data();
+        described.CellCount = static_cast<int>(cells.size());
+        return described;
+    }
+};
+
+// Describes the document, lays it out, cuts it into columns and draws it:
+// every call a table and a cut are reached through. False if any refuses.
+bool describe_cut_and_draw(ImTypesetDocument* document, const TableContent& table, bool balance,
+                           ImDrawList* list)
+{
+    const ImTypesetDocumentContent content = table.content();
+    ImTypesetColumns columns;
+    columns.Gutter = 10.0f;
+    if (balance) {
+        columns.Count = 3;
+        columns.Flags = ImTypesetColumnFlags_Balance;
+    } else {
+        columns.Height = 120.0f;
+    }
+    return ImTypeset::SetDocumentBlocks(document, &content) &&
+           ImTypeset::LayoutDocument(document, 260.0f) &&
+           ImTypeset::SetDocumentColumns(document, &columns) &&
+           ImTypeset::GetDocumentColumnCount(document) >= 2 &&
+           ImTypeset::DrawDocument(document, list, ImVec2(8.0f, 8.0f));
+}
+
+} // namespace
+
+// A table is laid out whole and a document in columns is cut when it is asked
+// about. Unwound from anywhere in describing, laying out, cutting or drawing
+// one, the document is one the same calls can be made on again, and they then
+// draw what a document nothing was thrown through draws.
+TEST(a_throw_from_anywhere_in_a_table_cut_into_columns_leaves_the_document_usable)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    const TableContent table(8);
+    for (const bool balance : {false, true}) {
+        CHECK_CONTEXT("balanced %d", balance ? 1 : 0);
+        std::vector<ImDrawVert> expected;
+        {
+            ImTypesetDocument* document = ImTypeset::CreateDocument();
+            REQUIRE(document != nullptr);
+            ImGui::NewFrame();
+            ImDrawList* list = ImGui::GetBackgroundDrawList();
+            const int first = list->VtxBuffer.Size;
+            REQUIRE(describe_cut_and_draw(document, table, balance, list));
+            expected = vertices_from(*list, first);
+            ImGui::Render();
+            ImTypeset::DestroyDocument(document);
+        }
+        REQUIRE(!expected.empty());
+        long thrown = 0;
+        long n = 0;
+        for (; n < SWEEP_LIMIT; ++n) {
+            CHECK_CONTEXT("the allocation that throws is number %ld", n);
+            ImTypesetDocument* document = ImTypeset::CreateDocument();
+            REQUIRE(document != nullptr);
+            ImGui::NewFrame();
+            ImDrawList* list = ImGui::GetBackgroundDrawList();
+            const int clips = list->_ClipRectStack.Size;
+            bool completed = false;
+            try {
+                const FailAfter armed(n);
+                // Not unwound from: the sweep is over, whatever was answered.
+                CHECK(describe_cut_and_draw(document, table, balance, list));
+                completed = true;
+            } catch (const std::bad_alloc&) {
+                ++thrown;
+            }
+            CHECK_EQ(list->_ClipRectStack.Size, clips);
+            while (list->_ClipRectStack.Size > clips)
+                list->PopClipRect();
+            check_list_is_whole(*list);
+            // Whatever the document holds after the throw, it is a document:
+            // it can be asked about and drawn as it stands, before anything
+            // is described again.
+            if (!completed) {
+                ImTypeset::LayoutDocument(document, 260.0f);
+                ImTypeset::GetDocumentColumnCount(document);
+                ImTypeset::HitTestDocument(document, ImVec2(300.0f, 60.0f));
+                ImTypeset::DrawDocument(document, list, ImVec2(8.0f, 8.0f));
+                check_list_is_whole(*list);
+            }
+            const int first = list->VtxBuffer.Size;
+            CHECK(describe_cut_and_draw(document, table, balance, list));
+            CHECK(same_vertices(vertices_from(*list, first), expected));
+            ImGui::Render();
+            ImTypeset::DestroyDocument(document);
+            if (completed)
+                break;
+        }
+        std::printf("    unwound from %ld allocations of a table in columns (%s)\n", thrown,
+                    balance ? "balanced" : "in order");
+        CHECK(thrown >= 20);
+        CHECK(n < SWEEP_LIMIT);
+    }
+}
+
 #else // !TEST_UNWINDING
 
 TEST(skipped_outside_a_build_whose_im_assert_throws)

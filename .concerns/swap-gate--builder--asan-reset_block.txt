@@ -1,0 +1,40 @@
+[ run ] a_throw_from_anywhere_in_a_table_cut_into_columns_leaves_the_document_usable
+=================================================================
+==4==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x60d000001380 at pc 0x5628e37d2fab bp 0x7ffe08c238b0 sp 0x7ffe08c238a8
+WRITE of size 68 at 0x60d000001380 thread T0
+    #0 0x5628e37d2faa in ImTypeset::detail::Document::reset_block(unsigned long) /home/wreel/Source/imtypeset/src/blocks.cpp:1614
+    #1 0x5628e37d6028 in ImTypeset::detail::Document::splice(unsigned long, unsigned long, unsigned long) /home/wreel/Source/imtypeset/src/blocks.cpp:1659
+    #2 0x5628e3497875 in ImTypeset::ReplaceDocumentBlocks(ImTypesetDocument*, int, int, ImTypesetDocumentContent const*) /home/wreel/Source/imtypeset/src/imtypeset_document.cpp:2795
+    #3 0x5628e349bb71 in ImTypeset::SetDocumentBlocks(ImTypesetDocument*, ImTypesetDocumentContent const*) /home/wreel/Source/imtypeset/src/imtypeset_document.cpp:2875
+    #4 0x5628e32f1889 in describe_cut_and_draw /home/wreel/Source/imtypeset/tests/test_exception_safety.cpp:890
+    #5 0x5628e32f2918 in check_test_a_throw_from_anywhere_in_a_table_cut_into_columns_leaves_the_document_usable /home/wreel/Source/imtypeset/tests/test_exception_safety.cpp:946
+    #6 0x5628e32f6c5d in check::run(int, char**) (/home/wreel/Source/imtypeset/build/gate-exc/tests/test_exception_safety+0x1184c5d)
+    #7 0x5628e32e0d89 in main /home/wreel/Source/imtypeset/tests/check.h:442
+    #8 0x7ff862645249  (/lib/x86_64-linux-gnu/libc.so.6+0x27249)
+    #9 0x7ff862645304 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x27304)
+    #10 0x5628e32e0ca0 in _start (/home/wreel/Source/imtypeset/build/gate-exc/tests/test_exception_safety+0x116eca0)
+
+0x60d000001380 is located 0 bytes to the right of 144-byte region [0x60d0000012f0,0x60d000001380)
+allocated by thread T0 here:
+    #0 0x7ff8634b89cf in __interceptor_malloc ../../../../src/libsanitizer/asan/asan_malloc_linux.cpp:69
+    #1 0x5628e32e0ed6 in operator new(unsigned long) /home/wreel/Source/imtypeset/tests/test_exception_safety.cpp:91
+    #2 0x5628e38468d6 in std::__new_allocator<ImTypeset::detail::Document::Slot>::allocate(unsigned long, void const*) /usr/include/c++/12/bits/new_allocator.h:137
+    #3 0x5628e383d2b0 in std::allocator_traits<std::allocator<ImTypeset::detail::Document::Slot> >::allocate(std::allocator<ImTypeset::detail::Document::Slot>&, unsigned long) /usr/include/c++/12/bits/alloc_traits.h:464
+    #4 0x5628e38300c5 in std::_Vector_base<ImTypeset::detail::Document::Slot, std::allocator<ImTypeset::detail::Document::Slot> >::_M_allocate(unsigned long) /usr/include/c++/12/bits/stl_vector.h:378
+    #5 0x5628e380f492 in void std::vector<ImTypeset::detail::Document::Slot, std::allocator<ImTypeset::detail::Document::Slot> >::_M_realloc_insert<>(__gnu_cxx::__normal_iterator<ImTypeset::detail::Document::Slot*, std::vector<ImTypeset::detail::Document::Slot, std::allocator<ImTypeset::detail::Docu
+    #6 0x5628e37fe98e in ImTypeset::detail::Document::Slot& std::vector<ImTypeset::detail::Document::Slot, std::allocator<ImTypeset::detail::Document::Slot> >::emplace_back<>() /usr/include/c++/12/bits/vector.tcc:123
+    #7 0x5628e37d5c98 in ImTypeset::detail::Document::splice(unsigned long, unsigned long, unsigned long) /home/wreel/Source/imtypeset/src/blocks.cpp:1637
+    #8 0x5628e3497875 in ImTypeset::ReplaceDocumentBlocks(ImTypesetDocument*, int, int, ImTypesetDocumentContent const*) /home/wreel/Source/imtypeset/src/imtypeset_document.cpp:2795
+    #9 0x5628e349bb71 in ImTypeset::SetDocumentBlocks(ImTypesetDocument*, ImTypesetDocumentContent const*) /home/wreel/Source/imtypeset/src/imtypeset_document.cpp:2875
+    #10 0x5628e32f1889 in describe_cut_and_draw /home/wreel/Source/imtypeset/tests/test_exception_safety.cpp:890
+    #11 0x5628e32f2918 in check_test_a_throw_from_anywhere_in_a_table_cut_into_columns_leaves_the_document_usable /home/wreel/Source/imtypeset/tests/test_exception_safety.cpp:946
+    #12 0x5628e32f6c5d in check::run(int, char**) (/home/wreel/Source/imtypeset/build/gate-exc/tests/test_exception_safety+0x1184c5d)
+    #13 0x5628e32e0d89 in main /home/wreel/Source/imtypeset/tests/check.h:442
+    #14 0x7ff862645249  (/lib/x86_64-linux-gnu/libc.so.6+0x27249)
+
+SUMMARY: AddressSanitizer: heap-buffer-overflow /home/wreel/Source/imtypeset/src/blocks.cpp:1614 in ImTypeset::detail::Document::reset_block(unsigned long)
+Shadow bytes around the buggy address:
+  0x0c1a7fff8220: fd fa fa fa fa fa fa fa fa fa fd fd fd fd fd fd
+  0x0c1a7fff8230: fd fd fd fd fd fd fd fd fd fd fd fd fa fa fa fa
+  0x0c1a7fff8240: fa fa fa fa fd fd fd fd fd fd fd fd fd fd fd fd
+  0x0c1a7fff8250: fd fd fd fd fd fa fa fa fa fa fa fa fa fa 00 00

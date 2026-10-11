@@ -409,6 +409,38 @@ void script_math_stream(int frame, ImGuiIO& io)
     }
 }
 
+// Document: the slider of blocks dragged past its left end, which leaves ten
+// blocks and the table that ends the document; the slider of columns dragged
+// to two; then the wheel, sideways, over the view, to the last column, where
+// the table is.
+void script_document_columns(int frame, ImGuiIO& io)
+{
+    if (frame == 4) {
+        // A slider's label stands to its right, on its row.
+        io.AddMousePosEvent(44.0f, text_drawn("Blocks").y + 4.0f);
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    } else if (frame == 6) {
+        expect(ImGui::IsAnyItemActive(), "the press on the slider of blocks took nothing");
+        io.AddMousePosEvent(-3000.0f, text_drawn("Blocks").y + 4.0f);
+    } else if (frame == 8) {
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    } else if (frame == 10) {
+        io.AddMousePosEvent(30.0f, text_drawn("Columns").y + 4.0f);
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    } else if (frame == 12) {
+        expect(ImGui::IsAnyItemActive(), "the press on the slider of columns took nothing");
+        // A third of the way along a slider from one to four.
+        io.AddMousePosEvent(62.0f, text_drawn("Columns").y + 4.0f);
+    } else if (frame == 14) {
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    } else if (frame == 15) {
+        // The view is the child under the two rows of controls.
+        io.AddMousePosEvent(400.0f, text_drawn("Columns").y + 120.0f);
+    } else if (frame >= 16 && frame <= 26) {
+        io.AddMouseWheelEvent(-40.0f, 0.0f);
+    }
+}
+
 struct Page {
     const char* File;
     const char* Section; // Its title in the demo window.
@@ -431,8 +463,9 @@ const Page PAGES[] = {
     {"demo-inspector", "Inspector", 540, script_inspector, 14, 0.0f, false},
     {"demo-stress", "Stress", 720, script_stress, 44, 0.0f, false},
     {"demo-fonts", "Fonts", 640, script_fonts, 14, 0.0f, false},
-    {"demo-limits", "Known limits", 660, idle, 14, 0.0f, false},
+    {"demo-limits", "Known limits", 800, idle, 14, 0.0f, false},
     {"demo-document", "Document", 720, idle, 14, 0.0f, false},
+    {"demo-document-columns", "Document", 720, script_document_columns, 40, 0.0f, false},
     {"demo-section-specimen", "Specimen", 1500, idle, 14, 0.0f, true},
     {"demo-section-formulas", "Formula gallery", 2600, idle, 14, 0.0f, true},
     {"demo-section-math", "Math", 1500, idle, 14, 0.0f, true},
