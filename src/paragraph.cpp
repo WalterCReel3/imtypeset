@@ -273,7 +273,7 @@ bool ParagraphComposer::set_lines(NodeArena& arena, const TextBlock& block, cons
             out.hung = line;
         }
         Box strutted = arena.box(line);
-        if (strutted.height < style.strut.height || strutted.depth < style.strut.depth) {
+        if (style.strut.changes(strutted)) {
             style.strut.apply_to(strutted);
             line = arena.add_box(strutted);
         }

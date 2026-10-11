@@ -71,7 +71,26 @@ bool is_code(ImTypesetBlockKind kind)
 
 bool is_host(ImTypesetBlockKind kind)
 {
-    return kind == ImTypesetBlockKind_Host || kind == ImTypesetBlockKind_Table;
+    return kind == ImTypesetBlockKind_Host;
+}
+
+bool is_table(ImTypesetBlockKind kind)
+{
+    return kind == ImTypesetBlockKind_Table;
+}
+
+// A block whose commands are lines of items that came from its text: one a
+// position, a selection, a mark and a copy go into.
+bool is_lined(ImTypesetBlockKind kind)
+{
+    return is_text(kind) || is_code(kind) || is_table(kind);
+}
+
+// The flags of a block that are a text's (ImTypesetTextFlags_ has the same
+// values for them).
+ImTypesetTextFlags text_flags(const DocBlock& b)
+{
+    return b.flags & (ImTypesetBlockFlags_HardBreaks | ImTypesetBlockFlags_Math);
 }
 
 // A length a host gave, in pixels: never negative, never past MAX_DIMEN.
@@ -147,7 +166,85 @@ uint32_t length_hint(const DocBlock& b)
 {
     if (is_code(b.kind))
         return b.code_lines;
+    if (is_table(b.kind))
+        return b.row_count();
     return static_cast<uint32_t>(std::min<size_t>(b.text.size(), 0xFFFFFFFFu));
+}
+
+// Adds cells to a table: `count` of `given`, as bytes of the block's text,
+// which is `size` long. A cell that starts before the one before it ends is
+// cut there; cells past the limits are left out. What was wrong is said
+// through `note`, once.
+template<typename Note>
+void add_cells(DocBlock& b, const ImTypesetCell* given, int count, size_t size, Note&& note)
+{
+    if (given == nullptr || count <= 0)
+        return;
+    bool cut = false;
+    bool too_many = false;
+    bool too_wide = false;
+    uint32_t floor = b.cells.empty() ? 0u : b.cells.back().end;
+    for (int k = 0; k < count; ++k) {
+        const ImTypesetCell& in = given[k];
+        const int64_t limit = static_cast<int64_t>(size);
+        int64_t start = std::min<int64_t>(std::max<int64_t>(in.TextStart, floor), limit);
+        int64_t end = std::min<int64_t>(in.TextEnd, limit);
+        if (in.TextStart < static_cast<int64_t>(floor) || in.TextEnd > limit || end < start)
+            cut = true;
+        if (end < start)
+            end = start;
+        const bool new_row = b.row_first.empty() || (in.Flags & ImTypesetCellFlags_RowStart) != 0;
+        if (b.cells.size() >= MAX_TABLE_CELLS) {
+            too_many = true;
+            break;
+        }
+        if (new_row) {
+            if (b.row_first.empty())
+                b.row_first.push_back(0);
+            // An empty row cannot be said, so a row always has its first cell.
+            b.row_first.push_back(static_cast<uint32_t>(b.cells.size()));
+            b.next_column = 0;
+        }
+        if (b.next_column >= MAX_TABLE_COLUMNS) {
+            too_wide = true;
+            continue;
+        }
+        DocCell cell;
+        cell.start = static_cast<uint32_t>(start);
+        cell.end = static_cast<uint32_t>(end);
+        cell.row = b.row_count() - 1;
+        cell.column = b.next_column++;
+        b.cells.push_back(cell);
+        b.row_first.back() = static_cast<uint32_t>(b.cells.size());
+        b.columns = std::max(b.columns, cell.column + 1);
+        floor = cell.end;
+    }
+    if (cut)
+        note("a cell is not inside the text given or starts before the cell before it ends; "
+             "it was cut to what is left");
+    if (too_wide)
+        note("a row has more than 1,024 cells; the rest of it is left out");
+    if (too_many)
+        note("the table has more than 262,144 cells; the rest are left out");
+}
+
+// The cell a byte of a table's text is in: the last that starts at or before
+// it, or the one after if the byte is past that cell's end (between two
+// cells). -1 for a table with no cells.
+int cell_at(const DocBlock& b, int offset)
+{
+    if (b.cells.empty())
+        return -1;
+    const uint32_t wanted = offset <= 0 ? 0u : static_cast<uint32_t>(offset);
+    const auto after =
+        std::upper_bound(b.cells.begin(), b.cells.end(), wanted,
+                         [](uint32_t value, const DocCell& cell) { return value < cell.start; });
+    if (after == b.cells.begin())
+        return 0;
+    const size_t k = static_cast<size_t>(after - b.cells.begin()) - 1;
+    if (wanted > b.cells[k].end && k + 1 < b.cells.size())
+        return static_cast<int>(k + 1);
+    return static_cast<int>(k);
 }
 
 // Lays out what a window shows: Document::layout_window, and before the units
@@ -250,9 +347,11 @@ void describe(ImTypesetDocument& d, DocBlock& b, const ImTypesetDocumentContent&
                  : ImTypesetBlockKind_Paragraph;
     if (b.kind != in.Kind)
         note("its Kind is not a block kind; it is set as a paragraph");
-    if (b.kind == ImTypesetBlockKind_Table)
-        note("tables are not laid out yet; the block is set as an empty host block");
-    b.flags = in.Flags & (ImTypesetBlockFlags_HardBreaks | ImTypesetBlockFlags_Math);
+    b.flags = in.Flags & (ImTypesetBlockFlags_HardBreaks | ImTypesetBlockFlags_Math |
+                          ImTypesetBlockFlags_FixedLineHeight);
+    if (is_table(b.kind))
+        b.flags = in.Flags & (ImTypesetBlockFlags_Math | ImTypesetBlockFlags_FixedLineHeight |
+                              ImTypesetBlockFlags_TableHeader | ImTypesetBlockFlags_TableHeld);
     b.level = in.Level;
     b.item = in.Item;
     b.quote_depth = std::min(std::max(in.QuoteDepth, 0), static_cast<int>(MAX_QUOTE_DEPTH));
@@ -279,7 +378,7 @@ void describe(ImTypesetDocument& d, DocBlock& b, const ImTypesetDocumentContent&
     const char* text = size > 0 ? content.Text + text_start : "";
     const ImTypesetRun* runs = nullptr;
     int run_count = 0;
-    if (is_text(b.kind) && in.RunCount > 0) {
+    if ((is_text(b.kind) || is_table(b.kind)) && in.RunCount > 0) {
         if (content.Runs != nullptr && in.RunStart >= 0 && in.RunStart <= content.RunCount &&
             in.RunCount <= content.RunCount - in.RunStart) {
             runs = content.Runs + in.RunStart;
@@ -291,19 +390,44 @@ void describe(ImTypesetDocument& d, DocBlock& b, const ImTypesetDocumentContent&
     if (is_text(b.kind)) {
         // The paragraph's own validation, in the scratch paragraph.
         ImTypesetParagraph& w = d.work;
-        set_text(w, text, text_bytes, runs, run_count, b.flags);
+        set_text(w, text, text_bytes, runs, run_count, text_flags(b));
         b.text.swap(w.text);
         b.runs.swap(w.runs);
         b.text_error = w.text_error;
         w.text.clear();
         w.runs.clear();
-    } else if (b.kind != ImTypesetBlockKind_Rule && b.kind != ImTypesetBlockKind_Table) {
+    } else if (b.kind != ImTypesetBlockKind_Rule) {
         const size_t kept = cut_at_character(text, text_bytes, static_cast<size_t>(MAX_TEXT_BYTES));
         if (kept < text_bytes)
             b.text_error.set(ImTypesetError_TextTooLong,
                              "the text is longer than 16 MiB and was cut there",
                              static_cast<int>(kept));
         b.text.assign(text, kept);
+    }
+    if (is_table(b.kind)) {
+        ErrorState run_trouble;
+        validate_runs(b.runs, runs, run_count, b.text.size(), 0, run_trouble);
+        if (b.text_error.ok())
+            b.text_error = run_trouble;
+        if (in.CellCount > 0) {
+            if (content.Cells != nullptr && in.CellStart >= 0 &&
+                in.CellStart <= content.CellCount &&
+                in.CellCount <= content.CellCount - in.CellStart)
+                add_cells(b, content.Cells + in.CellStart, in.CellCount, b.text.size(), note);
+            else
+                note("its cells are not inside the cells given; it is set without them");
+        }
+        if (in.ColumnCount > 0) {
+            if (content.Columns != nullptr && in.ColumnStart >= 0 &&
+                in.ColumnStart <= content.ColumnCount &&
+                in.ColumnCount <= content.ColumnCount - in.ColumnStart)
+                b.column_specs.assign(
+                    content.Columns + in.ColumnStart,
+                    content.Columns + in.ColumnStart +
+                        std::min<size_t>(static_cast<size_t>(in.ColumnCount), MAX_TABLE_COLUMNS));
+            else
+                note("its columns are not inside the columns given; it is set without them");
+        }
     }
     // What was found wrong with the text as it was set (runs out of order, a
     // text past the limit) is the block's from here on, and the edit's.
@@ -315,7 +439,7 @@ void describe(ImTypesetDocument& d, DocBlock& b, const ImTypesetDocumentContent&
     if (is_code(b.kind))
         measure_code(b);
 
-    if (b.kind != ImTypesetBlockKind_Rule && !is_host(b.kind)) {
+    if (b.kind != ImTypesetBlockKind_Rule && !is_host(b.kind) && !is_table(b.kind)) {
         int marker_start = 0;
         const size_t marker_bytes = stretch(
             in.MarkerStart, in.MarkerEnd, "its marker is not inside the text given", &marker_start);
@@ -336,8 +460,10 @@ BlockSpec resolve_spec(ImTypesetDocument& d, const DocBlock& b)
                                          ? &d.styles[static_cast<size_t>(b.style)]
                                          : nullptr;
     BlockSpec spec;
-    spec.type =
-        is_code(b.kind) ? BlockType::CODE : (is_text(b.kind) ? BlockType::TEXT : BlockType::RULE);
+    spec.type = is_code(b.kind)    ? BlockType::CODE
+                : is_text(b.kind)  ? BlockType::TEXT
+                : is_table(b.kind) ? BlockType::TABLE
+                                   : BlockType::RULE;
 
     Face face = is_code(b.kind) ? Face::CODE : base.face;
     if (own != nullptr && role_of(own->Face) >= 0)
@@ -369,6 +495,7 @@ BlockSpec resolve_spec(ImTypesetDocument& d, const DocBlock& b)
     spec.interline.baselineskip.width = baselineskip;
     spec.interline.lineskip.width = lineskip;
     spec.strut = Strut::filling(baselineskip);
+    spec.strut.exact = (b.flags & ImTypesetBlockFlags_FixedLineHeight) != 0;
 
     spec.align = own != nullptr ? align_of(own->Align) : base.align;
     spec.left_indent = clamp_dimen(base.left_indent + length_sp(d, b.left_indent));
@@ -390,6 +517,45 @@ BlockSpec resolve_spec(ImTypesetDocument& d, const DocBlock& b)
         spec.extent = length_sp(d, b.extent);
     spec.quote_depth = static_cast<uint32_t>(b.quote_depth);
     return spec;
+}
+
+// What a table's columns say, into the block layer: the alignments, and who
+// decides the widths. True if an alignment changed.
+bool apply_columns(const ImTypesetDocument& d, const DocBlock& b, TableCells& table)
+{
+    const size_t columns = b.columns;
+    const size_t said = std::min(b.column_specs.size(), columns);
+    std::vector<ColumnAlign> aligns(columns, ColumnAlign::LEFT);
+    bool widths = said == columns && columns != 0;
+    bool shares = widths;
+    for (size_t c = 0; c < said; ++c) {
+        const ImTypesetTableColumn& column = b.column_specs[c];
+        aligns[c] = column.Align == ImTypesetAlign_Center  ? ColumnAlign::CENTER
+                    : column.Align == ImTypesetAlign_Right ? ColumnAlign::RIGHT
+                                                           : ColumnAlign::LEFT;
+        widths = widths && column.Width > 0.0f && is_finite(column.Width);
+        shares = shares && column.Share > 0.0f && is_finite(column.Share);
+    }
+    const bool changed = aligns != table.aligns;
+    table.aligns.swap(aligns);
+    table.held = (b.flags & ImTypesetBlockFlags_TableHeld) != 0;
+    table.policy = WidthPolicy::APPORTIONED;
+    table.fractions.clear();
+    if (table.held) {
+        table.widths.assign(b.held.begin(), b.held.end());
+        return changed;
+    }
+    table.widths.clear();
+    if (widths) {
+        table.policy = WidthPolicy::WIDTHS;
+        for (size_t c = 0; c < columns; ++c)
+            table.widths.push_back(std::max<Scaled>(length_sp(d, b.column_specs[c].Width), 1));
+    } else if (shares) {
+        table.policy = WidthPolicy::FRACTIONS;
+        for (size_t c = 0; c < columns; ++c)
+            table.fractions.push_back(decimal_of(b.column_specs[c].Share));
+    }
+    return changed;
 }
 
 // Writes block `i`'s description into the block layer. Its layout is stale
@@ -439,6 +605,27 @@ void apply_spec(ImTypesetDocument& d, size_t i)
     block.item = static_cast<uint32_t>(std::max(b.item, 0));
     block.thickness = spec.extent;
     block.length_hint = length_hint(b);
+    b.cells_built = 0;
+    b.last_cell_boxes = 0;
+    if (is_table(b.kind)) {
+        TableCells& table = block.table;
+        table.config = table_stamp();
+        table.has_header = (b.flags & ImTypesetBlockFlags_TableHeader) != 0;
+        // The reference's Theme: half a body em of padding, and a rule of six
+        // hundredths of one, at least a scaled point.
+        const double body = static_cast<double>(d.style.em);
+        table.cell_padding = d.options.TableCellPadding > 0.0f
+                                 ? length_sp(d, d.options.TableCellPadding)
+                                 : (d.options.TableCellPadding < 0.0f
+                                        ? 0
+                                        : clamped_sp(round_to_scaled(body * 0.5), 0, MAX_DIMEN));
+        table.rule_thickness = d.options.TableRuleThickness > 0.0f
+                                   ? length_sp(d, d.options.TableRuleThickness)
+                                   : (d.options.TableRuleThickness < 0.0f
+                                          ? 0
+                                          : clamped_sp(round_to_scaled(body * 0.06), 1, MAX_DIMEN));
+        apply_columns(d, b, table);
+    }
     if (!b.marker.empty() && usable(ctx, static_cast<int>(spec.marker_font.face))) {
         std::string& why = ctx.scratch;
         why.clear();
@@ -475,6 +662,143 @@ void apply_rules(ImTypesetDocument& d)
     if (d.style.line_break == ImTypesetLineBreak_FirstFit)
         params.first_fit = true;
     d.composer.params = params;
+    ++d.composer.params_serial;
+}
+
+// A table's cells that have no material yet, each made as a paragraph's text
+// is and measured: the packaging of tex.web section 796, when the entry
+// arrives. Cells before DocBlock::cells_built stand as they are, so a table
+// that was given more cells pays for those.
+void build_cells(ImTypesetDocument& d, DocBlock& b, Block& block)
+{
+    ImTypesetContext& ctx = *d.ctx;
+    TableCells& table = block.table;
+    NodeArena& arena = d.doc.arena();
+    ImTypesetParagraph& w = d.work;
+    // If the build is unwound through, the table is made again from its first
+    // cell: what it had put in the arena is given up as dead.
+    struct Guard {
+        ImTypesetDocument& d;
+        DocBlock& b;
+        TableCells& table;
+        NodeArena& arena;
+        const NodeArena::Mark before;
+        bool finished = false;
+        ~Guard()
+        {
+            if (finished)
+                return;
+            arena.rewind(before);
+            table.clear();
+            d.dead_boxes += b.atom_boxes;
+            d.live_boxes -= std::min<size_t>(d.live_boxes, b.atom_boxes);
+            b.atom_boxes = 0;
+            b.cells_built = 0;
+            b.has_material = false;
+        }
+    } guard{d, b, table, arena, arena.mark()};
+
+    if (b.cells_built == 0) {
+        table.clear();
+        b.source_offsets.clear();
+        b.ink_spans.clear();
+        b.atoms.clear();
+        b.display_text.clear();
+        b.display_map.clear();
+        b.last_cell_boxes = 0;
+        b.last_cell_display = 0;
+    }
+    ResolvedStyle style = d.style;
+    style.face = b.font.face;
+    style.em = b.font.size;
+    style.align = Align::LEFT;
+    const CharMeasure measure = ctx.measure();
+    for (size_t i = b.cells_built; i < b.cells.size(); ++i) {
+        const DocCell& cell = b.cells[i];
+        if (i == 0 || cell.row != b.cells[i - 1].row)
+            table.start_row();
+        // The cell as a paragraph of its own: its stretch of the text, and
+        // the block's runs cut to it.
+        w.ctx = &ctx;
+        w.text.assign(b.text, cell.start, cell.end - cell.start);
+        w.runs.clear();
+        auto run =
+            std::upper_bound(b.runs.begin(), b.runs.end(), cell.start,
+                             [](uint32_t start, const StyledRun& r) { return start < r.end; });
+        for (; run != b.runs.end() && run->start < cell.end; ++run) {
+            StyledRun inside = *run;
+            inside.start = std::max(inside.start, cell.start) - cell.start;
+            inside.end = std::min(inside.end, cell.end) - cell.start;
+            if (inside.start < inside.end)
+                w.runs.push_back(inside);
+        }
+        w.text_error.clear();
+        w.flags = b.flags & ImTypesetBlockFlags_Math;
+        w.material_arena = &arena;
+        ++w.text_version;
+        const NodeArena::Mark before = arena.mark();
+        build_material_now(ctx, w, style);
+        ++d.stats.TableCellsMeasured;
+        b.last_cell_boxes = arena.mark().boxes - before.boxes;
+        b.atom_boxes += b.last_cell_boxes;
+        d.live_boxes += b.last_cell_boxes;
+
+        const uint32_t node_base = static_cast<uint32_t>(table.nodes.size());
+        const uint32_t display_base = static_cast<uint32_t>(b.display_text.size());
+        b.last_cell_display = display_base;
+        table.nodes.insert(table.nodes.end(), w.block.run.nodes.begin(), w.block.run.nodes.end());
+        for (const uint32_t offset : w.source_offsets)
+            b.source_offsets.push_back(offset + cell.start);
+        b.source_offsets.resize(table.nodes.size(), cell.end);
+        for (const InkSpan& span : w.ink_spans)
+            b.ink_spans.push_back(
+                InkSpan{span.first + node_base, span.end + node_base, span.colour});
+        for (AtomSource atom : w.atoms) {
+            const uint32_t base = atom.in_display_text ? display_base : cell.start;
+            atom.node += node_base;
+            atom.begin += base;
+            atom.end += base;
+            b.atoms.push_back(atom);
+        }
+        b.display_text.append(w.display_text);
+        b.fallback = b.fallback || w.fallback;
+        if (b.error.ok() && !w.material_error.ok()) {
+            const int at = w.material_error.byte_pos >= 0
+                               ? w.material_error.byte_pos + static_cast<int>(cell.start)
+                               : -1;
+            b.error.set(w.material_error.code, w.material_error.message, at,
+                        at >= 0 ? ImTypeset::TextByteToCodepointOffset(
+                                      b.text.data(), at, b.text.data() + b.text.size())
+                                : -1);
+        }
+        const size_t first = table.cell_end.empty() ? 0 : table.cell_end.back();
+        table.end_cell(
+            natural_width(arena, NodeView(table.nodes.data() + first, table.nodes.size() - first),
+                          table.cell_padding, measure));
+        b.cells_built = static_cast<uint32_t>(i + 1);
+    }
+    w.block.run.nodes.clear();
+    w.text.clear();
+    w.runs.clear();
+
+    // The widths held are each column's widest so far (the reference's
+    // `StreamView._held`): never narrower as cells arrive, and started afresh
+    // when the number of columns changes.
+    if (table.held) {
+        std::vector<Scaled> widest(b.columns, 0);
+        for (const DocCell& cell : b.cells) {
+            const size_t k = static_cast<size_t>(&cell - b.cells.data());
+            if (cell.column < widest.size() && k < table.natural.size())
+                widest[cell.column] = std::max(widest[cell.column], table.natural[k]);
+        }
+        if (b.held.size() == widest.size()) {
+            for (size_t c = 0; c < widest.size(); ++c)
+                widest[c] = std::max(widest[c], b.held[c]);
+        }
+        b.held.swap(widest);
+        table.widths.assign(b.held.begin(), b.held.end());
+    }
+    guard.finished = true;
 }
 
 // DocumentComposer::materialize: block `number` is about to be laid out.
@@ -487,8 +811,19 @@ void materialize(void* user, size_t number, Block& block)
     if (b.has_material)
         return;
     ImTypesetContext& ctx = *d.ctx;
-    if (is_text(b.kind) || is_code(b.kind))
+    if (is_lined(b.kind))
         ++d.stats.MaterialBuilds;
+    if (is_table(b.kind)) {
+        // What was found wrong with the cells that stand is kept.
+        if (b.cells_built == 0) {
+            b.fallback = false;
+            b.error = b.text_error;
+        }
+        b.display_block = false;
+        b.has_material = true;
+        build_cells(d, b, block);
+        return;
+    }
     b.has_material = true;
     b.fallback = false;
     b.display_block = false;
@@ -553,7 +888,7 @@ void materialize(void* user, size_t number, Block& block)
         Lent& operator=(const Lent&) = delete;
     } lent(b, w, d.doc.arena());
     w.text_error = b.text_error;
-    w.flags = b.flags;
+    w.flags = text_flags(b);
     w.material_arena = &d.doc.arena();
     ++w.text_version;
     ResolvedStyle style = d.style;
@@ -597,8 +932,12 @@ void collect_boxes(ImTypesetDocument& d)
             continue;
         b.atom_boxes = 0;
         b.has_material = false;
-        if (b.has_spec)
-            d.doc.edit_text(i).text.run.nodes.clear();
+        b.cells_built = 0;
+        if (b.has_spec) {
+            Block& block = d.doc.edit_text(i);
+            block.text.run.nodes.clear();
+            block.table.clear();
+        }
     }
     d.doc.arena().clear();
     d.dead_boxes = 0;
@@ -704,6 +1043,53 @@ void map_code_indices(const DocBlock& b, const BlockLayout& layout, std::vector<
         *marker_items = marker_end;
 }
 
+// Where each index of a table's commands came from in its text
+// (DocBlock::table_bytes). An item that came from a character is that
+// character's byte. One the text does not hold -- the glue that places a cell
+// in its column, the skips of a wrapped cell's lines -- is, before the cell's
+// first character, that character's byte, and after its last, the END of the
+// cell's text: a caret at the end of a cell is the cell's own end, not the
+// next cell's start. A cell the row lacks is where the cell before it ended.
+void map_table_indices(DocBlock& b, const BlockLayout& layout)
+{
+    constexpr uint32_t UNSET = 0xFFFFFFFFu;
+    const uint32_t items = layout.item_count;
+    std::vector<uint32_t>& bytes = b.table_bytes;
+    bytes.assign(static_cast<size_t>(items) + 1, UNSET);
+    const size_t nodes = std::min(layout.shipped.size(), b.source_offsets.size());
+    for (size_t n = 0; n < nodes; ++n) {
+        const uint32_t index = layout.shipped[n];
+        if (index < items)
+            bytes[index] = std::min(bytes[index], b.source_offsets[n]);
+    }
+    const TableLayout& table = layout.table;
+    const size_t rows = table.rows.size();
+    const size_t columns = rows != 0 ? (table.cell_index.size() - 1) / rows : 0;
+    uint32_t last_end = 0;
+    for (size_t r = 0; r < rows && r + 1 < b.row_first.size(); ++r) {
+        const size_t have = b.row_first[r + 1] - b.row_first[r];
+        for (size_t c = 0; c < columns; ++c) {
+            const size_t k = r * columns + c;
+            const uint32_t first = std::min(table.cell_index[k], items);
+            const uint32_t end = std::min(table.cell_index[k + 1], items);
+            if (c < have)
+                last_end = b.cells[b.row_first[r] + c].end;
+            uint32_t next = last_end;
+            for (uint32_t index = end; index-- > first;) {
+                if (bytes[index] == UNSET || bytes[index] > next)
+                    bytes[index] = next;
+                else
+                    next = bytes[index];
+            }
+        }
+    }
+    bytes[items] = static_cast<uint32_t>(b.text.size());
+    for (uint32_t index = items; index-- > 0;) {
+        if (bytes[index] > bytes[index + 1])
+            bytes[index] = bytes[index + 1];
+    }
+}
+
 // Brings what is kept beside a block's layout up to date with it.
 void sync(ImTypesetDocument& d, size_t i)
 {
@@ -719,6 +1105,9 @@ void sync(ImTypesetDocument& d, size_t i)
     if (is_text(b.kind)) {
         b.marker_items = layout.marker_items;
         ink_ranges(layout.shipped, b.ink_spans, d.inks_scratch);
+    } else if (is_table(b.kind)) {
+        ink_ranges(layout.shipped, b.ink_spans, d.inks_scratch);
+        map_table_indices(b, layout);
     } else {
         d.inks_scratch.clear();
         if (is_code(b.kind) && !b.marker.empty()) {
@@ -809,7 +1198,23 @@ const ImTypesetParagraph& view_of(ImTypesetDocument& d, size_t i)
     p.atoms.assign(b.atoms.begin(), b.atoms.end());
     p.display_text.assign(b.display_text);
     p.display_block = b.display_block;
-    if (is_text(b.kind)) {
+    p.cell_breaks.clear();
+    if (is_table(b.kind)) {
+        // A copy writes a newline before each row but the first and a tab
+        // before each cell but the first of its row (the reference's
+        // `_separators_within`): every cell owns an index, an empty one too.
+        p.index_bytes.assign(b.table_bytes.begin(), b.table_bytes.end());
+        const TableLayout& table = layout.table;
+        const size_t rows = table.rows.size();
+        const size_t columns = rows != 0 ? (table.cell_index.size() - 1) / rows : 0;
+        p.layout.hard_breaks.clear();
+        for (size_t r = 0; r < rows; ++r) {
+            if (r != 0)
+                p.layout.hard_breaks.push_back(table.row_index[r]);
+            for (size_t c = 1; c < columns; ++c)
+                p.cell_breaks.push_back(table.cell_index[r * columns + c]);
+        }
+    } else if (is_text(b.kind)) {
         map_index_bytes(layout.shipped, b.source_offsets, layout.item_count,
                         static_cast<uint32_t>(b.text.size()), p.index_bytes);
     } else if (is_code(b.kind)) {
@@ -980,6 +1385,11 @@ void draw_block(ImTypesetDocument& d, size_t i, double left, double top, const T
     if (b.kind == ImTypesetBlockKind_Rule)
         args.palette.rule = d.options.RuleColor != 0 ? shown(d.options.RuleColor)
                                                      : ImGui::GetColorU32(ImGuiCol_Separator);
+    // The rule under a table's header; a formula's rule in a cell is ink.
+    args.rule_between = 0;
+    if (is_table(b.kind))
+        args.rule_between = d.options.TableRuleColor != 0 ? shown(d.options.TableRuleColor)
+                                                          : ImGui::GetColorU32(ImGuiCol_Separator);
     args.fills = nullptr;
     args.fill_count = 0;
     args.highlights = nullptr;
@@ -997,7 +1407,7 @@ void draw_block(ImTypesetDocument& d, size_t i, double left, double top, const T
         own_inks = true;
     }
 
-    const bool textual = is_text(b.kind) || is_code(b.kind);
+    const bool textual = is_lined(b.kind);
     ImTypesetTextRange local = {0, 0};
     bool whole = false;
     if (local_range(d, selection, i, local, &whole)) {
@@ -1251,7 +1661,7 @@ Probe probe(ImTypesetDocument& d, const ImVec2& local_pos)
 
 ImTypesetDocumentHit hit_test(ImTypesetDocument& d, const ImVec2& local_pos)
 {
-    ImTypesetDocumentHit out = {{0, 0}, -1, 0, false, false};
+    ImTypesetDocumentHit out = {{0, 0}, -1, 0, false, false, -1, -1};
     const Probe at = probe(d, local_pos);
     if (at.block < 0)
         return out;
@@ -1259,7 +1669,7 @@ ImTypesetDocumentHit hit_test(ImTypesetDocument& d, const ImVec2& local_pos)
     const DocBlock& b = d.blocks[i];
     out.Position.Block = at.block;
     out.InBlock = at.in_block;
-    if (!is_text(b.kind) && !is_code(b.kind)) {
+    if (!is_lined(b.kind)) {
         out.Position.Offset = 2 * at.local.y < d.doc.layout(i).extent ? 0 : text_size_of(b);
         return out;
     }
@@ -1270,27 +1680,57 @@ ImTypesetDocumentHit hit_test(ImTypesetDocument& d, const ImVec2& local_pos)
     ensure_model(p);
     const uint32_t index = p.model.hit(at.local);
     out.Position.Offset = std::min(byte_at_index(p, index), text_size_of(b));
+    if (is_table(b.kind)) {
+        // The cell the index is in: the last that starts at or before it.
+        const TableLayout& table = d.doc.layout(i).table;
+        const size_t rows = table.rows.size();
+        const size_t columns = rows != 0 ? (table.cell_index.size() - 1) / rows : 0;
+        if (columns != 0) {
+            const auto after =
+                std::upper_bound(table.cell_index.begin(), table.cell_index.end() - 1, index);
+            const size_t k = after == table.cell_index.begin()
+                                 ? 0
+                                 : static_cast<size_t>(after - table.cell_index.begin()) - 1;
+            out.Row = static_cast<int>(k / columns);
+            out.Column = static_cast<int>(k % columns);
+        }
+    }
     out.Line = static_cast<int>(line_of_index(p, index) - p.line_boxes.begin());
     const auto under =
         std::partition_point(p.line_boxes.begin(), p.line_boxes.end(),
                              [&](const LineBox& box) { return box.bottom <= at.local.y; });
     out.Inside = under != p.line_boxes.end() && at.local.y >= under->top &&
                  at.local.x >= under->x0 && at.local.x < under->x1;
-    if (out.Inside) {
-        // The run the character under the point is in.
-        const uint32_t byte = static_cast<uint32_t>(out.Position.Offset);
-        uint32_t under_byte = byte;
-        // The caret may be after the character the point is on: the item
-        // whose box holds the point is the one at or before the caret.
-        for (uint32_t c = under->first + 1; c < under->end; ++c) {
+    LineBox line_under = under != p.line_boxes.end() ? *under : LineBox();
+    if (is_table(b.kind) && under != p.line_boxes.end() && at.local.y >= under->top) {
+        // A row is one span of commands, and where a cell wrapped it holds
+        // the lines of every cell, side by side. The line the point is on is
+        // the innermost LINE whose box holds it: a nested line follows the
+        // line it is in, so the last such command.
+        // A line that holds only lines (the row itself, then) is not one.
+        bool found = false;
+        const size_t end = std::min<size_t>(under->end, p.cmds.size());
+        for (size_t c = under->first; c < end; ++c) {
             const DrawCmd& cmd = p.cmds[c];
-            if (!is_item(cmd))
+            if (!cmd.is(CmdType::LINE) || at.local.x < cmd.x || at.local.x >= cmd.x + cmd.width ||
+                at.local.y < cmd.y - cmd.height || at.local.y >= cmd.y + cmd.depth)
                 continue;
-            if (cmd.x <= at.local.x && at.local.x < cmd.x + cmd.width) {
-                under_byte = static_cast<uint32_t>(byte_at_index(p, cmd.index));
-                break;
-            }
+            if (c + 1 < end && p.cmds[c + 1].is(CmdType::LINE))
+                continue;
+            found = true;
+            line_under.first = static_cast<uint32_t>(c);
+            size_t next = c + 1;
+            while (next < end && !p.cmds[next].is(CmdType::LINE))
+                ++next;
+            line_under.end = static_cast<uint32_t>(next);
         }
+        out.Inside = found;
+    }
+    if (out.Inside) {
+        // The run the character under the point is in, which is not always
+        // the one the caret is before.
+        const uint32_t under_byte = static_cast<uint32_t>(
+            std::max(byte_under(p, line_under, at.local.x, out.Position.Offset), 0));
         const auto run =
             std::upper_bound(b.runs.begin(), b.runs.end(), under_byte,
                              [](uint32_t wanted, const StyledRun& r) { return wanted < r.end; });
@@ -1306,7 +1746,7 @@ ImTypesetTextRange unit_at(ImTypesetDocument& d, const Probe& at, Granularity gr
     ImTypesetTextRange out = {0, 0};
     const size_t i = static_cast<size_t>(at.block);
     const DocBlock& b = d.blocks[i];
-    if (!is_text(b.kind) && !is_code(b.kind)) {
+    if (!is_lined(b.kind)) {
         out.End = text_size_of(b);
         return out;
     }
@@ -1319,6 +1759,30 @@ ImTypesetTextRange unit_at(ImTypesetDocument& d, const Probe& at, Granularity gr
     out.Start = std::min(out.Start, size);
     out.End = std::min(std::max(out.End, out.Start), size);
     return out;
+}
+
+// A table's last cell is to be made again: its text grew. What its material
+// left beside the block is taken back to where the cell began.
+void reopen_last_cell(ImTypesetDocument& d, size_t i)
+{
+    DocBlock& b = d.blocks[i];
+    b.has_material = false;
+    if (!b.has_spec || b.cells_built != b.cells.size() || b.cells_built == 0)
+        return;
+    Block& block = d.doc.edit_text(i);
+    block.table.reopen_last_cell();
+    const uint32_t nodes = static_cast<uint32_t>(block.table.nodes.size());
+    b.source_offsets.resize(std::min<size_t>(b.source_offsets.size(), nodes));
+    while (!b.ink_spans.empty() && b.ink_spans.back().first >= nodes)
+        b.ink_spans.pop_back();
+    while (!b.atoms.empty() && b.atoms.back().node >= nodes)
+        b.atoms.pop_back();
+    b.display_text.resize(std::min<size_t>(b.display_text.size(), b.last_cell_display));
+    d.dead_boxes += b.last_cell_boxes;
+    d.live_boxes -= std::min<size_t>(d.live_boxes, b.last_cell_boxes);
+    b.atom_boxes -= std::min(b.atom_boxes, b.last_cell_boxes);
+    b.last_cell_boxes = 0;
+    --b.cells_built;
 }
 
 bool too_many_blocks()
@@ -1419,6 +1883,36 @@ bool DebugCheckDocumentDataLayout(size_t sz_block, size_t sz_block_style, size_t
     return succeed();
 }
 
+bool DebugCheckTableDataLayout(size_t sz_cell, size_t sz_column, size_t sz_table,
+                               size_t sz_column_geometry, size_t sz_row_geometry,
+                               size_t sz_cell_position)
+{
+    const struct {
+        const char* name;
+        size_t given;
+        size_t own;
+    } structs[] = {
+        {"ImTypesetCell", sz_cell, sizeof(ImTypesetCell)},
+        {"ImTypesetTableColumn", sz_column, sizeof(ImTypesetTableColumn)},
+        {"ImTypesetTableGeometry", sz_table, sizeof(ImTypesetTableGeometry)},
+        {"ImTypesetTableColumnGeometry", sz_column_geometry, sizeof(ImTypesetTableColumnGeometry)},
+        {"ImTypesetTableRowGeometry", sz_row_geometry, sizeof(ImTypesetTableRowGeometry)},
+        {"ImTypesetCellPosition", sz_cell_position, sizeof(ImTypesetCellPosition)},
+    };
+    std::string& mismatch = layout_mismatch();
+    for (const auto& entry : structs) {
+        if (entry.given == entry.own)
+            continue;
+        mismatch = std::string(entry.name) + " is " + std::to_string(entry.given) +
+                   " bytes where IMTYPESET_CHECKVERSION() is called and " +
+                   std::to_string(entry.own) +
+                   " in the imtypeset library: the two were compiled against different "
+                   "imtypeset.h";
+        return fail(ImTypesetError_VersionMismatch, mismatch);
+    }
+    return succeed();
+}
+
 ImTypesetDocument* CreateDocument()
 {
     ImTypesetContext* ctx = g_context;
@@ -1471,6 +1965,11 @@ bool ReplaceDocumentBlocks(ImTypesetDocument* document, int first, int count,
         d->dead_boxes += d->blocks[i].atom_boxes;
         d->live_boxes -= std::min<size_t>(d->live_boxes, d->blocks[i].atom_boxes);
     }
+    // The widths a held table had, for the table that takes its place.
+    std::vector<Scaled> held_widths;
+    if (removed == 1 && incoming == 1 && is_table(d->blocks[at].kind) &&
+        (d->blocks[at].flags & ImTypesetBlockFlags_TableHeld) != 0)
+        held_widths.swap(d->blocks[at].held);
     // The same rotation the block layer made, so that a block and what is
     // kept beside it stay together.
     if (incoming >= removed) {
@@ -1503,6 +2002,10 @@ bool ReplaceDocumentBlocks(ImTypesetDocument* document, int first, int count,
 
     for (size_t k = 0; k < incoming; ++k) {
         describe(*d, d->blocks[at + k], given, given.Blocks[k], static_cast<int>(at + k), trouble);
+        DocBlock& described = d->blocks[at + k];
+        if (is_table(described.kind) && (described.flags & ImTypesetBlockFlags_TableHeld) != 0 &&
+            held_widths.size() == described.columns)
+            described.held.swap(held_widths);
         if (d->has_style && !d->specs_stale)
             apply_spec(*d, at + k);
     }
@@ -1543,8 +2046,12 @@ bool AppendDocumentText(ImTypesetDocument* document, const char* text, const cha
         return fail(ImTypesetError_InvalidArgument, "the document has no block to append to");
     const size_t i = d->blocks.size() - 1;
     DocBlock& b = d->blocks[i];
-    if (!is_text(b.kind) && !is_code(b.kind))
+    if (!is_lined(b.kind))
         return fail(ImTypesetError_InvalidArgument, "the last block is not one that holds text");
+    if (is_table(b.kind) && (b.cells.empty() || b.cells.back().end != b.text.size()))
+        return fail(ImTypesetError_InvalidArgument,
+                    "the table's last cell does not end where its text ends: there is no cell "
+                    "to append to");
     // What THIS call found wrong, which is what it answers: what an earlier
     // call found is the block's (GetDocumentBlockError) and was said then.
     ErrorState trouble;
@@ -1558,12 +2065,19 @@ bool AppendDocumentText(ImTypesetDocument* document, const char* text, const cha
                     static_cast<int>(b.text.size() + size));
     if (size > 0)
         b.text.append(text, size);
-    if (is_text(b.kind)) {
+    if (is_text(b.kind) || is_table(b.kind)) {
         ErrorState run_trouble;
         validate_runs(b.runs, runs, runs_count, b.text.size(),
                       b.runs.empty() ? 0 : b.runs.back().end, run_trouble);
         if (trouble.ok())
             trouble = run_trouble;
+    }
+    if (is_table(b.kind)) {
+        b.cells.back().end = static_cast<uint32_t>(b.text.size());
+        if (b.text_error.ok())
+            b.text_error = trouble;
+        reopen_last_cell(*d, i);
+        return report(trouble);
     }
     if (b.text_error.ok())
         b.text_error = trouble;
@@ -1585,6 +2099,77 @@ bool AppendDocumentText(ImTypesetDocument* document, const char* text, const cha
         block.length_hint = length_hint(b);
     }
     return report(trouble);
+}
+
+bool AppendDocumentTableCells(ImTypesetDocument* document, const char* text, const char* text_end,
+                              const ImTypesetCell* cells, int cells_count, const ImTypesetRun* runs,
+                              int runs_count)
+{
+    ImTypesetDocument* d = owned(document);
+    if (d == nullptr)
+        return no_document();
+    if (d->blocks.empty() || !is_table(d->blocks.back().kind))
+        return fail(ImTypesetError_InvalidArgument, "the last block is not a table");
+    const size_t i = d->blocks.size() - 1;
+    DocBlock& b = d->blocks[i];
+    ErrorState trouble;
+    const size_t given = text_size(text, text_end);
+    const size_t room = b.text.size() < static_cast<size_t>(MAX_TEXT_BYTES)
+                            ? static_cast<size_t>(MAX_TEXT_BYTES) - b.text.size()
+                            : 0;
+    const size_t size = cut_at_character(text, given, room);
+    if (size < given)
+        trouble.set(ImTypesetError_TextTooLong, "the text is longer than 16 MiB and was cut there",
+                    static_cast<int>(b.text.size() + size));
+    if (size > 0)
+        b.text.append(text, size);
+    ErrorState run_trouble;
+    validate_runs(b.runs, runs, runs_count, b.text.size(), b.runs.empty() ? 0 : b.runs.back().end,
+                  run_trouble);
+    if (trouble.ok())
+        trouble = run_trouble;
+    const uint32_t rows_before = b.row_count();
+    const uint32_t columns_before = b.columns;
+    add_cells(b, cells, cells_count, b.text.size(), [&](const char* what) {
+        if (trouble.ok())
+            trouble.set(ImTypesetError_DescriptionCut, "block " + std::to_string(i) + ": " + what);
+    });
+    if (b.text_error.ok())
+        b.text_error = trouble;
+    b.has_material = false;
+    if (b.has_spec) {
+        // Whether a table sets a box at all is part of what the gaps round it
+        // were computed from.
+        Block& block =
+            rows_before == 0 && b.row_count() != 0 ? d->doc.edit(i) : d->doc.edit_text(i);
+        block.length_hint = length_hint(b);
+        if (b.columns != columns_before && apply_columns(*d, b, block.table))
+            block.table.config = table_stamp();
+    }
+    return report(trouble);
+}
+
+bool SetDocumentTableColumns(ImTypesetDocument* document, int block,
+                             const ImTypesetTableColumn* columns, int columns_count)
+{
+    ImTypesetDocument* d = owned(document);
+    if (d == nullptr)
+        return no_document();
+    if (block < 0 || static_cast<size_t>(block) >= d->blocks.size() ||
+        !is_table(d->blocks[static_cast<size_t>(block)].kind))
+        return fail(ImTypesetError_InvalidArgument, "not a table of the document");
+    DocBlock& b = d->blocks[static_cast<size_t>(block)];
+    b.column_specs.clear();
+    if (columns != nullptr && columns_count > 0)
+        b.column_specs.assign(
+            columns,
+            columns + std::min<size_t>(static_cast<size_t>(columns_count), MAX_TABLE_COLUMNS));
+    if (b.has_spec) {
+        Block& changed = d->doc.edit_text(static_cast<size_t>(block));
+        if (apply_columns(*d, b, changed.table))
+            changed.table.config = table_stamp();
+    }
+    return succeed();
 }
 
 bool SetDocumentBlockExtent(ImTypesetDocument* document, int block, float extent)
@@ -1616,6 +2201,13 @@ bool SetDocumentOptions(ImTypesetDocument* document, const ImTypesetDocumentOpti
     d->options = options != nullptr ? *options : ImTypesetDocumentOptions();
     if (d->has_style)
         apply_rules(*d);
+    // A table's padding and rule are the options'.
+    for (DocBlock& b : d->blocks) {
+        if (is_table(b.kind) && b.has_spec) {
+            b.has_spec = false;
+            d->specs_stale = true;
+        }
+    }
     return succeed();
 }
 
@@ -1706,6 +2298,7 @@ ImTypesetDocumentStats GetDocumentStats(const ImTypesetDocument* document)
     out.BlocksLaidOut = d->composer.blocks_composed;
     out.UnitsStacked = d->composer.units_assembled;
     out.StructureVisits = d->composer.blocks_prepared + d->spec_visits;
+    out.TableRowsSet = d->composer.table_rows_set;
     out.Blocks = static_cast<int>(d->blocks.size());
     for (size_t i = 0; i < d->blocks.size(); ++i)
         out.BlocksDeferred += d->doc.laid_out(i) ? 0 : 1;
@@ -1785,7 +2378,7 @@ ImTypesetDocumentHit HitTestDocument(ImTypesetDocument* document, const ImVec2& 
 {
     ImTypesetDocument* d = owned(document);
     if (d == nullptr)
-        return ImTypesetDocumentHit{{0, 0}, -1, 0, false, false};
+        return ImTypesetDocumentHit{{0, 0}, -1, 0, false, false, -1, -1};
     ready(*d);
     return hit_test(*d, local_pos);
 }
@@ -1854,7 +2447,7 @@ int GetDocumentRangeRects(ImTypesetDocument* document, const ImTypesetDocumentRa
             }
             continue;
         }
-        if ((!is_text(b.kind) && !is_code(b.kind)) || local.Start >= local.End)
+        if ((!is_lined(b.kind)) || local.Start >= local.End)
             continue;
         const ImTypesetParagraph& p = view_of(*d, i);
         ensure_model(p);
@@ -1880,7 +2473,7 @@ ImVec4 GetDocumentCaretRect(ImTypesetDocument* document, const ImTypesetPosition
     const size_t i = static_cast<size_t>(position.Block);
     const DocBlock& b = d->blocks[i];
     const Scaled top = d->doc.block_top(i);
-    if (!is_text(b.kind) && !is_code(b.kind)) {
+    if (!is_lined(b.kind)) {
         const Scaled x = d->doc.block(i).style.left_indent;
         const Scaled y = position.Offset > 0 ? d->doc.layout(i).extent : 0;
         return ImVec4(pxf(*d, x), pxf(*d, top + y), pxf(*d, x), pxf(*d, top + y));
@@ -1938,7 +2531,8 @@ int AppendDocumentRangeText(ImTypesetDocument* document, const ImTypesetDocument
                     ctx.scratch.assign(b.text, static_cast<size_t>(from),
                                        static_cast<size_t>(to - from));
             }
-        } else if (is_text(b.kind) && local.Start < local.End && layout_block(*d, block)) {
+        } else if ((is_text(b.kind) || is_table(b.kind)) && local.Start < local.End &&
+                   layout_block(*d, block)) {
             const ImTypesetParagraph& p = view_of(*d, i);
             ensure_model(p);
             TextData data;
@@ -1948,7 +2542,45 @@ int AppendDocumentRangeText(ImTypesetDocument* document, const ImTypesetDocument
             data.atom_count = p.atom_texts.size();
             data.originals = p.originals.data();
             data.original_count = p.originals.size();
-            p.model.text(selection_of(p, local), data, ctx.scratch);
+            if (is_table(b.kind) && !d->reference_rules) {
+                // Cell by cell, each as the model gives the part of the range
+                // in it, with a newline before a cell that starts a row and a
+                // tab before any other: every cell from the one the range
+                // starts in to the one it ends in, an empty one included, so
+                // that a copy of a table written as "Tables" advises is the
+                // table's text. The reference writes a separator only between
+                // two texts (an empty first cell loses its tab) and pads a row
+                // with tabs for the cells it lacks: that is the branch below,
+                // which the replays of its goldens take.
+                int first = cell_at(b, local.Start);
+                int last = cell_at(b, local.End);
+                // A range that ends where a cell's text starts has nothing
+                // of the cell, unless the cell is empty and that is all of it.
+                if (last > first) {
+                    const DocCell& end_cell = b.cells[static_cast<size_t>(last)];
+                    if (static_cast<uint32_t>(local.End) <= end_cell.start &&
+                        end_cell.start < end_cell.end)
+                        --last;
+                }
+                data.separators = nullptr;
+                data.separator_count = 0;
+                std::string piece;
+                for (int k = first; k >= 0 && k <= last; ++k) {
+                    const DocCell& cell = b.cells[static_cast<size_t>(k)];
+                    if (k != first)
+                        ctx.scratch += cell.column == 0 ? '\n' : '\t';
+                    ImTypesetTextRange inside;
+                    inside.Start = std::max(local.Start, static_cast<int>(cell.start));
+                    inside.End = std::min(local.End, static_cast<int>(cell.end));
+                    if (inside.Start >= inside.End)
+                        continue;
+                    piece.clear();
+                    p.model.text(selection_of(p, inside), data, piece);
+                    ctx.scratch += piece;
+                }
+            } else {
+                p.model.text(selection_of(p, local), data, ctx.scratch);
+            }
         }
         if (ctx.scratch.empty())
             continue;
@@ -1982,7 +2614,7 @@ ImTypesetBlockGeometry GetDocumentBlockGeometry(ImTypesetDocument* document, int
     out.FullMax = ImVec2(pxf(*d, right), pxf(*d, top + layout.extent));
     out.Min = out.FullMin;
     out.Max = out.FullMax;
-    if (is_text(b.kind) || is_code(b.kind)) {
+    if (is_lined(b.kind)) {
         const ImTypesetParagraph& p = view_of(*d, i);
         ensure_lines(p);
         out.LineCount = static_cast<int>(std::min<size_t>(p.line_boxes.size(), 0x7FFFFFFF));
@@ -2014,7 +2646,7 @@ ImTypesetLine GetDocumentBlockLine(ImTypesetDocument* document, int block, int l
         return out;
     const size_t i = static_cast<size_t>(block);
     const DocBlock& b = d->blocks[i];
-    if (!is_text(b.kind) && !is_code(b.kind))
+    if (!is_lined(b.kind))
         return out;
     const ImTypesetParagraph& p = view_of(*d, i);
     ensure_lines(p);
@@ -2034,6 +2666,140 @@ ImTypesetLine GetDocumentBlockLine(ImTypesetDocument* document, int block, int l
             : size;
     if (out.TextEnd < out.TextStart)
         out.TextEnd = out.TextStart;
+    return out;
+}
+
+ImTypesetTableGeometry GetDocumentTableGeometry(ImTypesetDocument* document, int block)
+{
+    ImTypesetTableGeometry out = {0, 0, 0, ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), false, false};
+    ImTypesetDocument* d = owned(document);
+    if (d == nullptr || block < 0 || static_cast<size_t>(block) >= d->blocks.size() ||
+        !is_table(d->blocks[static_cast<size_t>(block)].kind))
+        return out;
+    ready(*d);
+    if (!layout_block(*d, block))
+        return out;
+    const size_t i = static_cast<size_t>(block);
+    const DocBlock& b = d->blocks[i];
+    const TableLayout& table = d->doc.layout(i).table;
+    const Scaled top = d->doc.block_top(i);
+    Scaled across = 0;
+    for (const Scaled width : table.columns)
+        across = add_saturating(across, width);
+    const size_t rows = table.rows.size();
+    out.RowCount = static_cast<int>(rows);
+    out.ColumnCount = static_cast<int>(table.columns.size());
+    out.CellCount = static_cast<int>(b.cells.size());
+    out.Min = ImVec2(pxf(*d, table.indent), pxf(*d, top));
+    Scaled bottom = 0;
+    if (rows != 0)
+        bottom = table.row_top[rows - 1] + table.rows[rows - 1].dims.height +
+                 table.rows[rows - 1].dims.depth;
+    out.Max = ImVec2(pxf(*d, table.indent + across), pxf(*d, top + bottom));
+    out.Stated = table.stated;
+    out.LaidOut = true;
+    return out;
+}
+
+ImTypesetTableColumnGeometry GetDocumentTableColumn(ImTypesetDocument* document, int block,
+                                                    int column)
+{
+    ImTypesetTableColumnGeometry out = {0.0f, 0.0f, 0.0f, 0.0f};
+    ImTypesetDocument* d = owned(document);
+    if (d == nullptr || block < 0 || static_cast<size_t>(block) >= d->blocks.size() ||
+        !is_table(d->blocks[static_cast<size_t>(block)].kind) || column < 0)
+        return out;
+    ready(*d);
+    if (!layout_block(*d, block))
+        return out;
+    const size_t i = static_cast<size_t>(block);
+    const size_t c = static_cast<size_t>(column);
+    const Scaled floor = d->doc.table_floor(d->composer, i, c);
+    const TableLayout& table = d->doc.layout(i).table;
+    if (c >= table.columns.size())
+        return out;
+    Scaled left = table.indent;
+    for (size_t k = 0; k < c; ++k)
+        left = add_saturating(left, table.columns[k]);
+    out.Min = pxf(*d, left);
+    out.Max = pxf(*d, add_saturating(left, table.columns[c]));
+    out.Natural = c < table.widest.size() ? pxf(*d, table.widest[c]) : 0.0f;
+    out.Floor = pxf(*d, floor);
+    return out;
+}
+
+ImTypesetTableRowGeometry GetDocumentTableRow(ImTypesetDocument* document, int block, int row)
+{
+    ImTypesetTableRowGeometry out = {0.0f, 0.0f, 0, 0, false};
+    ImTypesetDocument* d = owned(document);
+    if (d == nullptr || block < 0 || static_cast<size_t>(block) >= d->blocks.size() ||
+        !is_table(d->blocks[static_cast<size_t>(block)].kind) || row < 0)
+        return out;
+    ready(*d);
+    if (!layout_block(*d, block))
+        return out;
+    const size_t i = static_cast<size_t>(block);
+    const size_t r = static_cast<size_t>(row);
+    const DocBlock& b = d->blocks[i];
+    const TableLayout& table = d->doc.layout(i).table;
+    if (r >= table.rows.size() || r + 1 >= b.row_first.size())
+        return out;
+    const Scaled top = d->doc.block_top(i) + table.row_top[r];
+    out.Min = pxf(*d, top);
+    out.Max = pxf(*d, top + table.rows[r].dims.height + table.rows[r].dims.depth);
+    out.CellStart = static_cast<int>(b.row_first[r]);
+    out.CellCount = static_cast<int>(b.row_first[r + 1] - b.row_first[r]);
+    out.Wrapped = table.rows[r].wrapped;
+    return out;
+}
+
+ImTypesetCellPosition GetDocumentTableCell(const ImTypesetDocument* document,
+                                           const ImTypesetPosition& position)
+{
+    ImTypesetCellPosition out = {-1, 0, 0, 0};
+    const ImTypesetDocument* d = owned(document);
+    if (d == nullptr || position.Block < 0 ||
+        static_cast<size_t>(position.Block) >= d->blocks.size())
+        return out;
+    const DocBlock& b = d->blocks[static_cast<size_t>(position.Block)];
+    if (!is_table(b.kind))
+        return out;
+    const int k = cell_at(b, position.Offset);
+    if (k < 0)
+        return out;
+    const DocCell& cell = b.cells[static_cast<size_t>(k)];
+    const int64_t offset = static_cast<int64_t>(position.Offset) - cell.start;
+    out.Row = static_cast<int>(cell.row);
+    out.Column = static_cast<int>(cell.column);
+    out.Cell = k;
+    out.Offset =
+        static_cast<int>(std::min<int64_t>(std::max<int64_t>(offset, 0), cell.end - cell.start));
+    return out;
+}
+
+ImTypesetPosition GetDocumentTablePosition(const ImTypesetDocument* document, int block, int row,
+                                           int column, int offset)
+{
+    ImTypesetPosition out = {block, 0};
+    const ImTypesetDocument* d = owned(document);
+    if (d == nullptr || block < 0 || static_cast<size_t>(block) >= d->blocks.size())
+        return out;
+    const DocBlock& b = d->blocks[static_cast<size_t>(block)];
+    if (!is_table(b.kind) || row < 0 || static_cast<size_t>(row) + 1 >= b.row_first.size())
+        return out;
+    const size_t first = b.row_first[static_cast<size_t>(row)];
+    const size_t count = b.row_first[static_cast<size_t>(row) + 1] - first;
+    if (count == 0)
+        return out;
+    // A column the row has no cell for is where its last cell ends.
+    if (column < 0 || static_cast<size_t>(column) >= count) {
+        out.Offset =
+            static_cast<int>(column < 0 ? b.cells[first].start : b.cells[first + count - 1].end);
+        return out;
+    }
+    const DocCell& cell = b.cells[first + static_cast<size_t>(column)];
+    const int64_t length = static_cast<int64_t>(cell.end) - cell.start;
+    out.Offset = static_cast<int>(cell.start + std::min<int64_t>(std::max(offset, 0), length));
     return out;
 }
 

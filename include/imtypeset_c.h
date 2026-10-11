@@ -55,7 +55,8 @@
  *   - bool does not cross as a parameter or a result: `int`, zero or not. It
  *     appears only inside the structs that mirror a C++ one holding it
  *     (ImTypeset_Hit, ImTypeset_Formula, ImTypeset_DocumentHit,
- *     ImTypeset_BlockGeometry).
+ *     ImTypeset_BlockGeometry, ImTypeset_TableGeometry,
+ *     ImTypeset_TableRowGeometry).
  *   - A STRUCT THAT HOLDS POINTERS (ImTypeset_DocumentContent,
  *     ImTypeset_DocumentDraw) points at arrays of the caller's, which are read
  *     during the call and never kept.
@@ -169,6 +170,7 @@ typedef int ImTypeset_CodeOverflow;      /* ImTypeset_CodeOverflow_ */
 typedef int ImTypeset_MarkPlace;         /* ImTypeset_MarkPlace_ */
 typedef int ImTypeset_DocumentDrawFlags; /* ImTypeset_DocumentDrawFlags_ */
 typedef int ImTypeset_DemoSection;       /* ImTypeset_DemoSection_ */
+typedef int ImTypeset_CellFlags;         /* ImTypeset_CellFlags_ */
 
 /* Every value below is the value of the C++ enumerator of the same name. */
 
@@ -261,8 +263,13 @@ enum ImTypeset_BlockKind_ {
 enum ImTypeset_BlockFlags_ {
     ImTypeset_BlockFlags_None = 0,
     ImTypeset_BlockFlags_HardBreaks = 1 << 0,
-    ImTypeset_BlockFlags_Math = 1 << 2
+    ImTypeset_BlockFlags_Math = 1 << 2,
+    ImTypeset_BlockFlags_FixedLineHeight = 1 << 3,
+    ImTypeset_BlockFlags_TableHeader = 1 << 4,
+    ImTypeset_BlockFlags_TableHeld = 1 << 5
 };
+
+enum ImTypeset_CellFlags_ { ImTypeset_CellFlags_None = 0, ImTypeset_CellFlags_RowStart = 1 << 0 };
 
 enum ImTypeset_ContainerKind_ {
     ImTypeset_ContainerKind_Quote = 0,
@@ -351,6 +358,7 @@ typedef struct ImTypeset_Hit { /* ImTypesetHit */
     int TextOffset;
     int Line;
     bool Inside;
+    int Tag;
 } ImTypeset_Hit;
 
 typedef struct ImTypeset_ErrorInfo { /* ImTypesetErrorInfo */
@@ -429,9 +437,23 @@ typedef struct ImTypeset_Block { /* ImTypesetBlock */
     int Container;
     int Item;
     float Extent;
-    int TableRows;
-    int TableColumns;
+    int CellStart;
+    int CellCount;
+    int ColumnStart;
+    int ColumnCount;
 } ImTypeset_Block;
+
+typedef struct ImTypeset_Cell { /* ImTypesetCell */
+    int TextStart;
+    int TextEnd;
+    ImTypeset_CellFlags Flags;
+} ImTypeset_Cell;
+
+typedef struct ImTypeset_TableColumn { /* ImTypesetTableColumn */
+    ImTypeset_Align Align;
+    float Width;
+    float Share;
+} ImTypeset_TableColumn;
 
 /* Everything one edit hands over, as views: all of it is copied. */
 typedef struct ImTypeset_DocumentContent { /* ImTypesetDocumentContent */
@@ -445,6 +467,10 @@ typedef struct ImTypeset_DocumentContent { /* ImTypesetDocumentContent */
     int StyleCount;
     const ImTypeset_Container* Containers;
     int ContainerCount;
+    const ImTypeset_Cell* Cells;
+    int CellCount;
+    const ImTypeset_TableColumn* Columns;
+    int ColumnCount;
 } ImTypeset_DocumentContent;
 
 typedef struct ImTypeset_DocumentOptions { /* ImTypesetDocumentOptions */
@@ -453,6 +479,9 @@ typedef struct ImTypeset_DocumentOptions { /* ImTypesetDocumentOptions */
     ImTypeset_U32 QuoteBarColor;
     ImTypeset_U32 RuleColor;
     ImTypeset_CodeOverflow CodeOverflow;
+    float TableCellPadding;
+    float TableRuleThickness;
+    ImTypeset_U32 TableRuleColor;
 } ImTypeset_DocumentOptions;
 
 typedef struct ImTypeset_Position { /* ImTypesetPosition */
@@ -486,6 +515,8 @@ typedef struct ImTypeset_DocumentHit { /* ImTypesetDocumentHit */
     int Tag;
     bool Inside;
     bool InBlock;
+    int Row;
+    int Column;
 } ImTypeset_DocumentHit;
 
 typedef struct ImTypeset_BlockGeometry { /* ImTypesetBlockGeometry */
@@ -497,6 +528,38 @@ typedef struct ImTypeset_BlockGeometry { /* ImTypesetBlockGeometry */
     bool LaidOut;
 } ImTypeset_BlockGeometry;
 
+typedef struct ImTypeset_TableGeometry { /* ImTypesetTableGeometry */
+    int RowCount;
+    int ColumnCount;
+    int CellCount;
+    ImTypeset_Vec2 Min;
+    ImTypeset_Vec2 Max;
+    bool Stated;
+    bool LaidOut;
+} ImTypeset_TableGeometry;
+
+typedef struct ImTypeset_TableColumnGeometry { /* ImTypesetTableColumnGeometry */
+    float Min;
+    float Max;
+    float Natural;
+    float Floor;
+} ImTypeset_TableColumnGeometry;
+
+typedef struct ImTypeset_TableRowGeometry { /* ImTypesetTableRowGeometry */
+    float Min;
+    float Max;
+    int CellStart;
+    int CellCount;
+    bool Wrapped;
+} ImTypeset_TableRowGeometry;
+
+typedef struct ImTypeset_CellPosition { /* ImTypesetCellPosition */
+    int Row;
+    int Column;
+    int Cell;
+    int Offset;
+} ImTypeset_CellPosition;
+
 typedef struct ImTypeset_DocumentStats { /* ImTypesetDocumentStats */
     ImTypeset_U64 MaterialBuilds;
     ImTypeset_U64 BlocksLaidOut;
@@ -505,6 +568,8 @@ typedef struct ImTypeset_DocumentStats { /* ImTypesetDocumentStats */
     ImTypeset_U64 BlocksDrawn;
     int Blocks;
     int BlocksDeferred;
+    ImTypeset_U64 TableCellsMeasured;
+    ImTypeset_U64 TableRowsSet;
 } ImTypeset_DocumentStats;
 
 /* What the library was compiled as. Only `int` and `char`, so that it reads
@@ -560,6 +625,14 @@ typedef struct ImTypeset_BuildInfo {
     int SizeofDocumentHit;
     int SizeofBlockGeometry;
     int SizeofDocumentStats;
+    /* The sizes of the structs of a table, which IMTYPESET_C_CHECKVERSION()
+     * compares too. */
+    int SizeofCell;
+    int SizeofTableColumn;
+    int SizeofTableGeometry;
+    int SizeofTableColumnGeometry;
+    int SizeofTableRowGeometry;
+    int SizeofCellPosition;
 } ImTypeset_BuildInfo;
 
 /* --- The build -------------------------------------------------------------------- */
@@ -585,18 +658,22 @@ IMTYPESET_C_API int ImTypeset_DebugCheckVersionAndDataLayout(
  * which this header cannot know. A binding with no ImGui header at hand takes
  * them from whatever it shares ImGui with, and compares ImTypeset_BuildInfo
  * itself. After a failed check ImTypeset_CreateContext() refuses. */
-#define IMTYPESET_C_CHECKVERSION(sz_imwchar, sz_imdrawvert, sz_imdrawidx)                     \
-    (ImTypeset_DebugCheckVersionAndDataLayout(                                                \
-         IMTYPESET_C_VERSION, NULL, (sz_imwchar), (sz_imdrawvert), (sz_imdrawidx),            \
-         sizeof(ImTypeset_Style), sizeof(ImTypeset_Run), sizeof(ImTypeset_TextRange),         \
-         sizeof(ImTypeset_Line), sizeof(ImTypeset_Hit), sizeof(ImTypeset_Formula),            \
-         sizeof(ImTypeset_Stats), sizeof(ImTypeset_ErrorInfo)) &&                             \
-     ImTypeset_DebugCheckDocumentDataLayout(                                                  \
-         sizeof(ImTypeset_Block), sizeof(ImTypeset_BlockStyle), sizeof(ImTypeset_Container),  \
-         sizeof(ImTypeset_DocumentContent), sizeof(ImTypeset_DocumentOptions),                \
-         sizeof(ImTypeset_Position), sizeof(ImTypeset_DocumentRange), sizeof(ImTypeset_Mark), \
-         sizeof(ImTypeset_DocumentDraw), sizeof(ImTypeset_DocumentHit),                       \
-         sizeof(ImTypeset_BlockGeometry), sizeof(ImTypeset_DocumentStats)))
+#define IMTYPESET_C_CHECKVERSION(sz_imwchar, sz_imdrawvert, sz_imdrawidx)                        \
+    (ImTypeset_DebugCheckVersionAndDataLayout(                                                   \
+         IMTYPESET_C_VERSION, NULL, (sz_imwchar), (sz_imdrawvert), (sz_imdrawidx),               \
+         sizeof(ImTypeset_Style), sizeof(ImTypeset_Run), sizeof(ImTypeset_TextRange),            \
+         sizeof(ImTypeset_Line), sizeof(ImTypeset_Hit), sizeof(ImTypeset_Formula),               \
+         sizeof(ImTypeset_Stats), sizeof(ImTypeset_ErrorInfo)) &&                                \
+     ImTypeset_DebugCheckDocumentDataLayout(                                                     \
+         sizeof(ImTypeset_Block), sizeof(ImTypeset_BlockStyle), sizeof(ImTypeset_Container),     \
+         sizeof(ImTypeset_DocumentContent), sizeof(ImTypeset_DocumentOptions),                   \
+         sizeof(ImTypeset_Position), sizeof(ImTypeset_DocumentRange), sizeof(ImTypeset_Mark),    \
+         sizeof(ImTypeset_DocumentDraw), sizeof(ImTypeset_DocumentHit),                          \
+         sizeof(ImTypeset_BlockGeometry), sizeof(ImTypeset_DocumentStats)) &&                    \
+     ImTypeset_DebugCheckTableDataLayout(                                                        \
+         sizeof(ImTypeset_Cell), sizeof(ImTypeset_TableColumn), sizeof(ImTypeset_TableGeometry), \
+         sizeof(ImTypeset_TableColumnGeometry), sizeof(ImTypeset_TableRowGeometry),              \
+         sizeof(ImTypeset_CellPosition)))
 
 /* --- Context ---------------------------------------------------------------------- */
 
@@ -649,6 +726,8 @@ IMTYPESET_C_API struct ImFont* ImTypeset_GetFont(ImTypeset_Face face);
  * draws its own text with it instead of adding the file a second time. Good
  * until a font is added to or removed from the atlas. */
 IMTYPESET_C_API int ImTypeset_GetFontAtlasIndex(ImTypeset_Face face);
+/* Non-zero if the role's own font has a glyph for the codepoint. */
+IMTYPESET_C_API int ImTypeset_FaceHasGlyph(ImTypeset_Face face, unsigned int codepoint);
 
 /* --- Widgets ---------------------------------------------------------------------- */
 
@@ -772,13 +851,18 @@ IMTYPESET_C_API int ImTypeset_AppendParagraphRangeText(const ImTypeset_Paragraph
  * arrays of the caller's, read during the call and not kept.
  */
 
-/* The second half of IMTYPESET_C_CHECKVERSION(). [E] */
+/* The second part of IMTYPESET_C_CHECKVERSION(). [E] */
 IMTYPESET_C_API int ImTypeset_DebugCheckDocumentDataLayout(size_t sz_block, size_t sz_block_style,
                                                            size_t sz_container, size_t sz_content,
                                                            size_t sz_options, size_t sz_position,
                                                            size_t sz_range, size_t sz_mark,
                                                            size_t sz_draw, size_t sz_hit,
                                                            size_t sz_geometry, size_t sz_stats);
+/* The third part of IMTYPESET_C_CHECKVERSION(): the structs of a table. [E] */
+IMTYPESET_C_API int ImTypeset_DebugCheckTableDataLayout(size_t sz_cell, size_t sz_column,
+                                                        size_t sz_table, size_t sz_column_geometry,
+                                                        size_t sz_row_geometry,
+                                                        size_t sz_cell_position);
 
 IMTYPESET_C_API ImTypeset_Document* ImTypeset_CreateDocument(void); /* [E] */
 IMTYPESET_C_API int ImTypeset_DestroyDocument(ImTypeset_Document* document);
@@ -793,6 +877,17 @@ IMTYPESET_C_API int ImTypeset_ReplaceDocumentBlocks(ImTypeset_Document* document
 IMTYPESET_C_API int ImTypeset_AppendDocumentText(ImTypeset_Document* document, const char* text,
                                                  const char* text_end, const ImTypeset_Run* runs,
                                                  int runs_count);
+/* `text` is (begin, end). `cells` points at `cells_count` ImTypeset_Cell and
+ * `runs` at `runs_count` ImTypeset_Run; either may be null. All are copied. [E] */
+IMTYPESET_C_API int ImTypeset_AppendDocumentTableCells(ImTypeset_Document* document,
+                                                       const char* text, const char* text_end,
+                                                       const ImTypeset_Cell* cells, int cells_count,
+                                                       const ImTypeset_Run* runs, int runs_count);
+/* `columns` points at `columns_count` ImTypeset_TableColumn, or is null: no
+ * column is described. They are copied. [E] */
+IMTYPESET_C_API int ImTypeset_SetDocumentTableColumns(ImTypeset_Document* document, int block,
+                                                      const ImTypeset_TableColumn* columns,
+                                                      int columns_count);
 IMTYPESET_C_API int ImTypeset_SetDocumentBlockExtent(ImTypeset_Document* document, int block,
                                                      float extent);
 /* `options` may be null: the defaults. [E] */
@@ -859,6 +954,21 @@ IMTYPESET_C_API int ImTypeset_GetDocumentBlockGeometry(ImTypeset_Document* docum
                                                        ImTypeset_BlockGeometry* out);
 IMTYPESET_C_API int ImTypeset_GetDocumentBlockLine(ImTypeset_Document* document, int block,
                                                    int line, ImTypeset_Line* out);
+/* A table, one of its columns and one of its rows. The status is 1 whatever
+ * `block`, `column` and `row` name: what is not there is all zero in `out`. */
+IMTYPESET_C_API int ImTypeset_GetDocumentTableGeometry(ImTypeset_Document* document, int block,
+                                                       ImTypeset_TableGeometry* out);
+IMTYPESET_C_API int ImTypeset_GetDocumentTableColumn(ImTypeset_Document* document, int block,
+                                                     int column,
+                                                     ImTypeset_TableColumnGeometry* out);
+IMTYPESET_C_API int ImTypeset_GetDocumentTableRow(ImTypeset_Document* document, int block, int row,
+                                                  ImTypeset_TableRowGeometry* out);
+IMTYPESET_C_API int ImTypeset_GetDocumentTableCell(const ImTypeset_Document* document,
+                                                   const ImTypeset_Position* position,
+                                                   ImTypeset_CellPosition* out);
+IMTYPESET_C_API int ImTypeset_GetDocumentTablePosition(const ImTypeset_Document* document,
+                                                       int block, int row, int column, int offset,
+                                                       ImTypeset_Position* out);
 /* `str_id` is (begin, end). `size` null is (0, 0); `selection`, `draw` and
  * `style` may be null. [E] */
 IMTYPESET_C_API int ImTypeset_DocumentView(const char* str_id, const char* str_id_end,

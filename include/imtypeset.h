@@ -141,18 +141,22 @@
 // compiled against ImGui builds that disagree (IMGUI_USE_WCHAR32, ImDrawIdx,
 // ImDrawVert). After a failed check CreateContext() refuses, so a host that
 // does not look at the result still does not run on a mismatched layout.
-#define IMTYPESET_CHECKVERSION()                                                           \
-    (ImTypeset::DebugCheckVersionAndDataLayout(                                            \
-         IMTYPESET_VERSION, sizeof(ImWchar), sizeof(ImDrawVert), sizeof(ImDrawIdx),        \
-         sizeof(ImTypesetStyle), sizeof(ImTypesetRun), sizeof(ImTypesetTextRange),         \
-         sizeof(ImTypesetLine), sizeof(ImTypesetHit), sizeof(ImTypesetFormula),            \
-         sizeof(ImTypesetStats), sizeof(ImTypesetErrorInfo)) &&                            \
-     ImTypeset::DebugCheckDocumentDataLayout(                                              \
-         sizeof(ImTypesetBlock), sizeof(ImTypesetBlockStyle), sizeof(ImTypesetContainer),  \
-         sizeof(ImTypesetDocumentContent), sizeof(ImTypesetDocumentOptions),               \
-         sizeof(ImTypesetPosition), sizeof(ImTypesetDocumentRange), sizeof(ImTypesetMark), \
-         sizeof(ImTypesetDocumentDraw), sizeof(ImTypesetDocumentHit),                      \
-         sizeof(ImTypesetBlockGeometry), sizeof(ImTypesetDocumentStats)))
+#define IMTYPESET_CHECKVERSION()                                                              \
+    (ImTypeset::DebugCheckVersionAndDataLayout(                                               \
+         IMTYPESET_VERSION, sizeof(ImWchar), sizeof(ImDrawVert), sizeof(ImDrawIdx),           \
+         sizeof(ImTypesetStyle), sizeof(ImTypesetRun), sizeof(ImTypesetTextRange),            \
+         sizeof(ImTypesetLine), sizeof(ImTypesetHit), sizeof(ImTypesetFormula),               \
+         sizeof(ImTypesetStats), sizeof(ImTypesetErrorInfo)) &&                               \
+     ImTypeset::DebugCheckDocumentDataLayout(                                                 \
+         sizeof(ImTypesetBlock), sizeof(ImTypesetBlockStyle), sizeof(ImTypesetContainer),     \
+         sizeof(ImTypesetDocumentContent), sizeof(ImTypesetDocumentOptions),                  \
+         sizeof(ImTypesetPosition), sizeof(ImTypesetDocumentRange), sizeof(ImTypesetMark),    \
+         sizeof(ImTypesetDocumentDraw), sizeof(ImTypesetDocumentHit),                         \
+         sizeof(ImTypesetBlockGeometry), sizeof(ImTypesetDocumentStats)) &&                   \
+     ImTypeset::DebugCheckTableDataLayout(                                                    \
+         sizeof(ImTypesetCell), sizeof(ImTypesetTableColumn), sizeof(ImTypesetTableGeometry), \
+         sizeof(ImTypesetTableColumnGeometry), sizeof(ImTypesetTableRowGeometry),             \
+         sizeof(ImTypesetCellPosition)))
 
 struct ImTypesetContext;   // Everything the library holds. Opaque.
 struct ImTypesetParagraph; // One paragraph: text, its layout for a width, what was shipped. Opaque.
@@ -176,6 +180,7 @@ typedef int ImTypesetCodeOverflow;      // -> enum ImTypesetCodeOverflow_
 typedef int ImTypesetMarkPlace;         // -> enum ImTypesetMarkPlace_
 typedef int ImTypesetDocumentDrawFlags; // -> enum ImTypesetDocumentDrawFlags_
 typedef int ImTypesetDemoSection;       // -> enum ImTypesetDemoSection_
+typedef int ImTypesetCellFlags;         // -> enum ImTypesetCellFlags_
 
 // A typographic role. A host says which file plays each; text names roles.
 enum ImTypesetFace_ {
@@ -254,9 +259,10 @@ enum ImTypesetError_ {
                                      // nothing.
     // Something in what was described was wrong and was cut to what is right:
     // a run out of order (a paragraph's or a block's); in a document, an
-    // offset outside the text, a style, a container or runs that are not
-    // there, a kind that is not one, a marker past its limit, a table. The
-    // text and the blocks are set.
+    // offset outside the text, a style, a container, runs, cells or columns
+    // that are not there, a kind that is not one, a marker past its limit, a
+    // cell out of order, a table past its limits. The text and the blocks
+    // are set.
     ImTypesetError_DescriptionCut = 12
 };
 
@@ -410,7 +416,7 @@ struct ImTypesetRun {
     ImTypesetRunFlags Flags;
     // Whatever the host wants back when asked what is at a place: a link's
     // number, say. Not read by layout. 0 is no tag. Answered by
-    // HitTestDocument(); a paragraph keeps it and has no question that answers it.
+    // HitTestParagraph() and HitTestDocument().
     // A tag is a field of a run like its face, and runs do not overlap: a link
     // that runs over plain and bold text is two runs, each with the link's tag
     // and its own face. The host cuts them; nothing here merges two runs.
@@ -473,6 +479,9 @@ struct ImTypesetHit {
     // ragged end of a line, or the space above and below: what tells a click
     // on a word from a click beside it.
     bool Inside;
+    // ImTypesetRun::Tag of the run the character under the point is in; 0
+    // if the point is on no run, or not Inside.
+    int Tag;
 };
 
 struct ImTypesetErrorInfo {
@@ -545,15 +554,42 @@ enum ImTypesetBlockKind_ {
     // the host's: GetDocumentBlockGeometry() says where it is. Its text is
     // what a copy that covers it gives.
     ImTypesetBlockKind_Host = 5,
-    // RESERVED. Tables are not laid out yet: the block is set as an empty
-    // Host block and the call says ImTypesetError_DescriptionCut.
+    // Rows of cells in columns: see "Tables" below ImTypesetBlock.
     ImTypesetBlockKind_Table = 6
 };
 
 enum ImTypesetBlockFlags_ {
     ImTypesetBlockFlags_None = 0,
     ImTypesetBlockFlags_HardBreaks = 1 << 0, // As ImTypesetTextFlags_HardBreaks.
-    ImTypesetBlockFlags_Math = 1 << 2        // As ImTypesetTextFlags_Math: dollars are looked for.
+    ImTypesetBlockFlags_Math = 1 << 2,       // As ImTypesetTextFlags_Math: dollars are looked for.
+    // Every line of the block is exactly its line height (the style's
+    // LineHeight, in ems of its size), whatever it holds: line n's top is n
+    // line heights below the block's top, to the rounding of one length. For
+    // rows found by arithmetic, and for two documents set side by side that
+    // must stay in step: a diff, a gutter of line numbers. Without it a line
+    // is AT LEAST its line height, and one holding something taller (a
+    // character its face lacks, set from another face; a formula) is as tall
+    // as that and moves every line below it. With it such a line keeps its
+    // place and its ink reaches into its neighbours': what TeX sets with a
+    // strut and \lineskiplimit at its lowest. The line's box, which is what
+    // a selection fills and ImTypesetLine reports, is the line height; a
+    // draw skips a line by that box grown by two pixels, so ink that
+    // overhangs by more can go missing on the one line at the very edge of
+    // a clip rectangle. For text and code blocks; not read for the others.
+    ImTypesetBlockFlags_FixedLineHeight = 1 << 3,
+    // Table: its first row is a header, and a rule is drawn under it
+    // (ImTypesetDocumentOptions::TableRuleThickness). How a header's cells
+    // look is in their runs, like any text's.
+    ImTypesetBlockFlags_TableHeader = 1 << 4,
+    // Table: its columns are HELD while it grows. See "A TABLE THAT GROWS".
+    ImTypesetBlockFlags_TableHeld = 1 << 5
+};
+
+enum ImTypesetCellFlags_ {
+    ImTypesetCellFlags_None = 0,
+    // The cell is the first of a new row. The first cell of a table starts
+    // its first row whether it says so or not.
+    ImTypesetCellFlags_RowStart = 1 << 0
 };
 
 enum ImTypesetContainerKind_ {
@@ -684,8 +720,14 @@ struct ImTypesetBlock {
     int Item;       // Which item of its list the block belongs to: blocks of one list with the
                     // same number are one item (an item of two paragraphs).
     float Extent;   // Rule: its thickness in pixels, 0 is one. Host: its height in pixels.
-    int TableRows;  // RESERVED for ImTypesetBlockKind_Table. Leave zero.
-    int TableColumns;
+    // Table: its cells, CellCount entries of ImTypesetDocumentContent::Cells
+    // from CellStart, row after row; and its columns, ColumnCount entries of
+    // ImTypesetDocumentContent::Columns from ColumnStart. Zero for any other
+    // kind.
+    int CellStart;
+    int CellCount;
+    int ColumnStart;
+    int ColumnCount;
 
     ImTypesetBlock()
         : Kind(0)
@@ -703,8 +745,126 @@ struct ImTypesetBlock {
         , Container(0)
         , Item(0)
         , Extent(0.0f)
-        , TableRows(0)
-        , TableColumns(0)
+        , CellStart(0)
+        , CellCount(0)
+        , ColumnStart(0)
+        , ColumnCount(0)
+    {
+    }
+};
+
+// --- Tables ---------------------------------------------------------------------------
+//
+// A table is ONE BLOCK (ImTypesetBlockKind_Table). Its text is the block's
+// text, like any block's, and its cells are stretches of that text, in
+// reading order: the cells of the first row left to right, then the second
+// row's. A cell is text and runs exactly as a paragraph is: faces, sizes,
+// colours, tags for links, formulas (the block's ImTypesetBlockFlags_Math, or
+// runs flagged ImTypesetRunFlags_Formula). The block's runs lie each inside
+// one cell; one that crosses a cell's edge is cut there. White space inside a
+// cell is one space and white space at its ends is dropped, as in a
+// paragraph. A newline in a cell is white space: a cell has no hard breaks.
+//
+// WRITE THE TEXT AS A COPY OF THE TABLE READS: the cells of a row with a tab
+// between them and the rows with a newline between them ("Name\tUnit\nmass\tkg").
+// Nothing requires it — the bytes between two cells belong to no cell and are
+// never set — but then the block's text is what a copy of the whole table
+// gives, a position at the end of one cell is not also the start of the
+// next, and a search over the text cannot match across two cells.
+//
+// POSITIONS in a table are what they are everywhere: (block, byte offset into
+// the block's text). The cell a position is in, and the position of a byte
+// of a cell, are answered by GetDocumentTableCell() and
+// GetDocumentTablePosition(); a hit test says the row and the column
+// (ImTypesetDocumentHit). A position between two cells is the start of the
+// later one. Selections, marks, carets and copies take these positions; a
+// range that runs from one cell into another covers everything between them
+// in reading order, whatever the mouse crossed.
+//
+// WHAT A COPY GIVES for a table: each cell as a paragraph gives its text, a
+// tab ("\t") between the cells of a row and a newline ("\n") between rows,
+// for every cell from the one the range starts in to the one it ends in (a
+// range that ends where a cell's text starts has none of that cell, unless
+// the cell is empty). An empty cell keeps its tab wherever it stands, and a
+// row gives the cells it has: a copy of a whole table written as advised above is its text, byte
+// for byte. These two separators are fixed; the block separator of AppendDocumentRangeText() stands
+// between the table and the blocks around it as between any two.
+//
+// LAYOUT is TeX's alignment as far as that goes: every cell is set unbroken,
+// a column wants the widest of its cells, and every cell is then boxed to its
+// column's width with glue where its alignment leaves room. What makes a
+// table fit a column of the page is not TeX's:
+//   - a table whose columns want less than the width is scaled UP to fill it,
+//     every column in proportion;
+//   - one that wants more is squeezed: each column keeps at least its longest
+//     unbreakable piece, and what is left is shared by how much each could
+//     give up. A cell wider than its column is then broken into lines, ragged
+//     on the side its alignment leaves free, and its row is as tall as its
+//     tallest cell;
+//   - if even the longest pieces do not fit, the table is wider than the
+//     document (as a word too long for its line is);
+//   - or the host states the widths (ImTypesetTableColumn).
+// A row may have fewer cells than the table has columns: the rest are empty.
+//
+// A TABLE THAT GROWS. Cells are appended to the last block with
+// AppendDocumentTableCells(), and text to its last cell with
+// AppendDocumentText(). Rows already set are not set again unless a column's
+// width changed. Under the rules above every new row can move every column,
+// since the table is refitted to the width each time. With
+// ImTypesetBlockFlags_TableHeld the columns are held instead: each is the
+// widest its cells have wanted at any layout since the block was described
+// (never narrower as rows arrive, and no wider than they need), and the
+// table is as wide as its columns, not the document. A column moves only
+// when a cell wider than every one before it arrives in it. If the held
+// widths stop fitting the width, the table is fitted by the rules above
+// until they fit again. The widths held survive AppendDocumentTableCells(),
+// AppendDocumentText(), and ReplaceDocumentBlocks() of the one table by one
+// table with the flag and as many columns (a host that parses its source
+// again as it arrives); they are given up when the flag is. So a host that
+// wants the table settled when it is complete replaces it once more without
+// the flag, and one that wants it never to jump leaves the flag on.
+//
+// LIMITS. A table has at most 1,024 columns and 262,144 cells; what is past
+// either is left out and said (ImTypesetError_DescriptionCut). A table is laid
+// out whole the first time any of it is looked at: it costs what its cells
+// cost, once, and nothing while it is out of view.
+
+// One cell of a table: [TextStart, TextEnd) of the BLOCK's text. Cells are
+// given in ascending order and do not overlap; one that does is cut where the
+// one before it ends, and said (ImTypesetError_DescriptionCut).
+struct ImTypesetCell {
+    int TextStart;
+    int TextEnd;
+    ImTypesetCellFlags Flags;
+
+    ImTypesetCell()
+        : TextStart(0)
+        , TextEnd(0)
+        , Flags(0)
+    {
+    }
+};
+
+// One column of a table. Zero everywhere is a left-aligned column whose width
+// the library chooses. A table has as many columns as its longest row has
+// cells: columns described past that are not read, and ones not described
+// are as zero.
+struct ImTypesetTableColumn {
+    // Where a cell's text stands in the column: Left, Center or Right.
+    // ImTypesetAlign_Justify, the zero, is Left: a cell is never justified.
+    ImTypesetAlign Align;
+    // The column's width in pixels, cell padding included, if above zero.
+    // Read only when EVERY column of the table states one: the table is then
+    // exactly those widths, whatever the document's width.
+    float Width;
+    // Otherwise, if above zero in every column: the column's share of the
+    // width, in any unit (1, 2, 1 is a quarter, a half, a quarter).
+    float Share;
+
+    ImTypesetTableColumn()
+        : Align(0)
+        , Width(0.0f)
+        , Share(0.0f)
     {
     }
 };
@@ -722,6 +882,10 @@ struct ImTypesetDocumentContent {
     int StyleCount;
     const ImTypesetContainer* Containers;
     int ContainerCount;
+    const ImTypesetCell* Cells; // Of every table among the blocks.
+    int CellCount;
+    const ImTypesetTableColumn* Columns;
+    int ColumnCount;
 
     ImTypesetDocumentContent()
         : Text(NULL)
@@ -734,6 +898,10 @@ struct ImTypesetDocumentContent {
         , StyleCount(0)
         , Containers(NULL)
         , ContainerCount(0)
+        , Cells(NULL)
+        , CellCount(0)
+        , Columns(NULL)
+        , ColumnCount(0)
     {
     }
 };
@@ -746,6 +914,13 @@ struct ImTypesetDocumentOptions {
     ImU32 QuoteBarColor;     // 0 is ImGuiCol_Separator.
     ImU32 RuleColor;         // A Rule block's. 0 is ImGuiCol_Separator.
     ImTypesetCodeOverflow CodeOverflow;
+    // Tables. The space left and right of every cell's text, in pixels: 0 is
+    // half an em, below zero is none. The thickness of the rule under a
+    // header row: 0 is six hundredths of an em, below zero is no rule. The
+    // rule's colour: 0 is ImGuiCol_Separator.
+    float TableCellPadding;
+    float TableRuleThickness;
+    ImU32 TableRuleColor;
 
     ImTypesetDocumentOptions()
         : QuoteIndent(0.0f)
@@ -753,6 +928,9 @@ struct ImTypesetDocumentOptions {
         , QuoteBarColor(0)
         , RuleColor(0)
         , CodeOverflow(0)
+        , TableCellPadding(0.0f)
+        , TableRuleThickness(0.0f)
+        , TableRuleColor(0)
     {
     }
 };
@@ -780,7 +958,7 @@ struct ImTypesetDocumentRange {
 // one's colour. A formula is marked whole or not at all, by whether the range
 // holds its first byte (see ImTypesetTextRange): a mark over the middle of a
 // formula's source draws nothing, in any Place. A mark over a rule or a host
-// block draws nothing.
+// block draws nothing. A mark in a table marks what it covers of each cell.
 struct ImTypesetMark {
     ImTypesetDocumentRange Range;
     ImU32 Color;
@@ -831,6 +1009,10 @@ struct ImTypesetDocumentHit {
     bool Inside;  // The point is on a line's content, not beside or between.
     bool InBlock; // The point is within the block's rectangle, top to bottom: false in the
                   // space between two blocks and outside the document.
+    // In a table: the row and the column of the cell Position is in. -1 in
+    // any other block.
+    int Row;
+    int Column;
 };
 
 // Where a block is, relative to the document's top-left corner, in pixels.
@@ -849,8 +1031,52 @@ struct ImTypesetBlockGeometry {
     bool LaidOut;
 };
 
+// A table as it was last laid out, relative to the document's top-left corner.
+struct ImTypesetTableGeometry {
+    int RowCount;    // The header, if there is one, is row 0.
+    int ColumnCount; // The longest row's cells.
+    int CellCount;
+    // From the table's left edge to the right edge of its last column, and
+    // from its first row's top to its last row's bottom.
+    ImVec2 Min;
+    ImVec2 Max;
+    // Whether the columns are the widths held (ImTypesetBlockFlags_TableHeld)
+    // or stated (ImTypesetTableColumn::Width), and not fitted to the width.
+    bool Stated;
+    bool LaidOut; // As ImTypesetBlockGeometry::LaidOut.
+};
+
+// One column of a table.
+struct ImTypesetTableColumnGeometry {
+    float Min; // Its left and right edges, x from the document's left edge.
+    float Max; // Padding is inside them.
+    // What the column's cells want, whatever the document's width: the widest
+    // of them set on one line, and the widest piece of any of them that
+    // cannot be broken, each with the padding. What a drag handle is held
+    // between.
+    float Natural;
+    float Floor;
+};
+
+// One row of a table.
+struct ImTypesetTableRowGeometry {
+    float Min;     // Its top and bottom, y from the document's top. Rows do not
+    float Max;     // tile the table: the rule under a header lies between two.
+    int CellStart; // Its cells: CellCount of the table's, from CellStart.
+    int CellCount;
+    bool Wrapped; // A cell of it was broken into lines.
+};
+
+// The cell a position of a table is in.
+struct ImTypesetCellPosition {
+    int Row; // -1, with the rest zero, if the position is in no table.
+    int Column;
+    int Cell;   // The cell's number among the table's cells, in the order given.
+    int Offset; // Bytes from the start of the cell's text.
+};
+
 // A DEBUG FACILITY, like ImTypesetStats, for one document. The first five
-// count since the document was made.
+// count since the document was made, and so do the two about tables.
 struct ImTypesetDocumentStats {
     ImU64 MaterialBuilds; // Blocks whose text was turned into typesetting material.
     ImU64 BlocksLaidOut;  // Blocks broken into lines.
@@ -860,9 +1086,11 @@ struct ImTypesetDocumentStats {
     // re-describes blocks, and once after a change of style.
     ImU64 StructureVisits;
     ImU64 BlocksDrawn;
-    int Blocks;         // How many there are,
-    int BlocksDeferred; // and how many of them are not laid out at the present width
-                        // (counted when asked: one step a block).
+    int Blocks;               // How many there are,
+    int BlocksDeferred;       // and how many of them are not laid out at the present width
+                              // (counted when asked: one step a block).
+    ImU64 TableCellsMeasured; // Cells whose text was made into material and measured.
+    ImU64 TableRowsSet;       // Rows boxed to their columns' widths.
 };
 
 // The sections of the demo window. The values are stable: a new section is
@@ -893,7 +1121,11 @@ IMTYPESET_API bool DebugCheckVersionAndDataLayout(const char* version, size_t sz
                                                   size_t sz_style, size_t sz_run, size_t sz_range,
                                                   size_t sz_line, size_t sz_hit, size_t sz_formula,
                                                   size_t sz_stats, size_t sz_error);
-// The second half of IMTYPESET_CHECKVERSION(): the structs of a document. [E]
+// The third part of IMTYPESET_CHECKVERSION(): the structs of a table. [E]
+IMTYPESET_API bool DebugCheckTableDataLayout(size_t sz_cell, size_t sz_column, size_t sz_table,
+                                             size_t sz_column_geometry, size_t sz_row_geometry,
+                                             size_t sz_cell_position);
+// The second part of IMTYPESET_CHECKVERSION(): the structs of a document. [E]
 IMTYPESET_API bool DebugCheckDocumentDataLayout(size_t sz_block, size_t sz_block_style,
                                                 size_t sz_container, size_t sz_content,
                                                 size_t sz_options, size_t sz_position,
@@ -1013,6 +1245,14 @@ IMTYPESET_API bool RemoveFont(ImTypesetFace face);
 // its own, and Default answers Regular's. Null whenever the ImGui context the
 // current context was made in is not the current one: the font is its atlas's.
 IMTYPESET_API ImFont* GetFont(ImTypesetFace face);
+// Whether the font added for a role has a glyph for a codepoint: the role's
+// own font, not the faces a character it lacks is then set from (see
+// AddFontFromFileTTF). What a host asks before it hands text over when a
+// borrowed glyph would not do: a grid of code in which every character must
+// be one cell wide. CodeBold answers for Bold's font until it has its own and
+// Default for Regular's, as GetFont does. False for a role with no font, for
+// a face that is not one, and with no context. Needs no ImGui context.
+IMTYPESET_API bool FaceHasGlyph(ImTypesetFace face, unsigned int codepoint);
 
 // --- Widgets -------------------------------------------------------------------------
 //
@@ -1141,7 +1381,13 @@ IMTYPESET_API int GetParagraphFormulaCount(const ImTypesetParagraph* paragraph);
 IMTYPESET_API ImTypesetFormula GetParagraphFormula(const ImTypesetParagraph* paragraph, int index);
 
 // As last laid out: whole pixels, rounded up. The width is the block's: see
-// THE ITEM above.
+// THE ITEM above. That is the wrap width for text that is not left-aligned,
+// so it is NOT how wide the text itself is. THE NATURAL WIDTH of a text, the
+// width it has on one line, is read off a line: lay the paragraph out wider
+// than it can be (1e6) and take GetParagraphLine(p, 0).Max.x - Min.x, which
+// is where the line's content starts and ends whatever the alignment (the
+// widest of the lines, with hard breaks). With ImTypesetAlign_Left
+// GetParagraphSize().x is the same number rounded up to a pixel.
 IMTYPESET_API ImVec2 GetParagraphSize(const ImTypesetParagraph* paragraph);
 IMTYPESET_API int GetParagraphLineCount(const ImTypesetParagraph* paragraph);
 // Line `line` of GetParagraphLineCount(), from the top. A line that is not
@@ -1160,8 +1406,15 @@ IMTYPESET_API ImTypesetLine GetParagraphLine(const ImTypesetParagraph* paragraph
 // that context is not current, the backend has no texture updates, the
 // paragraph has no font, or it has not been laid out since its text or the
 // context's fonts last changed. `draw_list` null is the current window's
-// (ImGui::GetWindowDrawList()), for a binding that has no way to name one; it
-// is refused outside a frame. [E]
+// (ImGui::GetWindowDrawList()), for a binding that has no way to name one,
+// and needs what that needs: a current window, which there is from
+// ImGui::NewFrame() to ImGui::EndFrame(). It is refused before the first
+// frame and after ImGui::Render(). AFTER AN ImGui::EndFrame() THAT NO
+// Render() FOLLOWED it is not: nothing in imgui.h tells that state from the
+// inside of a frame, and the call is then ImGui's own failure on a null
+// window, as ImGui::GetWindowDrawList() itself is. The same holds for the
+// widgets and for DocumentView(). A host that ends frames without rendering
+// them (a headless test) draws before EndFrame(), or names a draw list. [E]
 IMTYPESET_API bool DrawParagraph(const ImTypesetParagraph* paragraph, ImDrawList* draw_list,
                                  const ImVec2& pos, const ImTypesetTextRange* selection = NULL);
 
@@ -1269,7 +1522,9 @@ IMTYPESET_API int AppendParagraphRangeText(const ImTypesetParagraph* paragraph,
 // AppendParagraphRangeText gives; a code block's source bytes as they were
 // handed in, tabs and "\r\n" included, as far as its text goes (see
 // POSITIONS: not the line end after its last character); a host block's text
-// whole when the range covers any of it; nothing for a rule or a marker.
+// whole when the range covers any of it; a table's cells with a tab between
+// the cells of a row and a newline between rows (see "Tables"); nothing for a
+// rule or a marker.
 // `block_separator` goes between two blocks THAT EACH GAVE TEXT, once, however
 // many blocks lie between them that gave none: a rule, a host block without
 // text, an empty block, a block the range only touches the edge of. Such a
@@ -1323,6 +1578,25 @@ IMTYPESET_API bool ReplaceDocumentBlocks(ImTypesetDocument* document, int first,
 IMTYPESET_API bool AppendDocumentText(ImTypesetDocument* document, const char* text,
                                       const char* text_end = NULL, const ImTypesetRun* runs = NULL,
                                       int runs_count = 0);
+// Appends cells to the LAST block, which must be a table, with the text they
+// are stretches of: rows that arrive one at a time. `text` is appended to the
+// block's text; `cells` are further cells of the table, with offsets into its
+// WHOLE text, at or after the end of the cells it has (a first cell without
+// ImTypesetCellFlags_RowStart goes on with the last row); `runs` as for
+// AppendDocumentText. Rows the table already had are not set again unless a
+// column's width changes. AppendDocumentText() on a table appends to its last
+// cell, which must end where the table's text ends. False as
+// AppendDocumentText is. [E]
+IMTYPESET_API bool AppendDocumentTableCells(ImTypesetDocument* document, const char* text,
+                                            const char* text_end, const ImTypesetCell* cells,
+                                            int cells_count, const ImTypesetRun* runs = NULL,
+                                            int runs_count = 0);
+// States a table's columns again: what a drag of a column's edge does each
+// frame. `columns` replaces the table's; rows are set again only if a width
+// or an alignment changed. False, with nothing done, if `block` is not a
+// table. [E]
+IMTYPESET_API bool SetDocumentTableColumns(ImTypesetDocument* document, int block,
+                                           const ImTypesetTableColumn* columns, int columns_count);
 // Changes ImTypesetBlock::Extent of one block: a host widget that grew. [E]
 IMTYPESET_API bool SetDocumentBlockExtent(ImTypesetDocument* document, int block, float extent);
 // A copy is taken; null is the default. Every block is laid out again. [E]
@@ -1408,6 +1682,24 @@ IMTYPESET_API ImTypesetBlockGeometry GetDocumentBlockGeometry(ImTypesetDocument*
 // Line `line` of a block, relative to the BLOCK's top-left corner
 // (GetDocumentBlockGeometry().FullMin); all zero if there is none.
 IMTYPESET_API ImTypesetLine GetDocumentBlockLine(ImTypesetDocument* document, int block, int line);
+
+// A table, one of its columns and one of its rows, as laid out at the
+// document's width: each lays the table out if it is not. All zero (and a
+// RowCount of 0) if `block` is not a table, or there is no such column or row.
+IMTYPESET_API ImTypesetTableGeometry GetDocumentTableGeometry(ImTypesetDocument* document,
+                                                              int block);
+IMTYPESET_API ImTypesetTableColumnGeometry GetDocumentTableColumn(ImTypesetDocument* document,
+                                                                  int block, int column);
+IMTYPESET_API ImTypesetTableRowGeometry GetDocumentTableRow(ImTypesetDocument* document, int block,
+                                                            int row);
+// The cell a position is in, and the position of byte `offset` of a cell's
+// text (clamped to the cell). Neither lays anything out; each is a search
+// among the table's cells, a step for each doubling of their number.
+IMTYPESET_API ImTypesetCellPosition GetDocumentTableCell(const ImTypesetDocument* document,
+                                                         const ImTypesetPosition& position);
+IMTYPESET_API ImTypesetPosition GetDocumentTablePosition(const ImTypesetDocument* document,
+                                                         int block, int row, int column,
+                                                         int offset);
 
 // A document in a child window that scrolls it: lays out and draws what is in
 // view, selects with the mouse as SelectableText() does (across blocks), and

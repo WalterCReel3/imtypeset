@@ -825,7 +825,7 @@ TEST(what_is_wrong_with_a_description_is_cut_to_what_is_right_and_said)
     content.blocks.back().RunStart = 2;   // no such runs
     content.blocks.back().RunCount = 4;
     content.add(ImTypesetBlockKind_Table, "a|b");
-    content.blocks.back().TableRows = 1;
+    content.blocks.back().CellCount = 1; // no cells were given
     content.add(99, "an unknown kind");
     const ImTypesetDocumentContent view = content.view();
     CHECK(!ImTypeset::SetDocumentBlocks(document, &view));
@@ -834,7 +834,7 @@ TEST(what_is_wrong_with_a_description_is_cut_to_what_is_right_and_said)
     CHECK(ImTypeset::LayoutDocument(document, 300.0f));
     CHECK(ImTypeset::LayoutDocumentWindow(document, 0.0f, 10000.0f));
     CHECK(ImTypeset::GetDocumentBlockGeometry(document, 0).LineCount >= 1);
-    // The table is an empty host block for now, and says so.
+    // The table has no cell it can name: no rows, and no height.
     const ImTypesetBlockGeometry table = ImTypeset::GetDocumentBlockGeometry(document, 1);
     CHECK_EQ(table.FullMax.y - table.FullMin.y, 0.0f);
     CHECK_EQ(copied(document, ImTypesetPosition{2, 0}, ImTypesetPosition{2, 100}),
@@ -1444,8 +1444,10 @@ TEST(a_description_nobody_vetted_is_bounded_by_what_was_actually_handed_over)
         block.Container = i % 5 - 1; // -1, 0, 1, 2, 3
         block.Item = -(1 << 30);
         block.Extent = i % 4 == 0 ? INF_F : -3.0f;
-        block.TableRows = 1 << 30;
-        block.TableColumns = -1;
+        block.CellStart = i % 2 == 0 ? 1 << 30 : -5;
+        block.CellCount = i % 3 == 0 ? -1 : 1 << 30;
+        block.ColumnStart = -(1 << 30);
+        block.ColumnCount = 1 << 30;
         block.MarkerStart = -100;
         block.MarkerEnd = 1 << 30;
         block.RunStart = i % 2 == 0 ? -3 : 1 << 30;

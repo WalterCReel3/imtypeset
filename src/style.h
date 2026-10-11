@@ -212,6 +212,14 @@ GlueSpec interword_glue(Scaled space_width, int space_factor = NEUTRAL_SPACE_FAC
 struct Strut {
     Scaled height = 0;
     Scaled depth = 0;
+    // The line is the strut's height and depth whatever it holds: a line
+    // taller or deeper than the strut keeps the strut's two numbers and its
+    // contents reach past its box. TeX's way to the same leading is a strut
+    // in a line whose contents are smashed, or \lineskiplimit at -\maxdimen
+    // (tex.web section 679 then always takes the \baselineskip branch): the
+    // baselines of a block are one \baselineskip apart and nothing a line
+    // holds moves the line below it.
+    bool exact = false;
 
     // The strut that exactly fills one baseline-to-baseline distance. The
     // depth is the remainder and not a second rounding, so height + depth is
@@ -222,9 +230,16 @@ struct Strut {
     Scaled total() const { return height + depth; }
 
     // `box` with the strut in it: its own height and depth, floored at the
-    // strut's. The same two numbers a repack with a zero-width strut box in
-    // the list would reach; the glue setting is untouched.
+    // strut's (or, when `exact`, replaced by them). The same two numbers a
+    // repack with a zero-width strut box in the list would reach; the glue
+    // setting is untouched.
     void apply_to(Box& box) const;
+    // Whether apply_to would change `box`.
+    bool changes(const Box& box) const
+    {
+        return exact ? (box.height != height || box.depth != depth)
+                     : (box.height < height || box.depth < depth);
+    }
 };
 
 // --- Text ---------------------------------------------------------------------------------

@@ -70,12 +70,31 @@ def main() -> int:
     doc.layout(400.0)
     check("  with positions in characters", doc.range_text(((0, 6), (0, 9))), "é é")
 
-    cut = ts.Document.from_blocks([ts.Block(text="before"), ts.Block(ts.BlockKind.Table), ts.Block(text="après")])
+    cut = ts.Document.from_blocks([ts.Block(text="before"), ts.Block(text="in no container", container=3), ts.Block(text="après")])
     check("from_blocks keeps what the library cut", cut.edit_error.code, ts.ErrorCode.DescriptionCut)
     check("  and the blocks are set", (len(cut), cut.block_count), (3, 3))
-    check("set_blocks answers False for the same", cut.set_blocks([ts.Block(ts.BlockKind.Table)]), False)
+    check("set_blocks answers False for the same", cut.set_blocks([ts.Block(text="x", container=3)]), False)
     check("an edit applied whole clears edit_error",
           (cut.set_blocks([ts.Block(text="x")]), cut.edit_error.code), (True, 0))
+    # A table: a block whose text is its cells, appended to a row at a time.
+    rows = [["Name", "Unité"], ["masse", "kg"], ["", "vide à gauche"]]
+    table = ts.Document.from_blocks(
+        [ts.Block(text="avant"),
+         ts.Block(ts.BlockKind.Table, rows=rows,
+                  flags=ts.BlockFlags.TableHeader | ts.BlockFlags.TableHeld)])
+    table.layout(400.0)
+    joined = "\n".join("\t".join(row) for row in rows)
+    check("a table copies as its cells and rows", table.range_text(((1, 0), (1, len(joined)))), joined)
+    geometry = table.table_geometry(1)
+    check("  and says its shape", (geometry.row_count, geometry.column_count, geometry.cell_count), (3, 2, 6))
+    cell = table.table_cell(table.table_position(1, 1, 1, 1))
+    check("  a position names its cell", (cell.row, cell.column, cell.offset), (1, 1, 1))
+    before = table.table_column(1, 0)
+    check("append_table_rows says it was applied", table.append_table_rows([["a", "b"]]), True)
+    table.layout(400.0)
+    check("  and the table has the row", table.table_geometry(1).row_count, 4)
+    after = table.table_column(1, 0)
+    check("  and a held column did not move", (after.min, after.max), (before.min, before.max))
     ts.destroy_context()
     return 1 if failed else 0
 

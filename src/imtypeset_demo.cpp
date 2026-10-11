@@ -1956,6 +1956,10 @@ void ShowDemoKnownLimits()
 
 // The blocks the document is built from, ten at a time: a heading, six
 // paragraphs with a formula in them, two items of a tight list, some code.
+// And at the end one table: a block whose text is its cells, each a stretch
+// of it, written as a copy of the table reads (a tab between cells, a newline
+// between rows). Its columns are held, so text that arrives in its last cell
+// (the Stream checkbox) widens that column and moves no other.
 void BuildDemoDocument(ImTypesetDocument* document, int count)
 {
     static const char HEADING[] = "A heading";
@@ -2011,11 +2015,62 @@ void BuildDemoDocument(ImTypesetDocument* document, int count)
         }
         blocks.push_back(block);
     }
+    static const char* const TABLE[4][3] = {
+        {"Quantity", "Value", "Remarks"},
+        {"The golden ratio", "$\\frac{1 + \\sqrt{5}}{2}$", "A formula is a cell's text like any."},
+        {"A dozen", "12", "Numbers read best set right."},
+        {"Text that arrives", "0", "This cell grows:"},
+    };
+    ImVector<ImTypesetCell> cells;
+    ImVector<ImTypesetRun> runs;
+    ImTypesetTableColumn columns[3];
+    columns[1].Align = ImTypesetAlign_Right;
+    {
+        ImTypesetBlock table;
+        table.Kind = ImTypesetBlockKind_Table;
+        table.Flags = ImTypesetBlockFlags_TableHeader | ImTypesetBlockFlags_TableHeld |
+                      ImTypesetBlockFlags_Math;
+        table.Style = 2;
+        table.TextStart = text.size();
+        table.CellCount = 12;
+        table.ColumnCount = 3;
+        for (int row = 0; row < 4; ++row) {
+            for (int column = 0; column < 3; ++column) {
+                if (column != 0)
+                    text.append("\t");
+                else if (row != 0)
+                    text.append("\n");
+                // A cell's offsets, and a run's, are bytes of the BLOCK's text.
+                ImTypesetCell cell;
+                cell.TextStart = text.size() - table.TextStart;
+                text.append(TABLE[row][column]);
+                cell.TextEnd = text.size() - table.TextStart;
+                cell.Flags = column == 0 ? ImTypesetCellFlags_RowStart : 0;
+                cells.push_back(cell);
+                if (row == 0) {
+                    ImTypesetRun bold;
+                    bold.Start = cell.TextStart;
+                    bold.End = cell.TextEnd;
+                    bold.Face = ImTypesetFace_Bold;
+                    runs.push_back(bold);
+                }
+            }
+        }
+        table.TextEnd = text.size();
+        table.RunCount = runs.Size;
+        blocks.push_back(table);
+    }
     ImTypesetDocumentContent content;
     content.Text = text.begin();
     content.TextSize = text.size();
     content.Blocks = blocks.Data;
     content.BlockCount = blocks.Size;
+    content.Runs = runs.Data;
+    content.RunCount = runs.Size;
+    content.Cells = cells.Data;
+    content.CellCount = cells.Size;
+    content.Columns = columns;
+    content.ColumnCount = IM_ARRAYSIZE(columns);
     content.Styles = styles;
     content.StyleCount = IM_ARRAYSIZE(styles);
     content.Containers = &list;
@@ -2042,7 +2097,9 @@ void ShowDemoDocument(DemoDocumentState* state, int fonts_added)
     ImGui::Checkbox("Stream", &state->Stream);
     ImGui::SameLine();
     HelpMarker("AppendDocumentText() on the last block, every frame: what a pane does while "
-               "text arrives. One block is laid out again; no other is visited.");
+               "text arrives. One block is laid out again; no other is visited. The last "
+               "block is the table at the document's end, and the text goes into its last "
+               "cell: scroll down to watch a held column grow.");
     ImGui::SameLine();
     ImGui::Checkbox("Marks", &state->MarksOn);
     ImGui::SameLine();
@@ -2109,12 +2166,15 @@ void ShowDemoDocument(DemoDocumentState* state, int fonts_added)
     ShowLastError();
 
     const ImTypesetDocumentStats now = ImTypeset::GetDocumentStats(state->Document);
-    ImGui::Text("%d blocks, %d of them never laid out at this width.", now.Blocks,
-                now.BlocksDeferred);
+    ImGui::Text("%d blocks (the last a table), %d of them never laid out at this width.",
+                now.Blocks, now.BlocksDeferred);
     ImGui::Text("This frame: %d laid out, %d texts built, %d blocks visited by a pass over all.",
                 (int)(now.BlocksLaidOut - state->Last.BlocksLaidOut),
                 (int)(now.MaterialBuilds - state->Last.MaterialBuilds),
                 (int)(now.StructureVisits - state->Last.StructureVisits));
+    ImGui::Text("Of the table: %d cells measured and %d rows set this frame.",
+                (int)(now.TableCellsMeasured - state->Last.TableCellsMeasured),
+                (int)(now.TableRowsSet - state->Last.TableRowsSet));
     state->Last = now;
 }
 

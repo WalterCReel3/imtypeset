@@ -131,7 +131,11 @@ Strut blocks_clamped(const Strut& strut)
 {
     // RUNNING is a rule's sentinel and no height.
     const auto length = [](Scaled value) { return value == RUNNING ? 0 : clamp_dimen(value); };
-    return Strut{length(strut.height), length(strut.depth)};
+    Strut out;
+    out.height = length(strut.height);
+    out.depth = length(strut.depth);
+    out.exact = strut.exact;
+    return out;
 }
 
 Scaled clamp_extent(Scaled extent)
@@ -186,10 +190,102 @@ void CodeLines::clear()
     ends.clear();
 }
 
+uint64_t table_stamp()
+{
+    // One thread at a time for the whole library.
+    static uint64_t last = 0;
+    return ++last;
+}
+
+NodeView TableCells::cell(size_t i) const
+{
+    if (i >= cell_end.size())
+        return NodeView();
+    const size_t first = i == 0 ? 0 : cell_end[i - 1];
+    const size_t end = cell_end[i];
+    if (first > end || end > nodes.size())
+        return NodeView();
+    return NodeView(nodes.data() + first, end - first);
+}
+
+size_t TableCells::columns() const
+{
+    size_t longest = 0;
+    for (size_t r = 0; r + 1 < row_first.size(); ++r)
+        longest = std::max<size_t>(longest, row_first[r + 1] - row_first[r]);
+    return longest;
+}
+
+void TableCells::start_row()
+{
+    const uint32_t count = static_cast<uint32_t>(cell_end.size());
+    if (row_first.empty())
+        row_first.push_back(0);
+    // A row with no cell yet is the one to fill.
+    if (row_first.size() >= 2 && row_first.back() == row_first[row_first.size() - 2] &&
+        row_first.back() == count)
+        return;
+    row_first.back() = count;
+    row_first.push_back(count);
+    row_stamp.push_back(table_stamp());
+}
+
+void TableCells::end_cell(Scaled natural_width)
+{
+    if (row_first.empty())
+        start_row();
+    cell_end.push_back(static_cast<uint32_t>(nodes.size()));
+    natural.push_back(natural_width);
+    row_first.back() = static_cast<uint32_t>(cell_end.size());
+    row_stamp.back() = table_stamp();
+}
+
+void TableCells::reopen_last_cell()
+{
+    if (cell_end.empty())
+        return;
+    cell_end.pop_back();
+    natural.pop_back();
+    nodes.resize(cell_end.empty() ? 0 : cell_end.back());
+    row_first.back() = static_cast<uint32_t>(cell_end.size());
+    row_stamp.back() = table_stamp();
+}
+
+void TableCells::clear()
+{
+    nodes.clear();
+    cell_end.clear();
+    natural.clear();
+    row_first.clear();
+    row_stamp.clear();
+}
+
+void TableLayout::clear()
+{
+    columns.clear();
+    valid = false;
+    assembled = false;
+    rows.clear();
+    cmds.clear();
+    shipped.clear();
+    cell_items.clear();
+    word.clear();
+    word_stamp.clear();
+    widest.clear();
+    narrowest.clear();
+    row_top.clear();
+    row_index.clear();
+    cell_index.clear();
+    stated = false;
+    rows_set = 0;
+    rows_kept = 0;
+}
+
 void Block::clear_content()
 {
     text.clear();
     code.clear();
+    table.clear();
 }
 
 namespace
@@ -385,6 +481,8 @@ uint32_t quote_level(const Block& block, const Structure& structure, const Deriv
 
 bool sets_box(const Block& block, const DocumentRules& rules)
 {
+    if (block.type == BlockType::TABLE)
+        return block.table.rows() != 0 || block.length_hint != 0;
     if (block.type != BlockType::CODE)
         return true;
     // Lines that are made late are counted by what the block says of them.
@@ -447,6 +545,7 @@ bool BlockComposer::block_boxes(NodeArena& arena, const Block& block, Scaled ind
 {
     out.lines.clear();
     out.continues.clear();
+    out.resumed.clear();
     out.clipped = false;
     out.hung = Node();
     out.pack_error = PackError::NONE;
@@ -478,6 +577,9 @@ bool BlockComposer::block_boxes(NodeArena& arena, const Block& block, Scaled ind
         break;
     case BlockType::RULE:
         rule_box(arena, block, indent, width, measure, rules, out);
+        break;
+    case BlockType::TABLE:
+        table_boxes(arena, block, indent, width, params, measure, out);
         break;
     }
     // Not a text block: nothing of an earlier one is left to be read as this
@@ -526,7 +628,7 @@ void BlockComposer::code_boxes(NodeArena& arena, const Block& block, Scaled inde
                                &out.pack_error);
             out.hung = line;
             Box hung = arena.box(line);
-            if (hung.height < strut.height || hung.depth < strut.depth) {
+            if (strut.changes(hung)) {
                 strut.apply_to(hung);
                 line = arena.add_box(hung);
             }
@@ -604,6 +706,95 @@ void BlockComposer::rule_box(NodeArena& arena, const Block& block, Scaled indent
     out.lines.push_back(arena.add_box(packed.box, NodeView(nodes, 2)));
 }
 
+namespace
+{
+
+// What src/align reads of a table block set at `indent`.
+TableStyle table_style(const Block& block, Scaled indent)
+{
+    TableStyle style;
+    style.left_indent = indent;
+    style.cell_padding = clamp_dimen(block.table.cell_padding);
+    if (style.cell_padding < 0)
+        style.cell_padding = 0;
+    style.rule_thickness = clamp_dimen(block.table.rule_thickness);
+    if (style.rule_thickness < 0)
+        style.rule_thickness = 0;
+    style.interline = blocks_clamped(block.style.interline);
+    style.strut = blocks_clamped(block.style.strut);
+    return style;
+}
+
+// The policy a table's widths are solved under at a measure of `width`.
+// `scratch` holds the held widths as they are used: each at least one scaled
+// point. `stated` says the widths are the caller's or the held ones.
+ColumnPolicy table_policy(const TableCells& table, size_t columns, Scaled width, Scaled indent,
+                          std::vector<Scaled>& scratch, bool& stated)
+{
+    ColumnPolicy policy;
+    stated = false;
+    if (table.held) {
+        // The reference's `StreamView._sized_to`: the held widths while they
+        // sum to no more than the measure less the indent, and otherwise the
+        // default apportioning.
+        if (table.widths.size() != columns || columns == 0)
+            return policy;
+        scratch.assign(table.widths.begin(), table.widths.end());
+        const Scaled available = std::max<Scaled>(clamp_dimen(width) - indent, UNITY);
+        Scaled sum = 0;
+        for (Scaled& w : scratch) {
+            w = std::max<Scaled>(clamp_dimen(w), 1);
+            sum = add_saturating(sum, w);
+        }
+        if (sum > available)
+            return policy;
+        policy.kind = WidthPolicy::WIDTHS;
+        policy.widths = scratch.data();
+        policy.count = scratch.size();
+        stated = true;
+        return policy;
+    }
+    if (table.policy == WidthPolicy::WIDTHS && !table.widths.empty()) {
+        policy.kind = WidthPolicy::WIDTHS;
+        policy.widths = table.widths.data();
+        policy.count = table.widths.size();
+    } else if (table.policy == WidthPolicy::FRACTIONS && !table.fractions.empty()) {
+        policy.kind = WidthPolicy::FRACTIONS;
+        policy.fractions = table.fractions.data();
+        policy.count = table.fractions.size();
+    }
+    return policy;
+}
+
+} // namespace
+
+// The reference's `_table_boxes`: the whole table set at once, nothing kept.
+void BlockComposer::table_boxes(NodeArena& arena, const Block& block, Scaled indent, Scaled width,
+                                const LineBreakParams& params, CharMeasure measure, BlockBoxes& out)
+{
+    const TableCells& cells = block.table;
+    _cells.clear();
+    for (size_t i = 0; i < cells.cells(); ++i)
+        _cells.push_back(cells.cell(i));
+    TableInput table;
+    table.cells = _cells.data();
+    table.row_first = cells.row_first.data();
+    table.rows = cells.rows();
+    table.has_header = cells.has_header;
+    table.aligns = cells.aligns.data();
+    table.align_count = cells.aligns.size();
+    bool stated = false;
+    table.policy = table_policy(cells, cells.columns(), width, indent, _scratch_widths, stated);
+    table.style = table_style(block, indent);
+    _aligner.fin_align(arena, table, width, params, measure, _aligned);
+    note(out.pack_error, _aligned.pack_error);
+    out.break_error = _aligned.break_error;
+    for (const TableBox& box : _aligned.boxes) {
+        out.lines.push_back(box.box);
+        out.resumed.push_back(box.prev_depth_carried);
+    }
+}
+
 // --- Stacking ---------------------------------------------------------------------------
 
 Stacker::Stacker()
@@ -668,10 +859,15 @@ void Stacker::stacked(NodeArena& arena, const StackInput& in, size_t first, size
     Scaled prev_depth = IGNORE_DEPTH;
     Scaled pen = base;
     const Block* above = nullptr;
-    const auto append = [&](const Node& box, const InterlineSkip& skip) -> Scaled {
+    // `resumed`, if given, is the prev_depth to go on from where that is not
+    // the box's depth (a table row whose cells wrapped).
+    const auto append = [&](const Node& box, const InterlineSkip& skip,
+                            const Scaled* resumed = nullptr) -> Scaled {
         const size_t before = vlist.size();
         const Scaled handed = prev_depth;
         prev_depth = append_to_vlist(arena, vlist, box, prev_depth, skip);
+        if (resumed != nullptr)
+            prev_depth = *resumed;
         for (size_t k = before; k < vlist.size(); ++k)
             pen = plus(pen, extent_of(arena, vlist[k], out.pack_error), out.pack_error);
         return handed;
@@ -736,7 +932,8 @@ void Stacker::stacked(NodeArena& arena, const StackInput& in, size_t first, size
             const InterlineSkip skip = blocks_clamped(head.style.interline);
             for (uint32_t l = line_first; l < line_end; ++l) {
                 const size_t before = vlist.size();
-                const Scaled handed = append(in.lines[l], skip);
+                const Scaled handed =
+                    append(in.lines[l], skip, in.resumed != nullptr ? in.resumed + l : nullptr);
                 trace(StackEvent::APPEND, handed, prev_depth);
                 if (out.tracing && vlist.size() - before == 2) {
                     const size_t slot = trace(StackEvent::GLUE);
@@ -849,12 +1046,17 @@ bool DocumentComposer::compose_blocks(NodeArena& arena, const Block* blocks, siz
     _indents.resize(count);
     _line_first.clear();
     _lines.clear();
+    _resumed.clear();
     for (size_t i = 0; i < count; ++i) {
         _indents[i] = effective_indent(blocks[i], _derived, rules, width);
         _line_first.push_back(static_cast<uint32_t>(_lines.size()));
         _block.block_boxes(arena, blocks[i], _indents[i], width, params, measure, rules, _boxes);
         ++blocks_composed;
-        _lines.insert(_lines.end(), _boxes.lines.begin(), _boxes.lines.end());
+        for (size_t l = 0; l < _boxes.lines.size(); ++l) {
+            _lines.push_back(_boxes.lines[l]);
+            _resumed.push_back(l < _boxes.resumed.size() ? _boxes.resumed[l]
+                                                         : arena.box(_boxes.lines[l]).depth);
+        }
         note(out.pack_error, _boxes.pack_error);
         if (out.break_error == LineBreakError::NONE)
             out.break_error = _boxes.break_error;
@@ -866,6 +1068,7 @@ bool DocumentComposer::compose_blocks(NodeArena& arena, const Block* blocks, siz
     in.count = count;
     in.line_first = _line_first.data();
     in.lines = _lines.data();
+    in.resumed = _resumed.data();
     in.indents = _indents.data();
     in.structure = structure;
     in.derived = &_derived;
@@ -911,6 +1114,10 @@ struct Rewound {
 void DocumentComposer::layout_block(NodeArena& arena, const Block& block, Scaled indent,
                                     Scaled width, const DocumentRules& rules, BlockLayout& out)
 {
+    if (block.type == BlockType::TABLE) {
+        layout_table(arena, block, indent, width, out);
+        return;
+    }
     const Rewound rewound(arena);
     _block.block_boxes(arena, block, indent, width, params, measure, rules, _boxes);
     ++blocks_composed;
@@ -938,7 +1145,8 @@ void DocumentComposer::layout_block(NodeArena& arena, const Block& block, Scaled
     for (const Node& line : _boxes.lines) {
         prev_depth = append_to_vlist(arena, _vlist, line, prev_depth, skip);
         const Box& box = arena.box(line);
-        out.lines.push_back(LineDims{box.width, box.height, box.depth, box.shift_amount});
+        out.lines.push_back(
+            LineDims{box.width, box.height, box.depth, box.shift_amount, box.depth});
     }
     Scaled extent = 0;
     for (const Node& node : _vlist)
@@ -958,6 +1166,321 @@ void DocumentComposer::layout_block(NodeArena& arena, const Block& block, Scaled
             if (cmd.is(CmdType::LINE) && cmd.end > out.item_count)
                 out.item_count = cmd.end;
         }
+    }
+}
+
+// Each column's longest unbreakable piece with its padding, into
+// `kept.narrowest`: the reference's `_longest_word` over every cell, a cell of
+// a row that has not changed since it was measured being read from
+// `kept.word`.
+void DocumentComposer::table_narrowest(NodeArena& arena, const Block& block, TableLayout& kept)
+{
+    const TableCells& cells = block.table;
+    Aligner& aligner = _block.aligner();
+    const size_t rows = cells.rows();
+    const size_t columns = std::min(cells.columns(), MAX_TABLE_COLUMNS);
+    Scaled padding = clamp_dimen(cells.cell_padding);
+    if (padding < 0)
+        padding = 0;
+    kept.word.resize(cells.cells(), 0);
+    kept.word_stamp.resize(rows, 0);
+    kept.narrowest.assign(columns, 0);
+    for (size_t r = 0; r < rows; ++r) {
+        const size_t first = cells.row_first[r];
+        const size_t count = std::min<size_t>(cells.row_first[r + 1] - first, columns);
+        if (kept.word_stamp[r] != cells.row_stamp[r] || kept.word_serial != params_serial) {
+            for (size_t c = 0; c < count; ++c) {
+                kept.word[first + c] =
+                    aligner.longest_word(arena, cells.cell(first + c), params, measure);
+                ++table_words_measured;
+            }
+            kept.word_stamp[r] = cells.row_stamp[r];
+        }
+        for (size_t c = 0; c < count; ++c)
+            fin_col(kept.narrowest, c, add_saturating(kept.word[first + c], 2 * padding));
+    }
+    kept.word_serial = params_serial;
+}
+
+Scaled Document::table_floor(DocumentComposer& composer, size_t block, size_t column)
+{
+    if (block >= _count || _blocks[block].type != BlockType::TABLE || !slot_valid(block))
+        return 0;
+    TableLayout& kept = _layouts[block].table;
+    if (kept.narrowest.empty() && _blocks[block].table.rows() != 0) {
+        const NodeArena::Mark before = _arena.mark();
+        composer.table_narrowest(_arena, _blocks[block], kept);
+        _arena.rewind(before);
+    }
+    return column < kept.narrowest.size() ? kept.narrowest[column] : 0;
+}
+
+// A table, with the rows it was last set as kept: what tex.web's fin_align
+// (section 800) does in one go, done so that a table to which a row was added
+// costs that row. Three things are kept in `out.table` from one layout to the
+// next and each is checked before it is used: a cell's longest word, by its
+// row's stamp; a row as it was shipped alone, by its row's stamp and by
+// everything else it was set from (the column widths, the indent, the table's
+// configuration, the breaking parameters); and nothing else. The rows are
+// stacked by arithmetic on their dimensions, which is what vpack at natural
+// height and ship-out make of the list `Aligner::fin_align` builds: the
+// goldens hold the two to the same commands.
+void DocumentComposer::layout_table(NodeArena& arena, const Block& block, Scaled indent,
+                                    Scaled width, BlockLayout& out)
+{
+    const Rewound rewound(arena);
+    const TableCells& cells = block.table;
+    TableLayout& kept = out.table;
+    Aligner& aligner = _block.aligner();
+    const TableStyle style = table_style(block, indent);
+    const size_t rows = cells.rows();
+    const size_t columns = std::min(cells.columns(), MAX_TABLE_COLUMNS);
+
+    ++blocks_composed;
+    out.serial = ++_serial;
+    out.budget_exhausted = false;
+    out.clipped = false;
+    out.continues.clear();
+    out.hard_breaks.clear();
+    out.marker_items = 0;
+
+    // The widest cell of each column: fin_col (tex.web section 796) over
+    // what was measured when the cells were made.
+    kept.widest.assign(columns, 0);
+    for (size_t r = 0; r < rows; ++r) {
+        const size_t first = cells.row_first[r];
+        const size_t count = std::min<size_t>(cells.row_first[r + 1] - first, columns);
+        for (size_t c = 0; c < count; ++c)
+            fin_col(kept.widest, c, cells.natural[first + c]);
+    }
+
+    // The widths (section 801, and the reference's `_column_widths`). The
+    // longest words are measured only if the solve asks for them, and then
+    // only for the cells of rows that changed since they last were.
+    bool stated = false;
+    const ColumnPolicy policy = table_policy(cells, columns, width, indent, _widths, stated);
+    kept.narrowest.clear();
+    if (rows != 0 &&
+        !column_widths(policy, kept.widest.data(), nullptr, columns, width, indent, kept.solve)) {
+        table_narrowest(arena, block, kept);
+        column_widths(policy, kept.widest.data(), kept.narrowest.data(), columns, width, indent,
+                      kept.solve);
+    } else if (rows == 0) {
+        kept.solve = ColumnSolve();
+    }
+    if (kept.word_stamp.size() > rows)
+        kept.word_stamp.resize(rows);
+    kept.stated = stated || kept.solve.regime == SolveRegime::GIVEN;
+    const std::vector<Scaled>& widths = kept.solve.columns;
+
+    // Which rows stand as they were set.
+    const bool same = kept.valid && kept.config == cells.config &&
+                      kept.params_serial == params_serial && kept.indent == indent &&
+                      kept.columns == widths;
+    size_t standing = 0;
+    if (same) {
+        const size_t most = std::min(rows, kept.rows.size());
+        while (standing < most && kept.rows[standing].stamp == cells.row_stamp[standing])
+            ++standing;
+    }
+    // The rows that stand are also where the last layout put them, with the
+    // indices it gave them: what the block holds of them is kept, and the
+    // stacking goes on from the last of them.
+    const bool resumed = standing != 0 && kept.assembled;
+    kept.valid = false;
+    kept.assembled = false;
+    if (!resumed) {
+        out.pack_error = PackError::NONE;
+        out.break_error = LineBreakError::NONE;
+        out.ship_error = ShipError::NONE;
+        out.originals.clear();
+        out.lines.clear();
+        out.cmds.clear();
+        out.shipped.clear();
+        out.box_width = 0;
+        out.mapped = true;
+        kept.row_top.clear();
+        kept.row_index.clear();
+        kept.cell_index.clear();
+    }
+    kept.rows.resize(standing);
+    kept.cmds.resize(standing == 0 ? 0 : kept.rows[standing - 1].cmd_end);
+    kept.shipped.resize(standing == 0 ? 0 : kept.rows[standing - 1].shipped_end);
+    kept.cell_items.resize(standing == 0 ? 0 : kept.rows[standing - 1].cell_end);
+    kept.columns.assign(widths.begin(), widths.end());
+    kept.config = cells.config;
+    kept.params_serial = params_serial;
+    kept.indent = indent;
+    kept.rows_kept = static_cast<uint32_t>(standing);
+    kept.rows_set = static_cast<uint32_t>(rows - standing);
+
+    // Each row that does not: set to the widths (sections 807 to 810), put in
+    // a list of its own and shipped from its top-left corner.
+    for (size_t r = standing; r < rows; ++r) {
+        const NodeArena::Mark before = arena.mark();
+        const size_t first = cells.row_first[r];
+        const size_t count = std::min<size_t>(cells.row_first[r + 1] - first, columns);
+        _cells.clear();
+        for (size_t c = 0; c < count; ++c)
+            _cells.push_back(cells.cell(first + c));
+        RowInput input;
+        input.cells = _cells.data();
+        input.cell_count = count;
+        input.natural = cells.natural.data() + first;
+        input.columns = widths.data();
+        input.column_count = widths.size();
+        input.aligns = cells.aligns.data();
+        input.align_count = cells.aligns.size();
+        aligner.set_row(arena, input, style, params, measure, _row);
+        ++table_rows_set;
+        note(out.pack_error, _row.pack_error);
+        if (out.break_error == LineBreakError::NONE)
+            out.break_error = _row.break_error;
+
+        TableRowLayout row;
+        row.stamp = cells.row_stamp[r];
+        row.wrapped = _row.wrapped;
+        row.mapped = _row.mapped;
+        row.item_count = _row.item_count;
+        const Box& box = arena.box(_row.box);
+        row.dims = LineDims{box.width, box.height, box.depth, box.shift_amount, _row.prev_depth};
+        const Node list[1] = {_row.box};
+        const PackResult packed = vpack(arena, NodeView(list, 1));
+        note(out.pack_error, packed.error);
+        const Node alone = arena.add_box(packed.box, NodeView(list, 1));
+        const ShipError shipped =
+            ship(arena, alone, Point{0, packed.box.height}, measure, kept.cmds);
+        if (out.ship_error == ShipError::NONE)
+            out.ship_error = shipped;
+        kept.shipped.insert(kept.shipped.end(), _row.shipped.begin(), _row.shipped.end());
+        kept.cell_items.insert(kept.cell_items.end(), _row.cell_index_end.begin(),
+                               _row.cell_index_end.end());
+        row.cmd_end = static_cast<uint32_t>(kept.cmds.size());
+        row.shipped_end = static_cast<uint32_t>(kept.shipped.size());
+        row.cell_end = static_cast<uint32_t>(kept.cell_items.size());
+        kept.rows.push_back(row);
+        arena.rewind(before);
+    }
+    kept.valid = true;
+
+    // The stack: the reference's `_stacked` for this block, with tex.web
+    // section 679's glue computed from each box's dimensions and the
+    // prev_depth each row carries. A box's commands are its own, moved down
+    // to its top and renumbered from the indices before it.
+    const InterlineSkip skip = style.interline;
+    Scaled prev_depth = IGNORE_DEPTH;
+    Scaled pen = 0;
+    uint32_t index = 0;
+    if (resumed) {
+        const TableRowLayout& last = kept.rows[standing - 1];
+        prev_depth = last.depth_after;
+        pen = last.pen_after;
+        index = last.index_after;
+        out.cmds.resize(last.out_cmd_end);
+        out.lines.resize(last.out_line_end);
+        while (!out.originals.empty() && out.originals.back().index >= index)
+            out.originals.pop_back();
+        kept.row_top.resize(standing);
+        kept.row_index.resize(standing);
+        kept.cell_index.resize(standing * columns);
+    }
+    const size_t nodes_standing = resumed && cells.row_first[standing] != 0
+                                      ? cells.cell_end[cells.row_first[standing] - 1]
+                                      : 0;
+    out.shipped.resize(nodes_standing);
+    out.shipped.resize(cells.nodes.size(), NOT_SHIPPED);
+    const auto place = [&](const LineDims& dims) -> Scaled {
+        Box box;
+        box.kind = BoxKind::HLIST;
+        box.width = dims.width;
+        box.height = dims.height;
+        box.depth = dims.depth;
+        box.shift_amount = dims.shift;
+        Node glue_node;
+        if (interline_glue(prev_depth, box, skip, glue_node))
+            pen = plus(pen, glue_node.width(), out.pack_error);
+        const Scaled top = pen;
+        pen = plus(pen, plus(dims.height, dims.depth, out.pack_error), out.pack_error);
+        prev_depth = dims.resumed;
+        out.lines.push_back(dims);
+        out.box_width = std::max(out.box_width, dims.width + dims.shift);
+        return top;
+    };
+    const auto renumbered = [&](size_t from, Scaled top) {
+        for (size_t k = from; k < out.cmds.size(); ++k) {
+            DrawCmd& cmd = out.cmds[k];
+            cmd.y += top;
+            if (cmd.is(CmdType::RULE_RECT))
+                continue;
+            cmd.index += index;
+            if (cmd.is(CmdType::LINE))
+                cmd.end += index;
+        }
+    };
+    const bool ruled = cells.has_header && style.rule_thickness != 0;
+    for (size_t r = resumed ? standing : 0; r < rows; ++r) {
+        TableRowLayout& row = kept.rows[r];
+        const Scaled top = place(row.dims);
+        kept.row_top.push_back(top);
+        kept.row_index.push_back(index);
+        const size_t cmd_first = r == 0 ? 0 : kept.rows[r - 1].cmd_end;
+        const size_t from = out.cmds.size();
+        out.cmds.insert(out.cmds.end(), kept.cmds.begin() + static_cast<std::ptrdiff_t>(cmd_first),
+                        kept.cmds.begin() + static_cast<std::ptrdiff_t>(row.cmd_end));
+        renumbered(from, top);
+        // The row's nodes are the table's from its first cell's on.
+        const size_t ship_first = r == 0 ? 0 : kept.rows[r - 1].shipped_end;
+        const size_t node_first =
+            cells.row_first[r] == 0 ? 0 : cells.cell_end[cells.row_first[r] - 1];
+        for (size_t k = ship_first; k < row.shipped_end; ++k) {
+            const size_t node = node_first + (k - ship_first);
+            if (node < out.shipped.size() && kept.shipped[k] != NOT_SHIPPED)
+                out.shipped[node] = kept.shipped[k] + index;
+        }
+        out.mapped = out.mapped && row.mapped;
+        const size_t cell_first = r == 0 ? 0 : kept.rows[r - 1].cell_end;
+        uint32_t cell_start = 0;
+        for (size_t c = 0; c < columns; ++c) {
+            kept.cell_index.push_back(index + cell_start);
+            if (cell_first + c < row.cell_end)
+                cell_start = kept.cell_items[cell_first + c];
+        }
+        index += row.item_count;
+        if (r == 0 && ruled) {
+            const NodeArena::Mark before = arena.mark();
+            const Node rule_box =
+                aligner.head_rule(arena, widths.data(), widths.size(), style, &out.pack_error);
+            const Box& box = arena.box(rule_box);
+            const LineDims dims{box.width, box.height, box.depth, box.shift_amount, box.depth};
+            const Scaled rule_top = place(dims);
+            const Node list[1] = {rule_box};
+            const PackResult packed = vpack(arena, NodeView(list, 1));
+            const Node alone = arena.add_box(packed.box, NodeView(list, 1));
+            const size_t rule_from = out.cmds.size();
+            const ShipError shipped =
+                ship(arena, alone, Point{0, packed.box.height}, measure, out.cmds);
+            if (out.ship_error == ShipError::NONE)
+                out.ship_error = shipped;
+            renumbered(rule_from, rule_top);
+            arena.rewind(before);
+        }
+        row.pen_after = pen;
+        row.depth_after = prev_depth;
+        row.index_after = index;
+        row.out_cmd_end = static_cast<uint32_t>(out.cmds.size());
+        row.out_line_end = static_cast<uint32_t>(out.lines.size());
+    }
+    kept.assembled = true;
+    kept.row_top.push_back(pen);
+    kept.row_index.push_back(index);
+    kept.cell_index.push_back(index);
+    out.item_count = index;
+    out.extent = clamp_extent(pen);
+
+    // What a stand-in was written as, by the index it shipped at.
+    for (size_t node = nodes_standing; node < cells.nodes.size(); ++node) {
+        if (cells.nodes[node].is_replaced() && out.shipped[node] != NOT_SHIPPED)
+            out.originals.push_back(Original{out.shipped[node], cells.nodes[node].original()});
     }
 }
 
@@ -1220,6 +1743,9 @@ Scaled Document::estimate(size_t block) const
         break;
     case BlockType::RULE:
         return clamp_extent(clamp_dimen(b.thickness));
+    case BlockType::TABLE:
+        lines = static_cast<double>(b.table.rows() != 0 ? b.table.rows() : b.length_hint);
+        break;
     }
     const double extent = lines * leading;
     if (!(extent > 0.0))
@@ -1430,6 +1956,7 @@ void Document::assemble(DocumentComposer& composer, size_t u)
 
     composer._line_first.clear();
     composer._lines.clear();
+    composer._resumed.clear();
     composer._indents.clear();
     for (size_t b = first; b < first + count; ++b) {
         composer._line_first.push_back(static_cast<uint32_t>(composer._lines.size()));
@@ -1442,6 +1969,7 @@ void Document::assemble(DocumentComposer& composer, size_t u)
             box.depth = dims.depth;
             box.shift_amount = dims.shift;
             composer._lines.push_back(_arena.add_box(box));
+            composer._resumed.push_back(dims.resumed);
         }
     }
     composer._line_first.push_back(static_cast<uint32_t>(composer._lines.size()));
@@ -1452,6 +1980,7 @@ void Document::assemble(DocumentComposer& composer, size_t u)
     in.first_number = static_cast<uint32_t>(first);
     in.line_first = composer._line_first.data();
     in.lines = composer._lines.data();
+    in.resumed = composer._resumed.data();
     in.indents = composer._indents.data();
     in.structure = structure();
     in.derived = &_derived;

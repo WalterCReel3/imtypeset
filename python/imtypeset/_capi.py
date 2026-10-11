@@ -3,9 +3,9 @@ the loading of the library. Nothing here is for a program to call; the package's
 `__init__` is.
 
 The structs mirror the header field for field. Their sizes are handed to the
-library when the package is imported (ImTypeset_DebugCheckVersionAndDataLayout
-and ImTypeset_DebugCheckDocumentDataLayout), so a header that moved under this
-file is an ImportError and not a wrong answer.
+library when the package is imported (ImTypeset_DebugCheckVersionAndDataLayout,
+ImTypeset_DebugCheckDocumentDataLayout and ImTypeset_DebugCheckTableDataLayout),
+so a header that moved under this file is an ImportError and not a wrong answer.
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ class Line(C.Structure):
 
 
 class Hit(C.Structure):
-    _fields_ = [("TextOffset", C.c_int), ("Line", C.c_int), ("Inside", C.c_bool)]
+    _fields_ = [("TextOffset", C.c_int), ("Line", C.c_int), ("Inside", C.c_bool), ("Tag", C.c_int)]
 
 
 class ErrorInfo(C.Structure):
@@ -161,9 +161,21 @@ class Block(C.Structure):
         ("Container", C.c_int),
         ("Item", C.c_int),
         ("Extent", C.c_float),
-        ("TableRows", C.c_int),
-        ("TableColumns", C.c_int),
+        ("CellStart", C.c_int),
+        ("CellCount", C.c_int),
+        ("ColumnStart", C.c_int),
+        ("ColumnCount", C.c_int),
     ]
+
+
+class Cell(C.Structure):
+    """ImTypesetCell: [TextStart, TextEnd) of its block's text."""
+
+    _fields_ = [("TextStart", C.c_int), ("TextEnd", C.c_int), ("Flags", C.c_int)]
+
+
+class TableColumn(C.Structure):
+    _fields_ = [("Align", C.c_int), ("Width", C.c_float), ("Share", C.c_float)]
 
 
 class DocumentContent(C.Structure):
@@ -178,6 +190,10 @@ class DocumentContent(C.Structure):
         ("StyleCount", C.c_int),
         ("Containers", C.c_void_p),
         ("ContainerCount", C.c_int),
+        ("Cells", C.c_void_p),
+        ("CellCount", C.c_int),
+        ("Columns", C.c_void_p),
+        ("ColumnCount", C.c_int),
     ]
 
 
@@ -190,6 +206,9 @@ class DocumentOptions(C.Structure):
         ("QuoteBarColor", C.c_uint),
         ("RuleColor", C.c_uint),
         ("CodeOverflow", C.c_int),
+        ("TableCellPadding", C.c_float),
+        ("TableRuleThickness", C.c_float),
+        ("TableRuleColor", C.c_uint),
     ]
 
 
@@ -227,6 +246,8 @@ class DocumentHit(C.Structure):
         ("Tag", C.c_int),
         ("Inside", C.c_bool),
         ("InBlock", C.c_bool),
+        ("Row", C.c_int),
+        ("Column", C.c_int),
     ]
 
 
@@ -241,6 +262,41 @@ class BlockGeometry(C.Structure):
     ]
 
 
+class TableGeometry(C.Structure):
+    _fields_ = [
+        ("RowCount", C.c_int),
+        ("ColumnCount", C.c_int),
+        ("CellCount", C.c_int),
+        ("Min", Vec2),
+        ("Max", Vec2),
+        ("Stated", C.c_bool),
+        ("LaidOut", C.c_bool),
+    ]
+
+
+class TableColumnGeometry(C.Structure):
+    _fields_ = [
+        ("Min", C.c_float),
+        ("Max", C.c_float),
+        ("Natural", C.c_float),
+        ("Floor", C.c_float),
+    ]
+
+
+class TableRowGeometry(C.Structure):
+    _fields_ = [
+        ("Min", C.c_float),
+        ("Max", C.c_float),
+        ("CellStart", C.c_int),
+        ("CellCount", C.c_int),
+        ("Wrapped", C.c_bool),
+    ]
+
+
+class CellPosition(C.Structure):
+    _fields_ = [("Row", C.c_int), ("Column", C.c_int), ("Cell", C.c_int), ("Offset", C.c_int)]
+
+
 DOCUMENT_STATS_FIELDS = (
     "MaterialBuilds",
     "BlocksLaidOut",
@@ -249,14 +305,17 @@ DOCUMENT_STATS_FIELDS = (
     "BlocksDrawn",
     "Blocks",
     "BlocksDeferred",
+    "TableCellsMeasured",
+    "TableRowsSet",
 )
 
 
 class DocumentStats(C.Structure):
-    _fields_ = [(name, C.c_ulonglong) for name in DOCUMENT_STATS_FIELDS[:5]] + [
-        ("Blocks", C.c_int),
-        ("BlocksDeferred", C.c_int),
-    ]
+    _fields_ = (
+        [(name, C.c_ulonglong) for name in DOCUMENT_STATS_FIELDS[:5]]
+        + [("Blocks", C.c_int), ("BlocksDeferred", C.c_int)]
+        + [(name, C.c_ulonglong) for name in DOCUMENT_STATS_FIELDS[7:]]
+    )
 
 
 # The structs ImTypeset_DebugCheckDocumentDataLayout() is told the sizes of, in
@@ -274,6 +333,16 @@ DOCUMENT_STRUCTS = (
     ("DocumentHit", DocumentHit),
     ("BlockGeometry", BlockGeometry),
     ("DocumentStats", DocumentStats),
+)
+
+# The same for ImTypeset_DebugCheckTableDataLayout().
+TABLE_STRUCTS = (
+    ("Cell", Cell),
+    ("TableColumn", TableColumn),
+    ("TableGeometry", TableGeometry),
+    ("TableColumnGeometry", TableColumnGeometry),
+    ("TableRowGeometry", TableRowGeometry),
+    ("CellPosition", CellPosition),
 )
 
 
@@ -303,7 +372,7 @@ class BuildInfo(C.Structure):
         ("SizeofErrorInfo", C.c_int),
         ("Version", C.c_char * 16),
         ("ImGuiVersion", C.c_char * 32),
-    ] + [("Sizeof" + name, C.c_int) for name, _ in DOCUMENT_STRUCTS]
+    ] + [("Sizeof" + name, C.c_int) for name, _ in DOCUMENT_STRUCTS + TABLE_STRUCTS]
 
 
 _P = C.c_void_p  # A handle, an ImDrawList*, an ImFont*: an address and nothing more.
@@ -340,6 +409,7 @@ PROTOTYPES = {
     "ImTypeset_RemoveFont": (_INT, [_INT]),
     "ImTypeset_GetFont": (_P, [_INT]),
     "ImTypeset_GetFontAtlasIndex": (_INT, [_INT]),
+    "ImTypeset_FaceHasGlyph": (_INT, [_INT, C.c_uint]),
     "ImTypeset_TextUnformatted": (_INT, [_TEXT, _END, _INT, _F, _ptr(Style)]),
     "ImTypeset_TextWithID": (_INT, [_TEXT, _END, _TEXT, _END, _INT, _F, _ptr(Style)]),
     "ImTypeset_SelectableText": (
@@ -374,11 +444,14 @@ PROTOTYPES = {
     "ImTypeset_GetParagraphCaretRect": (_INT, [_P, _INT, _ptr(Vec4)]),
     "ImTypeset_AppendParagraphRangeText": (_INT, [_P, _ptr(TextRange), _INT, C.c_char_p, _INT]),
     "ImTypeset_DebugCheckDocumentDataLayout": (_INT, [C.c_size_t] * 12),
+    "ImTypeset_DebugCheckTableDataLayout": (_INT, [C.c_size_t] * 6),
     "ImTypeset_CreateDocument": (_P, []),
     "ImTypeset_DestroyDocument": (_INT, [_P]),
     "ImTypeset_SetDocumentBlocks": (_INT, [_P, _ptr(DocumentContent)]),
     "ImTypeset_ReplaceDocumentBlocks": (_INT, [_P, _INT, _INT, _ptr(DocumentContent)]),
     "ImTypeset_AppendDocumentText": (_INT, [_P, _TEXT, _END, _P, _INT]),
+    "ImTypeset_AppendDocumentTableCells": (_INT, [_P, _TEXT, _END, _P, _INT, _P, _INT]),
+    "ImTypeset_SetDocumentTableColumns": (_INT, [_P, _INT, _P, _INT]),
     "ImTypeset_SetDocumentBlockExtent": (_INT, [_P, _INT, _F]),
     "ImTypeset_SetDocumentOptions": (_INT, [_P, _ptr(DocumentOptions)]),
     "ImTypeset_GetDocumentBlockCount": (_INT, [_P]),
@@ -409,6 +482,11 @@ PROTOTYPES = {
     ),
     "ImTypeset_GetDocumentBlockGeometry": (_INT, [_P, _INT, _ptr(BlockGeometry)]),
     "ImTypeset_GetDocumentBlockLine": (_INT, [_P, _INT, _INT, _ptr(Line)]),
+    "ImTypeset_GetDocumentTableGeometry": (_INT, [_P, _INT, _ptr(TableGeometry)]),
+    "ImTypeset_GetDocumentTableColumn": (_INT, [_P, _INT, _INT, _ptr(TableColumnGeometry)]),
+    "ImTypeset_GetDocumentTableRow": (_INT, [_P, _INT, _INT, _ptr(TableRowGeometry)]),
+    "ImTypeset_GetDocumentTableCell": (_INT, [_P, _ptr(Position), _ptr(CellPosition)]),
+    "ImTypeset_GetDocumentTablePosition": (_INT, [_P, _INT, _INT, _INT, _INT, _ptr(Position)]),
     "ImTypeset_DocumentView": (
         _INT,
         [_TEXT, _END, _P, _ptr(Vec2), _ptr(DocumentRange), _ptr(DocumentDraw), _ptr(Style)],

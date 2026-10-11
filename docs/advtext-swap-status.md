@@ -7,7 +7,9 @@ States: **done**, **in progress**, **queued**, **declined** (with the reason),
 **needs the user**. A decision an agent took is marked *agent decision*; the
 user is the only one who moves the border.
 
-Last updated: 2026-10-11, after commit `12d77ac` (items 2, 6, 7, 8 are in it).
+Last updated: 2026-10-11. Commit `12d77ac` has items 2, 6, 7, 8. Item 5 (stage 0 of
+`tables-core`) is in the working tree, green in debug and under ASan + UBSan, and
+waits for its commit: the coordinating session names it under "Build from".
 
 ## Build from
 
@@ -42,6 +44,47 @@ Also new in `12d77ac`, from `galleries`: `ShowDemoSection` /
 | one section of the demo window, as a page of the host's | `ShowDemoSection(ImTypesetDemoSection)`, `GetDemoSectionName(section)`, `enum ImTypesetDemoSection_` (11 values, `_COUNT`) | `ImTypeset_ShowDemoSection`, `ImTypeset_GetDemoSectionName`, `enum ImTypeset_DemoSection_` | new module `imtypeset.demo`: `DemoSection`, `sections()`, `section_name(s)`, `show_demo_section(s)`, and `show_demo_window` again | new (task `galleries`): item 6 |
 | the demo window in the sidecar | | | `imtypeset.show_demo_window()` draws the window in a bundle-hosted library | was an empty function there (`IMTYPESET_DISABLE_DEMO`); the library is built with the demo now |
 
+**After `12d77ac`, not yet in a commit** (task `tables-core`, stage 0: item 5 and
+FS-S2 section 4's notes; D56). Nothing was renamed or removed. Two things a
+caller can notice: `Hit` has a fourth field, and a library and a package (or a
+C++ host) from either side of this change refuse each other, because
+`sizeof(ImTypesetHit)` is part of the version check.
+
+| what | C++ | C | Python | note |
+|---|---|---|---|---|
+| R1: every line of a block exactly its line height | `ImTypesetBlockFlags_FixedLineHeight` (`1 << 3`) on `ImTypesetBlock::Flags` | `ImTypeset_BlockFlags_FixedLineHeight` | `BlockFlags.FixedLineHeight` | new. Line `n` of the block is `n` line heights below its top whatever glyphs it holds; the height is `BlockStyle.LineHeight` ems, rounded once to a scaled point (about 8e-6 px a line at 20 px). A taller glyph overhangs into the next line's box instead of moving it. Text and code blocks. Two documents with the flag stay in step to the bit |
+| R1b: does a role's own font have a glyph | `FaceHasGlyph(face, codepoint)` | `ImTypeset_FaceHasGlyph(face, codepoint)` → 0 / 1 | `imtypeset.face_has_glyph(face, char_or_codepoint)` → `bool` | new. The role's font alone, not the faces a missing character is borrowed from. Needs no ImGui context. `CodeBold` answers for `Bold`'s font until it has its own |
+| the tag under a point of a paragraph | `ImTypesetHit::Tag` (appended) | `ImTypeset_Hit::Tag` | `Hit.tag` (a fourth field, default 0) | new. **`a, b, c = paragraph.hit_test(...)` no longer unpacks: read the fields by name** |
+| the tag under a point of a document | `ImTypesetDocumentHit::Tag` | | `DocumentHit.tag` | **fixed**: it answered the run of the character the caret was BEFORE, so the right half of a link's last letter gave 0 and the right half of the character before a link gave the link. It is now the character the point is on |
+| a paragraph's natural width | `GetParagraphLine(p, 0)`: `Max.x - Min.x` after a layout wider than the text | the same | `paragraph.lines()[0]`: `max[0] - min[0]` | no new call; stated at `GetParagraphSize`. It holds for every alignment (justified, centred and right-aligned text report the wrap width as their size, which is what tripped the probe) |
+| slices of a document under clips that meet | `DrawDocument` / `DrawDocumentToBuffers` | the same | `Document.draw` | **changed**: a glyph whose quad is wholly at or below the clip rectangle's bottom edge, or wholly above its top, is no longer emitted. A clip ending exactly at a line's top no longer emits that line; the half pixel FS-S2 subtracted is not needed. Glyphs a cut goes through are still in both slices |
+| a Table block in a copy | | | | **changed by the table stage, below**: a `BlockKind.Table` block is a table now, and copies as its cells |
+
+**Tables (item 3; task `tables-core`, table stage; D57). In the working tree, not yet in a
+commit.** A table is ONE block whose text is its cells; positions stay `(block, offset)`.
+Read "Tables" in `include/imtypeset.h` first: it is the specification. In Python a table is
+`Block(BlockKind.Table, rows=[[...], ...], columns=[...])` and nothing else changes shape.
+
+| what | C++ | C | Python | note |
+|---|---|---|---|---|
+| a table block | `ImTypesetBlockKind_Table` with `ImTypesetBlock::CellStart`, `CellCount`, `ColumnStart`, `ColumnCount`; `ImTypesetCell {TextStart, TextEnd, Flags}`, `ImTypesetCellFlags_RowStart`; `ImTypesetDocumentContent::Cells`, `CellCount`, `Columns`, `ColumnCount` | `ImTypeset_Cell`, `ImTypeset_CellFlags_RowStart`, the same fields | `Block(BlockKind.Table, rows=..., columns=...)`: `rows` is a sequence of rows, a cell a `str` or `Cell(text, runs)` with runs indexing the CELL's str; the package joins cells with a tab and rows with a newline into the block's text, so `Block.text` is left empty | **renamed, never usable before:** `ImTypesetBlock::TableRows` / `TableColumns` (reserved, "leave zero") are `CellStart` / `CellCount`. A cell is text and runs like a paragraph: faces, scale, colour, `Tag` for links, `RunFlags.Formula` or the block's `BlockFlags.Math` for formulas. A row may have fewer cells than the table has columns |
+| columns: alignment, stated widths or shares | `ImTypesetTableColumn {Align, Width, Share}` | `ImTypeset_TableColumn` | `TableColumn(align, width, share)` | `Width` (px, padding included) is used when EVERY column states one, else `Share` when every column states one, else the library fits the table (scaled up to the width; squeezed toward longest words and its cells wrapped when too wide). `Align.Justify` (the zero) is Left |
+| header row, held columns | `ImTypesetBlockFlags_TableHeader` (1<<4), `ImTypesetBlockFlags_TableHeld` (1<<5) | `ImTypeset_BlockFlags_TableHeader`, `_TableHeld` | `BlockFlags.TableHeader`, `BlockFlags.TableHeld` | Header: row 0 gets the rule under it; how header cells look is their runs (Bold). Held: see "a table that grows" |
+| padding and rule | `ImTypesetDocumentOptions::TableCellPadding`, `TableRuleThickness`, `TableRuleColor` | the same fields | `DocumentOptions(TableCellPadding=..., ...)` | 0 is the default (half an em; six hundredths of an em), below zero is none |
+| a table that grows | `AppendDocumentTableCells(document, text, text_end, cells, n, runs, n)`; `AppendDocumentText` appends to the LAST CELL | `ImTypeset_AppendDocumentTableCells` | `Document.append_table_rows(rows)`; `Document.append_text(...)` | one call an edit. Rows already set are not set again unless a column's width changed (`DocumentStats.TableRowsSet`, `TableCellsMeasured`). **This replaces RQ-T7's stopgap: a table block CAN be appended to** |
+| the streaming width rule | `ImTypesetBlockFlags_TableHeld` | | | each column is the widest its cells have wanted since the block was described: never narrower as rows arrive, and the table is as wide as its columns, not the pane. A column moves only when a wider cell arrives in it. If the held widths stop fitting, the default fitting applies until they fit. The widths survive `replace_blocks(i, 1, [one table with the flag and as many columns])`, so re-describing the table from re-parsed markdown each chunk keeps them. To settle at the end, replace once more without the flag (your `reset`), or keep it (your `keep_streamed`). It is `StreamView._held` / `_sized_to`, moved into the block |
+| restating columns (a drag) | `SetDocumentTableColumns(document, block, columns, n)` | `ImTypeset_SetDocumentTableColumns` | `Document.set_table_columns(block, columns)` | rows are set again only if a width or an alignment changed; no cell is measured again |
+| geometry out (RQ-T10, RQ-T4) | `GetDocumentTableGeometry`, `GetDocumentTableColumn` (`Min`, `Max`, `Natural`, `Floor`), `GetDocumentTableRow` (`Min`, `Max`, `CellStart`, `CellCount`, `Wrapped`) | `ImTypeset_GetDocumentTable…(…, out)` | `Document.table_geometry(block)`, `table_column(block, column)`, `table_row(block, row)` | `Natural` and `Floor` are a column's two limits whatever the width: what a drag handle is held between |
+| positions (RQ-T8) | `ImTypesetPosition` as everywhere; `GetDocumentTableCell(document, position)` → `ImTypesetCellPosition {Row, Column, Cell, Offset}`; `GetDocumentTablePosition(document, block, row, column, offset)` | `ImTypeset_GetDocumentTableCell`, `ImTypeset_GetDocumentTablePosition` | `Document.table_cell(position)` → `CellPosition(row, column, cell, offset)`; `Document.table_position(block, row, column, offset)` | hit test, `select_range`, `range_rects`, `caret_rect`, `range_text` and `Mark` take and return the same `(block, offset)` they always did, and work in cells. A caret at the end of a cell is that cell's end (your golden script's `TMap.pos` says the next cell's start: not the API's convention) |
+| which cell the mouse is in | `ImTypesetDocumentHit::Row`, `Column` (appended; -1 outside a table); `Tag` works in a cell | `ImTypeset_DocumentHit` | `DocumentHit.row`, `.column` (appended, default -1) | **`DocumentHit` is two fields longer: unpack by name** |
+| what a copy gives | `AppendDocumentRangeText` | | `Document.range_text` | each cell's text, a tab between the cells of a row, a newline between rows, for every cell from the one the range starts in to the one it ends in. An empty cell keeps its tab; a row gives the cells it has. A copy of a whole table is the block's text. **Not the reference's in two places** (it drops a tab that has no text on one side, and pads a short row with tabs): see `docs/divergences.md`, "tables in a document" |
+| find marks in cells | `ImTypesetMark` over `(block, offset)` ranges | | `Mark` | work in cells in all three places (Ink, Behind, Under). The reference could not mark a match in a cell; search each cell's text yourself (it is `Block.rows`) and hand the marks over |
+| counters | `ImTypesetDocumentStats::TableCellsMeasured`, `TableRowsSet` | the same | `DocumentStats` | appended |
+| layout check | `DebugCheckTableDataLayout` (inside `IMTYPESET_CHECKVERSION()`) | `ImTypeset_DebugCheckTableDataLayout`; `ImTypeset_BuildInfo` gained six `Sizeof…` fields | the import check | a library and a package from either side of this change refuse each other |
+
+Limits: 1,024 columns and 262,144 cells a table (more is cut and said). A table is laid out
+whole the first time any of it is looked at, and costs nothing while out of view.
+
 (Between the first library advtext built and `5654eee`:
 `ImTypeset_GetContextSerial` / `imtypeset.get_context_serial()` were added —
 the package refuses a library without it, so rebuild; run trouble in
@@ -58,12 +101,34 @@ in this section naming the commit.
 |---|---|---|
 | 1 | a committed, reproducible state | **done**: `5654eee` |
 | 2 | freeze the oracle at `advtext-reference` (32e3953); goldens for tables, columns, cross-block copy | **done** (task `oracle-freeze`). See "The oracle" below |
-| 3 | tables in the core | **queued** behind 2 and 7 (task `tables-core`); requirements from `FS-S2--builder--result.md`, not yet written when this was last updated |
+| 3 | tables in the core | **in the working tree** (task `tables-core`; the commit is named under "Build from" when it exists): a table is a block of the Document in C++, C and Python. Names and behaviour under "API changes", "Tables"; decisions in `docs/decisions.md` D57; what is not the reference's in `docs/divergences.md`. RQ-T1 to T10 of `FS-S2` are each answered there. Not built: a table laid out in pieces (it is one block, laid out whole when first seen; an appended row costs that row plus about 0.2 microseconds for each row the table has, measured), cell borders or fills, column spans, hard breaks in a cell |
 | 4 | columns in the core | **queued** behind 3 (task `columns-core`) |
-| 5 | what DiffView needs | **in progress**: FS-S1 asks for ONE thing, accepted (*agent decision, the coordinating session's; it is leading, so typesetting*): **R1**, a way to make a Code block's line height exact whatever glyphs a line holds, and its fallback **R1b**, "does face F have a glyph for codepoint C" (the face alone, not the stand-in chain). Both are stage 0 of task `tables-core`, with FS-S2 section 4's four API notes; they land in their own commit, named here, before the table work. **Declined**, as the request itself asks: anything exposing nodes, packing or draw commands — FS-S1 asks for none |
+| 5 | what DiffView needs | **done, in the working tree** (stage 0 of task `tables-core`; the commit is named under "Build from" when it exists): **R1** is `BlockFlags.FixedLineHeight`, **R1b** is `face_has_glyph`; names and behaviour under "API changes", reasons in `docs/decisions.md` D56, tests in `tests/test_api_requests.cpp` and `tests/python/test_binding.py` (`Requests`). *Agent decisions (the builder's): a flag and not a style field; the line's box is the pitch and taller ink overhangs it.* One thing to know: ink that overhangs its line by more than 2 px can go undrawn in the strip where its line is just outside the clip rectangle. The reproduction here used U+2320, U+27E8 and U+0416: the Inconsolata bundled in this tree has U+2502 and U+1EB2, so FS-S1's 22.4 px was not re-measured. **Declined**, as the request itself asks: anything exposing nodes, packing or draw commands — FS-S1 asks for none |
 | 6 | specimen and formula galleries | **done** in `12d77ac` (task `galleries`): see "Galleries (item 6)" |
 | 7 | open API questions, and C1–C8 | **done** for (a)–(g), in `12d77ac`: see "Answers (item 7)". Of C1–C8: C1 done, C3 in part, C8 answered in the header; C5 is item 3; C2, C4, C6, C7 queued, each with its reason |
 | 8 | output that is not ImGui | **needs the user**: assessed, nothing built; the recommendation and what each choice costs are under "Border questions" |
+
+## Things the advtext side should know
+
+- **Do not draw or call a widget after `imgui.end_frame()` unless
+  `imgui.render()` followed it.** *Run here under ASan + UBSan:* `new_frame();
+  end_frame(); paragraph.draw(None, pos)` (and `document.draw(None, pos)`, any
+  widget, `Document.view`) crashes inside ImGui on a null current window. The
+  library refuses these before the first frame and after `render()`; between an
+  `end_frame()` and the next `new_frame()` with no `render()` it cannot tell
+  where it is, because `imgui.h` gives no sign of that state (D56 lists what
+  was looked at). A headless test that ends frames without rendering draws
+  before `end_frame()`, or passes a draw list it got inside the frame.
+  Calling `imgui.get_window_draw_list()` yourself there crashes the same way.
+- **One imtypeset context per ImGui context, destroyed with it.** *Read by a
+  reviewer on your side of the border, not run here:* `typesetter.load_fonts`
+  reuses one imtypeset context across ImGui contexts; where a test makes a new
+  ImGui context without destroying the old one, `add_font` is refused
+  (`NoContext`), `load_fonts` then calls `disable()`, and imtypeset is silently
+  OFF for the rest of that process. Call `destroy_context()` / `unload()` when
+  the ImGui context goes, or make an imtypeset context per ImGui context
+  (answer (c) below has the rule). The rarer case of a new ImGui context at the
+  old one's address is queued here as task `swap-fixes`.
 
 ## Border questions for the user
 

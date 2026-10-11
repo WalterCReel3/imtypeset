@@ -69,12 +69,21 @@
 // keep their capacity. Laying a document out again at a width it has had makes
 // no allocation.
 //
-// Not here: tables, hosted blocks, display formulas (an inline formula is a box
+// TABLES. A table is one block (BlockType::TABLE) whose boxes are its rows and
+// the rule under its header: src/align sets them, and they are stacked like
+// any block's lines, except that the prev_depth carried past a row whose
+// cells wrapped is the depth of its lowest line (LineDims::resumed). In a
+// Document a table's layout keeps each row as it was shipped (TableLayout),
+// and a row is set again only when its cells, the column widths or anything
+// else it was set from has changed: a row appended to a table costs that row.
+//
+// Not here: hosted blocks, display formulas (an inline formula is a box
 // in a text block's material, in Document::arena), links, markdown, drawing,
 // and selection across blocks.
 
 #pragma once
 
+#include "align.h"
 #include "linebreak.h"
 #include "nodes.h"
 #include "pack.h"
@@ -109,6 +118,11 @@ constexpr uint32_t MAX_LIST_DEPTH = 255;
 constexpr size_t MAX_DOCUMENT_BLOCKS = size_t(1) << 22;
 constexpr Scaled MAX_BLOCK_EXTENT = Scaled(1) << 38;
 
+// The most columns and the most cells a table holds. A table is laid out
+// whole, so these bound what one layout can cost.
+constexpr size_t MAX_TABLE_COLUMNS = 1024;
+constexpr size_t MAX_TABLE_CELLS = size_t(1) << 18;
+
 // Columns between tab stops in a code block: the reference's TAB_WIDTH.
 constexpr uint32_t TAB_WIDTH = 4;
 
@@ -120,6 +134,8 @@ enum class BlockType : uint8_t {
     CODE,
     // A thematic break: a horizontal rule across the column.
     RULE,
+    // Rows of cells in columns.
+    TABLE,
 };
 
 // What becomes of a code line longer than the measure.
@@ -249,6 +265,61 @@ struct CodeExtent {
 };
 CodeExtent code_extent(std::string_view source);
 
+// A table's cells and what setting them reads beside the block's style
+// (left_indent, interline, strut): the reference's TableBlock and the two
+// values of its Theme a table has.
+struct TableCells {
+    // Every cell's material, row after row, in one list: cell i is the nodes
+    // from cell_end[i - 1] to cell_end[i].
+    std::vector<Node> nodes;
+    std::vector<uint32_t> cell_end;
+    // natural_width of each cell (src/align), padding included.
+    std::vector<Scaled> natural;
+    // Row r is cells row_first[r] to row_first[r + 1]: one entry more than
+    // there are rows, or empty for a table with none.
+    std::vector<uint32_t> row_first;
+    // A number per row that changes whenever the row's cells do: what a kept
+    // row is checked against (TableLayout). From table_stamp().
+    std::vector<uint64_t> row_stamp;
+    // A number that changes whenever anything else a row is set from does
+    // (the alignments, the padding, the fonts): whoever changes one of those
+    // takes a new table_stamp().
+    uint64_t config = 0;
+
+    std::vector<ColumnAlign> aligns;
+    // Who decides the widths. With `held`, `widths` are used while they fit
+    // the measure and the default policy otherwise.
+    WidthPolicy policy = WidthPolicy::APPORTIONED;
+    bool held = false;
+    std::vector<Scaled> widths;
+    std::vector<double> fractions;
+    bool has_header = false;
+    Scaled cell_padding = 0;
+    Scaled rule_thickness = 0;
+
+    size_t rows() const { return row_first.empty() ? 0 : row_first.size() - 1; }
+    size_t cells() const { return cell_end.size(); }
+    NodeView cell(size_t i) const;
+    // The longest row's cells.
+    size_t columns() const;
+    // Ends the row being filled and starts another, which the cells added
+    // next belong to. The first cell added starts a row by itself.
+    void start_row();
+    // Adds a cell, whose material is nodes[cell_end.back()..] as they stand,
+    // to the last row.
+    void end_cell(Scaled natural_width);
+    // Drops the last cell's material, keeping the cell: its row is stamped
+    // anew. For a cell whose text grew.
+    void reopen_last_cell();
+    // Empties the cells, keeping capacity and what is said about columns.
+    void clear();
+};
+
+// A number no table's row or configuration has had: never zero, never twice
+// in a process. A kept row whose number is still its row's was set from what
+// the row holds now, whatever was done to the table in between.
+uint64_t table_stamp();
+
 // One block before it meets a width.
 struct Block {
     BlockType type = BlockType::TEXT;
@@ -277,6 +348,8 @@ struct Block {
     TextBlock text;
     // CODE: the lines.
     CodeLines code;
+    // TABLE: the cells.
+    TableCells table;
     // How much the block will hold, for one whose material or lines are made
     // only when it is first laid out (DocumentComposer::materialize): TEXT,
     // how many nodes; CODE, how many lines, which must then be exact: whether
@@ -385,6 +458,9 @@ struct BlockBoxes {
     std::vector<uint8_t> continues;
     // CODE: a line was packed to the measure with its characters running past.
     bool clipped = false;
+    // TABLE: for each box, the prev_depth the list goes on from after it
+    // (SetRow::prev_depth). Empty for any other block: a box's own depth.
+    std::vector<Scaled> resumed;
     // The first line with the marker hung on it, before the strut, for a code
     // block with one; `para.hung` for a text block.
     Node hung;
@@ -417,15 +493,22 @@ public:
                      BlockBoxes& out);
 
     ParagraphComposer& paragraph() { return _paragraph; }
+    Aligner& aligner() { return _aligner; }
 
 private:
     void code_boxes(NodeArena& arena, const Block& block, Scaled indent, Scaled width,
                     CharMeasure measure, const DocumentRules& rules, BlockBoxes& out);
+    void table_boxes(NodeArena& arena, const Block& block, Scaled indent, Scaled width,
+                     const LineBreakParams& params, CharMeasure measure, BlockBoxes& out);
     void rule_box(NodeArena& arena, const Block& block, Scaled indent, Scaled width,
                   CharMeasure measure, const DocumentRules& rules, BlockBoxes& out);
 
     ParagraphComposer _paragraph;
     std::vector<Node> _scratch;
+    Aligner _aligner;
+    Aligned _aligned;
+    std::vector<NodeView> _cells;
+    std::vector<Scaled> _scratch_widths;
 };
 
 // Where a block landed: its top and bottom edges, down from the top of what
@@ -494,6 +577,10 @@ struct StackInput {
     // the line does.
     const uint32_t* line_first = nullptr;
     const Node* lines = nullptr;
+    // If not null, one per box of `lines`: the prev_depth the list goes on
+    // from after it, where that is not the box's depth (a table row whose
+    // cells wrapped).
+    const Scaled* resumed = nullptr;
     // effective_indent of each block.
     const Scaled* indents = nullptr;
     Structure structure;
@@ -568,6 +655,7 @@ struct Composed {
 };
 
 struct BlockLayout;
+struct TableLayout;
 class Document;
 
 // Composes documents, and owns the buffers that takes: reuse one across
@@ -586,6 +674,13 @@ public:
     uint64_t units_assembled = 0;
     // How many blocks Document::prepare has gone over.
     uint64_t blocks_prepared = 0;
+    // Table rows set (boxed to their columns and shipped), and longest words
+    // measured.
+    uint64_t table_rows_set = 0;
+    uint64_t table_words_measured = 0;
+    // Changed by whoever changes `params` or `measure`: a table's kept rows
+    // were set under the number they remember.
+    uint64_t params_serial = 1;
 
     // If set, called by Document for a block it is about to lay out, before
     // anything of the block is read: a caller that makes material late makes
@@ -606,6 +701,9 @@ private:
 
     void layout_block(NodeArena& arena, const Block& block, Scaled indent, Scaled width,
                       const DocumentRules& rules, BlockLayout& out);
+    void layout_table(NodeArena& arena, const Block& block, Scaled indent, Scaled width,
+                      BlockLayout& out);
+    void table_narrowest(NodeArena& arena, const Block& block, TableLayout& kept);
 
     BlockComposer _block;
     Stacker _stacker;
@@ -617,6 +715,10 @@ private:
     std::vector<uint32_t> _line_first;
     std::vector<Node> _lines;
     std::vector<Node> _vlist;
+    std::vector<Scaled> _resumed;
+    std::vector<NodeView> _cells;
+    std::vector<Scaled> _widths;
+    SetRow _row;
     uint64_t _serial = 0;
 };
 
@@ -626,6 +728,79 @@ struct LineDims {
     Scaled height = 0;
     Scaled depth = 0;
     Scaled shift = 0;
+    // The prev_depth the list goes on from after the box: its depth, except
+    // after a table row whose cells wrapped.
+    Scaled resumed = 0;
+};
+
+// One row of a table as it was last set, kept so that it is not set again
+// while nothing it was set from changes.
+struct TableRowLayout {
+    // TableCells::row_stamp of the row when it was set.
+    uint64_t stamp = 0;
+    bool wrapped = false;
+    bool mapped = true;
+    LineDims dims;
+    // How many reading-order indices the row ships.
+    uint32_t item_count = 0;
+    // One past the row's last entry in TableLayout::cmds, ::shipped and
+    // ::cell_items.
+    uint32_t cmd_end = 0;
+    uint32_t shipped_end = 0;
+    uint32_t cell_end = 0;
+    // As the row was last stacked: the list's height, prev_depth and index
+    // count after it (and after the head rule, for row 0), and how much of
+    // BlockLayout::cmds and ::lines there was then.
+    Scaled pen_after = 0;
+    Scaled depth_after = 0;
+    uint32_t index_after = 0;
+    uint32_t out_cmd_end = 0;
+    uint32_t out_line_end = 0;
+};
+
+// A table laid out: what BlockLayout holds beside the commands.
+struct TableLayout {
+    // What the kept rows were set from: the widths, and the rest by number.
+    std::vector<Scaled> columns;
+    uint64_t config = 0;
+    uint64_t params_serial = 0;
+    Scaled indent = 0;
+    bool valid = false;
+    // BlockLayout's commands, lines and index map are the kept rows', stacked.
+    bool assembled = false;
+
+    std::vector<TableRowLayout> rows;
+    // Each row shipped alone, its top-left corner at the origin and its
+    // indices from zero, one after another.
+    std::vector<DrawCmd> cmds;
+    // Per node of each row's cells, SetRow::shipped; and per column of each
+    // row, one past the last index of its cell, from the row's first.
+    std::vector<uint32_t> shipped;
+    std::vector<uint32_t> cell_items;
+    // The longest unbreakable piece of each cell, without padding, for the
+    // rows whose stamp is in `word_stamp`; measured only when a solve needs it.
+    std::vector<Scaled> word;
+    std::vector<uint64_t> word_stamp;
+    uint64_t word_serial = 0;
+
+    // --- As assembled by the last layout
+    ColumnSolve solve;
+    std::vector<Scaled> widest;
+    std::vector<Scaled> narrowest;
+    // The widths were the caller's or the held ones, not fitted to the measure.
+    bool stated = false;
+    // Per row: its top, down from the block's top, and its first index. One
+    // more entry than rows: the table's bottom and its item count.
+    std::vector<Scaled> row_top;
+    std::vector<uint32_t> row_index;
+    // The first index of each cell, a row's missing cells included: `columns`
+    // entries a row, then one more for the end.
+    std::vector<uint32_t> cell_index;
+    // How many rows this layout set, and how many it kept.
+    uint32_t rows_set = 0;
+    uint32_t rows_kept = 0;
+
+    void clear();
 };
 
 // One block laid out at one width.
@@ -656,6 +831,8 @@ struct BlockLayout {
     // CODE: BlockBoxes::continues and BlockBoxes::clipped.
     std::vector<uint8_t> continues;
     bool clipped = false;
+    // TABLE. `shipped` is then per node of TableCells::nodes.
+    TableLayout table;
 
     PackError pack_error = PackError::NONE;
     LineBreakError break_error = LineBreakError::NONE;
@@ -822,6 +999,10 @@ public:
     // Where a block is below the top of its unit: zero for a block that is a
     // unit alone.
     Scaled top_in_unit(size_t block) const;
+    // A laid-out table's column: its longest unbreakable piece with padding,
+    // measured now if the table's widths did not need it. Zero for a block
+    // that is not a laid-out table.
+    Scaled table_floor(DocumentComposer& composer, size_t block, size_t column);
 
     // The whole document as one command sequence, as shipping the reference's
     // document box from its top-left corner gives it: every block's commands

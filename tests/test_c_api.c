@@ -152,6 +152,12 @@ static void test_build_info(void)
     CHECK(g_info.SizeofFormula == (int)sizeof(ImTypeset_Formula));
     CHECK(g_info.SizeofStats == (int)sizeof(ImTypeset_Stats));
     CHECK(g_info.SizeofErrorInfo == (int)sizeof(ImTypeset_ErrorInfo));
+    CHECK(g_info.SizeofCell == (int)sizeof(ImTypeset_Cell));
+    CHECK(g_info.SizeofTableColumn == (int)sizeof(ImTypeset_TableColumn));
+    CHECK(g_info.SizeofTableGeometry == (int)sizeof(ImTypeset_TableGeometry));
+    CHECK(g_info.SizeofTableColumnGeometry == (int)sizeof(ImTypeset_TableColumnGeometry));
+    CHECK(g_info.SizeofTableRowGeometry == (int)sizeof(ImTypeset_TableRowGeometry));
+    CHECK(g_info.SizeofCellPosition == (int)sizeof(ImTypeset_CellPosition));
 
     /* A caller compiled against a shorter struct gets its prefix and no more. */
     memset(&partial, 0x5A, sizeof partial);
@@ -251,6 +257,16 @@ static void test_version_check(void)
               sizeof(ImTypeset_TextRange), sizeof(ImTypeset_Line), sizeof(ImTypeset_Hit),
               sizeof(ImTypeset_Formula), sizeof(ImTypeset_Stats),
               sizeof(ImTypeset_ErrorInfo)) == 1);
+    /* A struct of a table that is another size: the third part refuses. */
+    CHECK(ImTypeset_DebugCheckTableDataLayout(
+              sizeof(ImTypeset_Cell), sizeof(ImTypeset_TableColumn),
+              sizeof(ImTypeset_TableGeometry) + 4, sizeof(ImTypeset_TableColumnGeometry),
+              sizeof(ImTypeset_TableRowGeometry), sizeof(ImTypeset_CellPosition)) == 0);
+    CHECK(last_error_code() == ImTypeset_Error_VersionMismatch);
+    CHECK(ImTypeset_DebugCheckTableDataLayout(
+              sizeof(ImTypeset_Cell), sizeof(ImTypeset_TableColumn),
+              sizeof(ImTypeset_TableGeometry), sizeof(ImTypeset_TableColumnGeometry),
+              sizeof(ImTypeset_TableRowGeometry), sizeof(ImTypeset_CellPosition)) == 1);
     CHECK(IMTYPESET_C_CHECKVERSION(wchar_size, vert_size, idx_size) == 1);
     CHECK(last_error_code() == ImTypeset_Error_None);
 }
@@ -315,6 +331,14 @@ static void test_fonts(void)
           ImTypeset_GetFontAtlasIndex(ImTypeset_Face_Regular));
     CHECK(ImTypeset_GetFontAtlasIndex(ImTypeset_Face_Italic) == -1);
     CHECK(ImTypeset_GetFontAtlasIndex(99) == -1);
+    /* Whether the role's own font has a glyph; 0 for a role without a font
+     * and for a face that is not one. */
+    CHECK(ImTypeset_FaceHasGlyph(ImTypeset_Face_Regular, 'A') == 1);
+    CHECK(ImTypeset_FaceHasGlyph(ImTypeset_Face_Default, 'A') == 1);
+    CHECK(ImTypeset_FaceHasGlyph(ImTypeset_Face_Regular, 0x2320u) == 0);
+    CHECK(ImTypeset_FaceHasGlyph(ImTypeset_Face_Regular, 0xFFFFFFFFu) == 0);
+    CHECK(ImTypeset_FaceHasGlyph(ImTypeset_Face_Italic, 'A') == 0);
+    CHECK(ImTypeset_FaceHasGlyph(99, 'A') == 0);
 
     /* From memory, and the bytes are the caller's to free at once. */
     bytes = read_whole_file(c_api_host_data_path("fonts/Roboto-Bold.ttf"), &size);
@@ -473,6 +497,7 @@ static void test_paragraph_geometry(ImTypeset_Paragraph* paragraph, void* refere
     CHECK(hit.Line == 1);
     CHECK(hit.TextOffset >= line.TextStart && hit.TextOffset <= line.TextEnd);
     CHECK(hit.Inside);
+    CHECK(hit.Tag == 0); /* written: it was 0xEEEEEEEE; no run here has a tag */
     far_point.x = -50.0f;
     far_point.y = point.y;
     CHECK(ImTypeset_HitTestParagraph(paragraph, &far_point, &hit) == 1);
@@ -1179,6 +1204,177 @@ static void test_document(struct ImDrawList* draw_list)
     CHECK(ImTypeset_DestroyDocument(NULL) == 1);
 }
 
+/* A table through the C ABI: one block, its cells stretches of its text, the
+ * header's row flagged. Asked for its geometry, its cells by position and by
+ * point, and copied; then a row appended and the columns stated. */
+static void test_table(void)
+{
+    static const char TABLE[] = "Name\tUnit\tNote\nmass\tkg\tthe SI unit";
+    static const char MORE[] = "\nlength\tm\tthe metre";
+    static const int STARTS[6] = {0, 5, 10, 15, 20, 23};
+    static const int ENDS[6] = {4, 9, 14, 19, 22, 34};
+    ImTypeset_Block block;
+    ImTypeset_Cell cells[6];
+    ImTypeset_Cell more[3];
+    ImTypeset_TableColumn columns[3];
+    ImTypeset_DocumentContent content;
+    ImTypeset_Document* document;
+    ImTypeset_TableGeometry table;
+    ImTypeset_TableColumnGeometry column;
+    ImTypeset_TableRowGeometry row;
+    ImTypeset_CellPosition where;
+    ImTypeset_Position position;
+    ImTypeset_DocumentHit hit;
+    ImTypeset_DocumentRange range;
+    ImTypeset_DocumentStats stats;
+    ImTypeset_Vec2 point;
+    char text[128];
+    int length;
+    int r;
+    int c;
+    int i;
+
+    SECTION("table");
+    memset(&block, 0, sizeof block);
+    memset(cells, 0, sizeof cells);
+    memset(more, 0, sizeof more);
+    memset(columns, 0, sizeof columns);
+    memset(&content, 0, sizeof content);
+    for (i = 0; i < 6; ++i) {
+        cells[i].TextStart = STARTS[i];
+        cells[i].TextEnd = ENDS[i];
+        cells[i].Flags = i % 3 == 0 ? ImTypeset_CellFlags_RowStart : ImTypeset_CellFlags_None;
+    }
+    block.Kind = ImTypeset_BlockKind_Table;
+    block.Flags = ImTypeset_BlockFlags_TableHeader;
+    block.TextStart = 0;
+    block.TextEnd = (int)(sizeof TABLE - 1);
+    block.CellStart = 0;
+    block.CellCount = 6;
+    content.Text = TABLE;
+    content.TextSize = (int)(sizeof TABLE - 1);
+    content.Blocks = &block;
+    content.BlockCount = 1;
+    content.Cells = cells;
+    content.CellCount = 6;
+
+    document = ImTypeset_CreateDocument();
+    REQUIRE(document != NULL);
+    CHECK(ImTypeset_SetDocumentBlocks(document, &content) == 1);
+    CHECK(last_error_code() == ImTypeset_Error_None);
+    CHECK(ImTypeset_GetDocumentBlockTextSize(document, 0) == 34);
+    CHECK(ImTypeset_LayoutDocument(document, 400.0f, NULL) == 1);
+
+    memset(&table, 0xEE, sizeof table);
+    CHECK(ImTypeset_GetDocumentTableGeometry(document, 0, &table) == 1);
+    CHECK(table.RowCount == 2 && table.ColumnCount == 3 && table.CellCount == 6);
+    CHECK(table.LaidOut && !table.Stated);
+    CHECK(table.Max.x > table.Min.x && table.Max.y > table.Min.y);
+    CHECK(ImTypeset_GetDocumentTableGeometry(document, 0, NULL) == 0);
+    CHECK(last_error_code() == ImTypeset_Error_InvalidArgument);
+    /* Not a table: all zero, and still a status of 1. */
+    memset(&table, 0xEE, sizeof table);
+    CHECK(ImTypeset_GetDocumentTableGeometry(document, 7, &table) == 1);
+    CHECK(table.RowCount == 0 && table.ColumnCount == 0 && table.CellCount == 0);
+
+    memset(&column, 0xEE, sizeof column);
+    CHECK(ImTypeset_GetDocumentTableColumn(document, 0, 1, &column) == 1);
+    CHECK(column.Max > column.Min);
+    CHECK(column.Natural > 0.0f && column.Floor > 0.0f && column.Floor <= column.Natural);
+    CHECK(ImTypeset_GetDocumentTableColumn(document, 0, 3, &column) == 1);
+    CHECK(column.Min == 0.0f && column.Max == 0.0f);
+    CHECK(ImTypeset_GetDocumentTableColumn(document, 0, 1, NULL) == 0);
+    memset(&row, 0xEE, sizeof row);
+    CHECK(ImTypeset_GetDocumentTableRow(document, 0, 1, &row) == 1);
+    CHECK(row.Max > row.Min);
+    CHECK(row.CellStart == 3 && row.CellCount == 3 && !row.Wrapped);
+    CHECK(ImTypeset_GetDocumentTableRow(document, 0, 2, &row) == 1);
+    CHECK(row.Min == 0.0f && row.Max == 0.0f && row.CellCount == 0);
+    CHECK(ImTypeset_GetDocumentTableRow(document, 0, 1, NULL) == 0);
+
+    /* Every cell: a byte of it as a position and back, and the point at the
+     * middle of its row and its column. */
+    for (r = 0; r < 2; ++r) {
+        for (c = 0; c < 3; ++c) {
+            const int cell = r * 3 + c;
+            memset(&position, 0xEE, sizeof position);
+            CHECK(ImTypeset_GetDocumentTablePosition(document, 0, r, c, 1, &position) == 1);
+            CHECK(position.Block == 0 && position.Offset == STARTS[cell] + 1);
+            memset(&where, 0xEE, sizeof where);
+            CHECK(ImTypeset_GetDocumentTableCell(document, &position, &where) == 1);
+            CHECK(where.Row == r && where.Column == c && where.Cell == cell && where.Offset == 1);
+            /* An offset past the cell is clamped to its end. */
+            CHECK(ImTypeset_GetDocumentTablePosition(document, 0, r, c, 1000, &position) == 1);
+            CHECK(position.Block == 0 && position.Offset == ENDS[cell]);
+
+            CHECK(ImTypeset_GetDocumentTableColumn(document, 0, c, &column) == 1);
+            CHECK(ImTypeset_GetDocumentTableRow(document, 0, r, &row) == 1);
+            point.x = (column.Min + column.Max) / 2.0f;
+            point.y = (row.Min + row.Max) / 2.0f;
+            memset(&hit, 0xEE, sizeof hit);
+            CHECK(ImTypeset_HitTestDocument(document, &point, &hit) == 1);
+            CHECK(hit.Row == r && hit.Column == c);
+            CHECK(hit.Position.Block == 0 && hit.InBlock);
+            CHECK(hit.Position.Offset >= STARTS[cell] && hit.Position.Offset <= ENDS[cell]);
+        }
+    }
+    CHECK(ImTypeset_GetDocumentTableCell(document, NULL, &where) == 0);
+    CHECK(ImTypeset_GetDocumentTableCell(document, &position, NULL) == 0);
+    CHECK(ImTypeset_GetDocumentTablePosition(document, 0, 0, 0, 0, NULL) == 0);
+    /* A position in no table. */
+    position.Block = 3;
+    position.Offset = 0;
+    CHECK(ImTypeset_GetDocumentTableCell(document, &position, &where) == 1);
+    CHECK(where.Row == -1 && where.Column == 0 && where.Cell == 0 && where.Offset == 0);
+
+    /* A copy of the whole table is the text it was written as. */
+    range.Start.Block = 0;
+    range.Start.Offset = 0;
+    range.End.Block = 0;
+    range.End.Offset = (int)(sizeof TABLE - 1);
+    length =
+        ImTypeset_AppendDocumentRangeText(document, &range, NULL, NULL, text, (int)sizeof text);
+    CHECK(length == (int)(sizeof TABLE - 1));
+    CHECK(strcmp(text, TABLE) == 0);
+
+    CHECK(ImTypeset_GetDocumentStats(document, &stats) == 1);
+    CHECK(stats.TableCellsMeasured == 6 && stats.TableRowsSet == 2);
+
+    /* A row arrives: its cells are stretches of the table's whole text. */
+    more[0].TextStart = 35;
+    more[0].TextEnd = 41;
+    more[0].Flags = ImTypeset_CellFlags_RowStart;
+    more[1].TextStart = 42;
+    more[1].TextEnd = 43;
+    more[2].TextStart = 44;
+    more[2].TextEnd = 53;
+    CHECK(ImTypeset_AppendDocumentTableCells(document, MORE, MORE + (sizeof MORE - 1), more, 3,
+                                             NULL, 0) == 1);
+    CHECK(last_error_code() == ImTypeset_Error_None);
+    CHECK(ImTypeset_GetDocumentBlockTextSize(document, 0) == 53);
+    CHECK(ImTypeset_GetDocumentTableGeometry(document, 0, &table) == 1);
+    CHECK(table.RowCount == 3 && table.ColumnCount == 3 && table.CellCount == 9);
+    CHECK(ImTypeset_GetDocumentTablePosition(document, 0, 2, 2, 4, &position) == 1);
+    CHECK(position.Block == 0 && position.Offset == 48);
+    CHECK(ImTypeset_AppendDocumentTableCells(NULL, MORE, NULL, more, 3, NULL, 0) == 0);
+
+    /* The columns stated: the table is those widths. */
+    columns[0].Width = 90.0f;
+    columns[1].Width = 60.0f;
+    columns[1].Align = ImTypeset_Align_Center;
+    columns[2].Width = 150.0f;
+    CHECK(ImTypeset_SetDocumentTableColumns(document, 0, columns, 3) == 1);
+    CHECK(ImTypeset_GetDocumentTableGeometry(document, 0, &table) == 1);
+    CHECK(table.Stated && table.RowCount == 3);
+    CHECK(ImTypeset_GetDocumentTableColumn(document, 0, 1, &column) == 1);
+    CHECK(column.Max - column.Min > 59.99f && column.Max - column.Min < 60.01f);
+    CHECK(ImTypeset_GetDocumentTableColumn(document, 0, 2, &column) == 1);
+    CHECK(column.Max - column.Min > 149.99f && column.Max - column.Min < 150.01f);
+    CHECK(ImTypeset_SetDocumentTableColumns(document, 5, columns, 3) == 0);
+
+    CHECK(ImTypeset_DestroyDocument(document) == 1);
+}
+
 static void test_with_a_context(void)
 {
     ImTypeset_Context* context;
@@ -1252,6 +1448,7 @@ static void test_with_a_context(void)
             test_paragraph_draw(paragraph, reference, draw_list, 1);
             test_paragraph_buffers(paragraph, reference);
             test_document(draw_list);
+            test_table();
             test_demo_sections();
         }
         c_api_host_end_frame();

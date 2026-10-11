@@ -350,6 +350,21 @@ struct DrawRules {
     // wherever that glyph went.
     bool word_spaces_led = false;
 
+    // A glyph whose quad lies wholly above the top edge of the clip
+    // rectangle or wholly at or below its bottom edge is not emitted. A clip
+    // rectangle covers the pixels from its top edge to, but not including,
+    // its bottom edge, so such a quad shows nothing; with the rule, a
+    // document drawn in slices one under another (columns: each under a clip
+    // that ends where the next begins) emits a glyph in every slice it shows
+    // in and in no other.
+    //
+    // The reference draws through ImFont::RenderText, which looks at the
+    // font's cell and not at the glyph's bitmap: it skips a glyph only when
+    // its pen (the top of the cell) is BELOW the bottom edge or the whole
+    // cell above the top edge. A glyph whose pen is exactly on the bottom
+    // edge is emitted, every vertex of it outside the rectangle.
+    bool quads_off_clip_dropped = false;
+
     static constexpr DrawRules reference() { return DrawRules(); }
     static constexpr DrawRules product()
     {
@@ -357,6 +372,7 @@ struct DrawRules {
         rules.formula_placed_whole = true;
         rules.word_width_held = true;
         rules.word_spaces_led = true;
+        rules.quads_off_clip_dropped = true;
         return rules;
     }
 };
@@ -371,6 +387,11 @@ struct DrawArgs {
     double px_per_inch = DEFAULT_PX_PER_INCH;
     DrawRules rules;
     Palette palette;
+    // If not zero, the colour of a rule that is no formula's (the rule under
+    // a table's header), where `palette.rule` is then the colour of a
+    // formula's alone. Under DrawRules::formula_placed_whole; without it no
+    // rule is known to be a formula's and this colours every one.
+    ImU32 rule_between = 0;
     // Drawn first, under everything, each in its own colour.
     const Fill* fills = nullptr;
     size_t fill_count = 0;
@@ -556,7 +577,7 @@ private:
     double settle_word(size_t word_op, double drift);
 
     template<class Sink>
-    void emit(Sink& sink, const ImVec4& clip);
+    void emit(Sink& sink, const ImVec4& clip, const DrawRules& rules);
 
     std::vector<DrawOp> _ops;
     std::vector<Key> _keys;

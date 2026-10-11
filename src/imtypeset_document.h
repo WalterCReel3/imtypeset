@@ -61,6 +61,14 @@ struct BlockSpec {
     uint32_t quote_depth = 0;
 };
 
+// One cell of a table, as bytes of its block's text.
+struct DocCell {
+    uint32_t start = 0;
+    uint32_t end = 0;
+    uint32_t row = 0;
+    uint32_t column = 0;
+};
+
 struct DocBlock {
     ImTypesetBlockKind kind = ImTypesetBlockKind_Paragraph;
     ImTypesetBlockFlags flags = 0;
@@ -99,6 +107,35 @@ struct DocBlock {
     uint32_t code_lines = 0;
     // How many of the document arena's boxes are this block's formulas.
     uint32_t atom_boxes = 0;
+
+    // --- A table (see "Tables" in include/imtypeset.h)
+    // The cells, in the order given: ascending in the text and row after row.
+    std::vector<DocCell> cells;
+    // Row r is cells row_first[r] to row_first[r + 1]: one entry more than
+    // there are rows, or empty with no cells. `columns` is the longest row's
+    // cells, and `next_column` the column the next cell of the last row takes
+    // (which is past the limit once cells of the row have been left out).
+    std::vector<uint32_t> row_first;
+    uint32_t columns = 0;
+    uint32_t next_column = 0;
+    std::vector<ImTypesetTableColumn> column_specs;
+    // The cells [0, cells_built) have their material in the block layer. Of
+    // the document arena's boxes, last_cell_boxes are the last such cell's,
+    // and its part of `display_text` starts at last_cell_display.
+    uint32_t cells_built = 0;
+    uint32_t last_cell_boxes = 0;
+    uint32_t last_cell_display = 0;
+    // With ImTypesetBlockFlags_TableHeld: the widest each column's cells have
+    // wanted at any layout, in scaled points.
+    std::vector<Scaled> held;
+    // From the layout whose serial is `seen`: the byte of `text` each index of
+    // the table's commands stands for, and one past the end.
+    std::vector<uint32_t> table_bytes;
+
+    uint32_t row_count() const
+    {
+        return row_first.empty() ? 0 : static_cast<uint32_t>(row_first.size() - 1);
+    }
 
     // --- What the description came to against the document's style
     bool has_spec = false;

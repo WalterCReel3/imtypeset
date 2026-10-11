@@ -883,6 +883,50 @@ for this change; their justified rows are total fit at 8 to 30 lines, where the 
 the gain between nothing and 1.7x. `bench_draw` is not affected (layout only). stb_truetype,
 clang and MSVC as everywhere else in this document.
 
+## Tables (task `tables-core`, D57)
+
+`bench/bench_tables.cpp`, one run, release (GNU 12.2.0, `-O3 -DNDEBUG` plus
+`-ffp-contract=off -fno-exceptions -fno-rtti`), FreeType 2.12.1, AMD Ryzen 7 PRO 4750U, a
+four-second warm-up. **The machine was not quiet:** load average 3.9, two helpers compiling.
+Read the ratios; a quiet run was not taken. Tables of four columns, short cells, at the
+reference's 420 pt measure and at four times it.
+
+| what | n | min | median | p95 | unit |
+|---|---|---|---|---|---|
+| 100 rows, fitted to the measure (every row wraps): describe and lay out | 30 | 620 | 627 | 662 | us |
+| 1,000 rows, the same | 30 | 9.80 | 9.94 | 10.09 | ms |
+| 10,000 rows, the same | 5 | 81.3 | 87.8 | 89.4 | ms |
+| 1,000 rows at four times the measure (no row wraps) | 30 | 4.36 | 4.40 | 4.44 | ms |
+| 10,000 rows, the same | 5 | 66.6 | 67.1 | 69.2 | ms |
+| a row appended to a held table of 10 rows, and the table laid out | 200 | 6.5 | 23.4 | 36.0 | us |
+| ... of 100 rows | 200 | 18.0 | 31.5 | 46.7 | us |
+| ... of 1,000 rows | 200 | 138 | 155 | 187 | us |
+| ... of 10,000 rows | 200 | 2,063 | 2,140 | 2,389 | us |
+| a row appended to a held table of 100 rows that widens a column | 20 | 191 | 351 | 660 | us |
+| ... of 1,000 rows | 20 | 1,978 | 2,261 | 3,068 | us |
+| a 768 px window in the middle of 100 rows, drawn | 500 | 20.4 | 20.6 | 20.7 | us |
+| ... of 10,000 rows | 500 | 20.0 | 20.2 | 20.8 | us |
+
+What the rows say.
+
+- **A row that moves no column sets one row**: 1.0 rows set and 4.0 cells measured an append at
+  every size (the counters, printed in the note column), where a row that widens a column sets
+  every row once (111.5 and 1,011.5 an append, the tables growing as they are timed).
+- **The append is not flat all the same**: about 0.2 microseconds for each row the table has
+  (155 us at 1,000 rows, 2.1 ms at 10,000). Nothing is typeset for the rows that stand; what is
+  left is passes over the whole table that the append still makes: the widest cell of each
+  column is taken again over the cells' kept widths, the line index and the index-to-byte map
+  of the block are built again from all of its commands, and the held widths are taken again
+  over every cell. Before the stacking was resumed from the rows that stand, the same rows cost
+  587 us and 6.4 ms (the block's commands were copied and renumbered for every row).
+- A table is drawn at the cost of what the window shows, whatever its length.
+- Setting a table costs about 7 us a row unwrapped and 9 to 10 us a row wrapped, 10,000 rows in
+  under a tenth of a second.
+
+*Not measured:* a table of the limit (262,144 cells) in release (in debug the test that sets one
+passes inside its time limit); the cost of the first hit test or selection after an append,
+which builds the block's view from all of its commands; a table with formulas; memory.
+
 ## Not measured
 
 - **stb_truetype.** Every number is the FreeType build. Layout does not depend

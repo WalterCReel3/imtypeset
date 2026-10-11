@@ -447,7 +447,7 @@ hold:
   `$n$th`.
 - Selection and hit testing by character, word and line; caret and line
   geometry; copy, a formula copying as its source; a selectable-text widget.
-- Documents: paragraphs, headings, list items, code, quotes, rules and
+- Documents: paragraphs, headings, list items, code, quotes, rules, tables and
   host-reserved rectangles, described once; edits that cost what changed;
   layout only of what a window shows; one draw call; marks, underlines and a
   tag under the mouse for links; positions as (block, byte offset).
@@ -460,9 +460,13 @@ hold:
 
 - **Markdown or any markup.** This is a typesetter; a host that parses markup
   hands over text and runs.
-- **Tables and columns.** Not in the core. A document block can reserve a
-  rectangle for a host's own table; the table fields of a block are reserved
-  and unused.
+- **Columns, and what a table does not do.** A table is a block of a document
+  (cells with runs, links and formulas; a header; alignment a column; widths
+  fitted, stated or held while it grows; cells that wrap; selection, marks
+  and copy through cells). It has no cell borders or fills, no cell that
+  spans columns or rows, and no hard break inside a cell; a table is laid out
+  whole when first seen, 262,144 cells at most. Text cut into columns is not
+  in the core.
 - **Fallback fonts.** Seven fixed roles (regular, bold, italic, bold italic,
   code, code bold, math). A character its face lacks is looked for in the
   Regular, Math and Code faces and nowhere else, so CJK, emoji and icons are

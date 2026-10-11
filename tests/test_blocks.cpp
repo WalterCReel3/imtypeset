@@ -190,6 +190,7 @@ bool build_block(const blocks_golden::BlockIn& in, const blocks_golden::ThemeIn&
         }
         break;
     case BlockType::RULE:
+    case BlockType::TABLE: // the blocks goldens hold none: tests/test_align.cpp
         break;
     }
     return true;
@@ -231,6 +232,7 @@ void check_material(core_golden::Context& context, const blocks_golden::BlockIn&
         break;
     }
     case BlockType::RULE:
+    case BlockType::TABLE:
         break;
     }
 }

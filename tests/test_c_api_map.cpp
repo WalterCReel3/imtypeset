@@ -68,6 +68,7 @@ const Row TABLE[] = {
     BOTH(AddFontFromMemoryTTF),
     BOTH(RemoveFont),
     BOTH(GetFont),
+    BOTH(FaceHasGlyph),
     BOTH(TextUnformatted),
     BOTH(Text),
     BOTH(TextV),
@@ -97,11 +98,14 @@ const Row TABLE[] = {
     BOTH(ParagraphCodepointToByteOffset),
     BOTH(ParagraphByteToCodepointOffset),
     BOTH(DebugCheckDocumentDataLayout),
+    BOTH(DebugCheckTableDataLayout),
     BOTH(CreateDocument),
     BOTH(DestroyDocument),
     BOTH(SetDocumentBlocks),
     BOTH(ReplaceDocumentBlocks),
     BOTH(AppendDocumentText),
+    BOTH(AppendDocumentTableCells),
+    BOTH(SetDocumentTableColumns),
     BOTH(SetDocumentBlockExtent),
     BOTH(SetDocumentOptions),
     BOTH(GetDocumentBlockCount),
@@ -122,6 +126,11 @@ const Row TABLE[] = {
     BOTH(AppendDocumentRangeText),
     BOTH(GetDocumentBlockGeometry),
     BOTH(GetDocumentBlockLine),
+    BOTH(GetDocumentTableGeometry),
+    BOTH(GetDocumentTableColumn),
+    BOTH(GetDocumentTableRow),
+    BOTH(GetDocumentTableCell),
+    BOTH(GetDocumentTablePosition),
     BOTH(DocumentView),
     BOTH(ShowDemoWindow),
     BOTH(ShowDemoSection),
@@ -538,7 +547,7 @@ TEST(every_enum_type_has_its_c_typedef)
         ++found;
         at = semi;
     }
-    CHECK_EQ(found, 17);
+    CHECK_EQ(found, 18);
 }
 
 TEST(the_two_headers_are_one_version)

@@ -120,6 +120,7 @@ IMTYPESET_C_MIRROR(ImTypeset_Hit, ImTypesetHit);
 IMTYPESET_C_FIELD(ImTypeset_Hit, ImTypesetHit, TextOffset);
 IMTYPESET_C_FIELD(ImTypeset_Hit, ImTypesetHit, Line);
 IMTYPESET_C_FIELD(ImTypeset_Hit, ImTypesetHit, Inside);
+IMTYPESET_C_FIELD(ImTypeset_Hit, ImTypesetHit, Tag);
 
 IMTYPESET_C_MIRROR(ImTypeset_ErrorInfo, ImTypesetErrorInfo);
 IMTYPESET_C_FIELD(ImTypeset_ErrorInfo, ImTypesetErrorInfo, Code);
@@ -242,8 +243,18 @@ IMTYPESET_C_FIELD(ImTypeset_Block, ImTypesetBlock, QuoteDepth);
 IMTYPESET_C_FIELD(ImTypeset_Block, ImTypesetBlock, Container);
 IMTYPESET_C_FIELD(ImTypeset_Block, ImTypesetBlock, Item);
 IMTYPESET_C_FIELD(ImTypeset_Block, ImTypesetBlock, Extent);
-IMTYPESET_C_FIELD(ImTypeset_Block, ImTypesetBlock, TableRows);
-IMTYPESET_C_FIELD(ImTypeset_Block, ImTypesetBlock, TableColumns);
+IMTYPESET_C_FIELD(ImTypeset_Block, ImTypesetBlock, CellStart);
+IMTYPESET_C_FIELD(ImTypeset_Block, ImTypesetBlock, CellCount);
+IMTYPESET_C_FIELD(ImTypeset_Block, ImTypesetBlock, ColumnStart);
+IMTYPESET_C_FIELD(ImTypeset_Block, ImTypesetBlock, ColumnCount);
+IMTYPESET_C_MIRROR(ImTypeset_Cell, ImTypesetCell);
+IMTYPESET_C_FIELD(ImTypeset_Cell, ImTypesetCell, TextStart);
+IMTYPESET_C_FIELD(ImTypeset_Cell, ImTypesetCell, TextEnd);
+IMTYPESET_C_FIELD(ImTypeset_Cell, ImTypesetCell, Flags);
+IMTYPESET_C_MIRROR(ImTypeset_TableColumn, ImTypesetTableColumn);
+IMTYPESET_C_FIELD(ImTypeset_TableColumn, ImTypesetTableColumn, Align);
+IMTYPESET_C_FIELD(ImTypeset_TableColumn, ImTypesetTableColumn, Width);
+IMTYPESET_C_FIELD(ImTypeset_TableColumn, ImTypesetTableColumn, Share);
 IMTYPESET_C_MIRROR(ImTypeset_DocumentContent, ImTypesetDocumentContent);
 IMTYPESET_C_FIELD(ImTypeset_DocumentContent, ImTypesetDocumentContent, Text);
 IMTYPESET_C_FIELD(ImTypeset_DocumentContent, ImTypesetDocumentContent, TextSize);
@@ -255,12 +266,19 @@ IMTYPESET_C_POINTER(ImTypeset_DocumentContent, ImTypesetDocumentContent, Styles)
 IMTYPESET_C_FIELD(ImTypeset_DocumentContent, ImTypesetDocumentContent, StyleCount);
 IMTYPESET_C_POINTER(ImTypeset_DocumentContent, ImTypesetDocumentContent, Containers);
 IMTYPESET_C_FIELD(ImTypeset_DocumentContent, ImTypesetDocumentContent, ContainerCount);
+IMTYPESET_C_POINTER(ImTypeset_DocumentContent, ImTypesetDocumentContent, Cells);
+IMTYPESET_C_FIELD(ImTypeset_DocumentContent, ImTypesetDocumentContent, CellCount);
+IMTYPESET_C_POINTER(ImTypeset_DocumentContent, ImTypesetDocumentContent, Columns);
+IMTYPESET_C_FIELD(ImTypeset_DocumentContent, ImTypesetDocumentContent, ColumnCount);
 IMTYPESET_C_MIRROR(ImTypeset_DocumentOptions, ImTypesetDocumentOptions);
 IMTYPESET_C_FIELD(ImTypeset_DocumentOptions, ImTypesetDocumentOptions, QuoteIndent);
 IMTYPESET_C_FIELD(ImTypeset_DocumentOptions, ImTypesetDocumentOptions, QuoteBarThickness);
 IMTYPESET_C_FIELD(ImTypeset_DocumentOptions, ImTypesetDocumentOptions, QuoteBarColor);
 IMTYPESET_C_FIELD(ImTypeset_DocumentOptions, ImTypesetDocumentOptions, RuleColor);
 IMTYPESET_C_FIELD(ImTypeset_DocumentOptions, ImTypesetDocumentOptions, CodeOverflow);
+IMTYPESET_C_FIELD(ImTypeset_DocumentOptions, ImTypesetDocumentOptions, TableCellPadding);
+IMTYPESET_C_FIELD(ImTypeset_DocumentOptions, ImTypesetDocumentOptions, TableRuleThickness);
+IMTYPESET_C_FIELD(ImTypeset_DocumentOptions, ImTypesetDocumentOptions, TableRuleColor);
 IMTYPESET_C_MIRROR(ImTypeset_Position, ImTypesetPosition);
 IMTYPESET_C_FIELD(ImTypeset_Position, ImTypesetPosition, Block);
 IMTYPESET_C_FIELD(ImTypeset_Position, ImTypesetPosition, Offset);
@@ -284,6 +302,8 @@ IMTYPESET_C_FIELD(ImTypeset_DocumentHit, ImTypesetDocumentHit, Line);
 IMTYPESET_C_FIELD(ImTypeset_DocumentHit, ImTypesetDocumentHit, Tag);
 IMTYPESET_C_FIELD(ImTypeset_DocumentHit, ImTypesetDocumentHit, Inside);
 IMTYPESET_C_FIELD(ImTypeset_DocumentHit, ImTypesetDocumentHit, InBlock);
+IMTYPESET_C_FIELD(ImTypeset_DocumentHit, ImTypesetDocumentHit, Row);
+IMTYPESET_C_FIELD(ImTypeset_DocumentHit, ImTypesetDocumentHit, Column);
 IMTYPESET_C_MIRROR(ImTypeset_BlockGeometry, ImTypesetBlockGeometry);
 IMTYPESET_C_FIELD(ImTypeset_BlockGeometry, ImTypesetBlockGeometry, Min);
 IMTYPESET_C_FIELD(ImTypeset_BlockGeometry, ImTypesetBlockGeometry, Max);
@@ -291,6 +311,30 @@ IMTYPESET_C_FIELD(ImTypeset_BlockGeometry, ImTypesetBlockGeometry, FullMin);
 IMTYPESET_C_FIELD(ImTypeset_BlockGeometry, ImTypesetBlockGeometry, FullMax);
 IMTYPESET_C_FIELD(ImTypeset_BlockGeometry, ImTypesetBlockGeometry, LineCount);
 IMTYPESET_C_FIELD(ImTypeset_BlockGeometry, ImTypesetBlockGeometry, LaidOut);
+IMTYPESET_C_MIRROR(ImTypeset_TableGeometry, ImTypesetTableGeometry);
+IMTYPESET_C_FIELD(ImTypeset_TableGeometry, ImTypesetTableGeometry, RowCount);
+IMTYPESET_C_FIELD(ImTypeset_TableGeometry, ImTypesetTableGeometry, ColumnCount);
+IMTYPESET_C_FIELD(ImTypeset_TableGeometry, ImTypesetTableGeometry, CellCount);
+IMTYPESET_C_FIELD(ImTypeset_TableGeometry, ImTypesetTableGeometry, Min);
+IMTYPESET_C_FIELD(ImTypeset_TableGeometry, ImTypesetTableGeometry, Max);
+IMTYPESET_C_FIELD(ImTypeset_TableGeometry, ImTypesetTableGeometry, Stated);
+IMTYPESET_C_FIELD(ImTypeset_TableGeometry, ImTypesetTableGeometry, LaidOut);
+IMTYPESET_C_MIRROR(ImTypeset_TableColumnGeometry, ImTypesetTableColumnGeometry);
+IMTYPESET_C_FIELD(ImTypeset_TableColumnGeometry, ImTypesetTableColumnGeometry, Min);
+IMTYPESET_C_FIELD(ImTypeset_TableColumnGeometry, ImTypesetTableColumnGeometry, Max);
+IMTYPESET_C_FIELD(ImTypeset_TableColumnGeometry, ImTypesetTableColumnGeometry, Natural);
+IMTYPESET_C_FIELD(ImTypeset_TableColumnGeometry, ImTypesetTableColumnGeometry, Floor);
+IMTYPESET_C_MIRROR(ImTypeset_TableRowGeometry, ImTypesetTableRowGeometry);
+IMTYPESET_C_FIELD(ImTypeset_TableRowGeometry, ImTypesetTableRowGeometry, Min);
+IMTYPESET_C_FIELD(ImTypeset_TableRowGeometry, ImTypesetTableRowGeometry, Max);
+IMTYPESET_C_FIELD(ImTypeset_TableRowGeometry, ImTypesetTableRowGeometry, CellStart);
+IMTYPESET_C_FIELD(ImTypeset_TableRowGeometry, ImTypesetTableRowGeometry, CellCount);
+IMTYPESET_C_FIELD(ImTypeset_TableRowGeometry, ImTypesetTableRowGeometry, Wrapped);
+IMTYPESET_C_MIRROR(ImTypeset_CellPosition, ImTypesetCellPosition);
+IMTYPESET_C_FIELD(ImTypeset_CellPosition, ImTypesetCellPosition, Row);
+IMTYPESET_C_FIELD(ImTypeset_CellPosition, ImTypesetCellPosition, Column);
+IMTYPESET_C_FIELD(ImTypeset_CellPosition, ImTypesetCellPosition, Cell);
+IMTYPESET_C_FIELD(ImTypeset_CellPosition, ImTypesetCellPosition, Offset);
 IMTYPESET_C_MIRROR(ImTypeset_DocumentStats, ImTypesetDocumentStats);
 IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, MaterialBuilds);
 IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, BlocksLaidOut);
@@ -299,6 +343,8 @@ IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, StructureVisi
 IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, BlocksDrawn);
 IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, Blocks);
 IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, BlocksDeferred);
+IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, TableCellsMeasured);
+IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, TableRowsSet);
 IMTYPESET_C_ENUM(RunFlags, Formula);
 IMTYPESET_C_ENUM(RunFlags, DisplayFormula);
 IMTYPESET_C_ENUM(BlockKind, Paragraph);
@@ -311,6 +357,11 @@ IMTYPESET_C_ENUM(BlockKind, Table);
 IMTYPESET_C_ENUM(BlockFlags, None);
 IMTYPESET_C_ENUM(BlockFlags, HardBreaks);
 IMTYPESET_C_ENUM(BlockFlags, Math);
+IMTYPESET_C_ENUM(BlockFlags, FixedLineHeight);
+IMTYPESET_C_ENUM(BlockFlags, TableHeader);
+IMTYPESET_C_ENUM(BlockFlags, TableHeld);
+IMTYPESET_C_ENUM(CellFlags, None);
+IMTYPESET_C_ENUM(CellFlags, RowStart);
 IMTYPESET_C_ENUM(ContainerKind, Quote);
 IMTYPESET_C_ENUM(ContainerKind, List);
 IMTYPESET_C_ENUM(ContainerFlags, None);
@@ -559,6 +610,12 @@ int ImTypeset_GetBuildInfo(ImTypeset_BuildInfo* out, int out_size)
     info.SizeofDocumentHit = static_cast<int>(sizeof(ImTypesetDocumentHit));
     info.SizeofBlockGeometry = static_cast<int>(sizeof(ImTypesetBlockGeometry));
     info.SizeofDocumentStats = static_cast<int>(sizeof(ImTypesetDocumentStats));
+    info.SizeofCell = static_cast<int>(sizeof(ImTypesetCell));
+    info.SizeofTableColumn = static_cast<int>(sizeof(ImTypesetTableColumn));
+    info.SizeofTableGeometry = static_cast<int>(sizeof(ImTypesetTableGeometry));
+    info.SizeofTableColumnGeometry = static_cast<int>(sizeof(ImTypesetTableColumnGeometry));
+    info.SizeofTableRowGeometry = static_cast<int>(sizeof(ImTypesetTableRowGeometry));
+    info.SizeofCellPosition = static_cast<int>(sizeof(ImTypesetCellPosition));
     if (out != nullptr && out_size > 0) {
         const size_t n = static_cast<size_t>(out_size) < sizeof(info)
                              ? static_cast<size_t>(out_size)
@@ -721,6 +778,11 @@ int ImTypeset_RemoveFont(ImTypeset_Face face)
 struct ImFont* ImTypeset_GetFont(ImTypeset_Face face)
 {
     return guarded<ImFont*>(nullptr, [&]() { return ImTypeset::GetFont(face); });
+}
+
+int ImTypeset_FaceHasGlyph(ImTypeset_Face face, unsigned int codepoint)
+{
+    return guarded(0, [&]() -> int { return status(ImTypeset::FaceHasGlyph(face, codepoint)); });
 }
 
 int ImTypeset_GetFontAtlasIndex(ImTypeset_Face face)
@@ -995,6 +1057,7 @@ int ImTypeset_HitTestParagraph(const ImTypeset_Paragraph* paragraph,
         out->TextOffset = hit.TextOffset;
         out->Line = hit.Line;
         out->Inside = hit.Inside;
+        out->Tag = hit.Tag;
         return 1;
     });
 }
@@ -1126,6 +1189,16 @@ int ImTypeset_DebugCheckDocumentDataLayout(size_t sz_block, size_t sz_block_styl
     });
 }
 
+int ImTypeset_DebugCheckTableDataLayout(size_t sz_cell, size_t sz_column, size_t sz_table,
+                                        size_t sz_column_geometry, size_t sz_row_geometry,
+                                        size_t sz_cell_position)
+{
+    return guarded(0, [&]() -> int {
+        return status(ImTypeset::DebugCheckTableDataLayout(
+            sz_cell, sz_column, sz_table, sz_column_geometry, sz_row_geometry, sz_cell_position));
+    });
+}
+
 ImTypeset_Document* ImTypeset_CreateDocument(void)
 {
     return guarded<ImTypeset_Document*>(nullptr, []() { return ImTypeset::CreateDocument(); });
@@ -1164,6 +1237,27 @@ int ImTypeset_AppendDocumentText(ImTypeset_Document* document, const char* text,
     return guarded(0, [&]() -> int {
         return status(ImTypeset::AppendDocumentText(
             document, text, text_end, same<ImTypesetRun, ImTypeset_Run>(runs), runs_count));
+    });
+}
+
+int ImTypeset_AppendDocumentTableCells(ImTypeset_Document* document, const char* text,
+                                       const char* text_end, const ImTypeset_Cell* cells,
+                                       int cells_count, const ImTypeset_Run* runs, int runs_count)
+{
+    return guarded(0, [&]() -> int {
+        return status(ImTypeset::AppendDocumentTableCells(
+            document, text, text_end, same<ImTypesetCell, ImTypeset_Cell>(cells), cells_count,
+            same<ImTypesetRun, ImTypeset_Run>(runs), runs_count));
+    });
+}
+
+int ImTypeset_SetDocumentTableColumns(ImTypeset_Document* document, int block,
+                                      const ImTypeset_TableColumn* columns, int columns_count)
+{
+    return guarded(0, [&]() -> int {
+        return status(ImTypeset::SetDocumentTableColumns(
+            document, block, same<ImTypesetTableColumn, ImTypeset_TableColumn>(columns),
+            columns_count));
     });
 }
 
@@ -1323,6 +1417,8 @@ int ImTypeset_HitTestDocument(ImTypeset_Document* document, const ImTypeset_Vec2
         out->Tag = hit.Tag;
         out->Inside = hit.Inside;
         out->InBlock = hit.InBlock;
+        out->Row = hit.Row;
+        out->Column = hit.Column;
         return 1;
     });
 }
@@ -1412,6 +1508,81 @@ int ImTypeset_GetDocumentBlockLine(ImTypeset_Document* document, int block, int 
         if (missing(out, "ImTypeset_GetDocumentBlockLine: out is null"))
             return 0;
         *out = mirror<ImTypeset_Line>(ImTypeset::GetDocumentBlockLine(document, block, line));
+        return 1;
+    });
+}
+
+int ImTypeset_GetDocumentTableGeometry(ImTypeset_Document* document, int block,
+                                       ImTypeset_TableGeometry* out)
+{
+    return guarded(0, [&]() -> int {
+        if (missing(out, "ImTypeset_GetDocumentTableGeometry: out is null"))
+            return 0;
+        // Field by field into zeroed memory: the struct has padding.
+        std::memset(out, 0, sizeof(*out));
+        const ImTypesetTableGeometry g = ImTypeset::GetDocumentTableGeometry(document, block);
+        out->RowCount = g.RowCount;
+        out->ColumnCount = g.ColumnCount;
+        out->CellCount = g.CellCount;
+        out->Min = mirror<ImTypeset_Vec2>(g.Min);
+        out->Max = mirror<ImTypeset_Vec2>(g.Max);
+        out->Stated = g.Stated;
+        out->LaidOut = g.LaidOut;
+        return 1;
+    });
+}
+
+int ImTypeset_GetDocumentTableColumn(ImTypeset_Document* document, int block, int column,
+                                     ImTypeset_TableColumnGeometry* out)
+{
+    return guarded(0, [&]() -> int {
+        if (missing(out, "ImTypeset_GetDocumentTableColumn: out is null"))
+            return 0;
+        *out = mirror<ImTypeset_TableColumnGeometry>(
+            ImTypeset::GetDocumentTableColumn(document, block, column));
+        return 1;
+    });
+}
+
+int ImTypeset_GetDocumentTableRow(ImTypeset_Document* document, int block, int row,
+                                  ImTypeset_TableRowGeometry* out)
+{
+    return guarded(0, [&]() -> int {
+        if (missing(out, "ImTypeset_GetDocumentTableRow: out is null"))
+            return 0;
+        // Field by field into zeroed memory: the struct has padding.
+        std::memset(out, 0, sizeof(*out));
+        const ImTypesetTableRowGeometry g = ImTypeset::GetDocumentTableRow(document, block, row);
+        out->Min = g.Min;
+        out->Max = g.Max;
+        out->CellStart = g.CellStart;
+        out->CellCount = g.CellCount;
+        out->Wrapped = g.Wrapped;
+        return 1;
+    });
+}
+
+int ImTypeset_GetDocumentTableCell(const ImTypeset_Document* document,
+                                   const ImTypeset_Position* position, ImTypeset_CellPosition* out)
+{
+    return guarded(0, [&]() -> int {
+        if (missing(position, "ImTypeset_GetDocumentTableCell: position is null") ||
+            missing(out, "ImTypeset_GetDocumentTableCell: out is null"))
+            return 0;
+        *out = mirror<ImTypeset_CellPosition>(
+            ImTypeset::GetDocumentTableCell(document, mirror<ImTypesetPosition>(*position)));
+        return 1;
+    });
+}
+
+int ImTypeset_GetDocumentTablePosition(const ImTypeset_Document* document, int block, int row,
+                                       int column, int offset, ImTypeset_Position* out)
+{
+    return guarded(0, [&]() -> int {
+        if (missing(out, "ImTypeset_GetDocumentTablePosition: out is null"))
+            return 0;
+        *out = mirror<ImTypeset_Position>(
+            ImTypeset::GetDocumentTablePosition(document, block, row, column, offset));
         return 1;
     });
 }

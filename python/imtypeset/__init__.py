@@ -61,6 +61,8 @@ __all__ = [
     "BlockKind",
     "BlockStyle",
     "BuildInfo",
+    "Cell",
+    "CellPosition",
     "CodeOverflow",
     "Container",
     "ContainerFlags",
@@ -89,6 +91,10 @@ __all__ = [
     "Stats",
     "StatusFlags",
     "Style",
+    "TableColumn",
+    "TableColumnGeometry",
+    "TableGeometry",
+    "TableRowGeometry",
     "TextFlags",
     "add_font",
     "build_info",
@@ -99,6 +105,7 @@ __all__ = [
     "create_context",
     "current_context",
     "destroy_context",
+    "face_has_glyph",
     "font_atlas_index",
     "get_context_serial",
     "get_font",
@@ -192,13 +199,18 @@ class BlockKind(_enum.IntEnum):
     Code = 3
     Rule = 4
     Host = 5
-    Table = 6  # Reserved: set as an empty Host block, and the edit raises.
+    Table = 6  # Rows of cells in columns: `Block.rows`, and "Tables" in imtypeset.h.
 
 
 class BlockFlags(_enum.IntFlag):
     None_ = 0
     HardBreaks = 1 << 0
     Math = 1 << 2
+    # Every line of the block exactly its line height, whatever it holds: see
+    # ImTypesetBlockFlags_FixedLineHeight in imtypeset.h.
+    FixedLineHeight = 1 << 3
+    TableHeader = 1 << 4  # Table: its first row is a header, with a rule under it.
+    TableHeld = 1 << 5  # Table: its columns are held while it grows.
 
 
 class ContainerKind(_enum.IntEnum):
@@ -268,7 +280,7 @@ class Run(NamedTuple):
     scale: float = 0.0
     color: int = 0
     flags: int = 0
-    tag: int = 0  # What Document.hit_test answers for a point on the run. 0: nothing.
+    tag: int = 0  # What hit_test answers for a point on the run. 0: nothing.
 
 
 class Line(NamedTuple):
@@ -283,6 +295,7 @@ class Hit(NamedTuple):
     text_offset: int
     line: int
     inside: bool
+    tag: int = 0  # Run.tag of the run the character under the point is in; 0 on none.
 
 
 class Formula(NamedTuple):
@@ -297,6 +310,23 @@ class Formula(NamedTuple):
 Stats = NamedTuple("Stats", [(_name, int) for _name in _capi.STATS_FIELDS])  # type: ignore[misc]
 
 
+class TableColumn(NamedTuple):
+    """One column of a table: ImTypesetTableColumn. A table is exactly its
+    columns' `width`s when every one states one (above zero), and otherwise
+    shares the width by `share` when every one states that."""
+
+    align: int = Align.Left
+    width: float = 0.0
+    share: float = 0.0
+
+
+class Cell(NamedTuple):
+    """One cell of a table, where a `str` alone will not do. `runs` index `text`."""
+
+    text: str = ""
+    runs: Sequence = ()
+
+
 class Block(NamedTuple):
     """One block of a document: ImTypesetBlock, with its text and runs in it.
 
@@ -304,6 +334,15 @@ class Block(NamedTuple):
     styles handed over with the blocks (or already in the document). `container`
     is 1 + the index of the innermost container the block is in, 0 for none, as
     the header has it. `marker` is a list item's ("1.", a bullet).
+
+    A TABLE (`BlockKind.Table`) is given by `rows`: a sequence of rows, each a
+    sequence of cells, a cell being a `str` or a `Cell`. The block's text is
+    then what a copy of the table gives, the cells of a row joined by a tab and
+    the rows by a newline, and positions in the block index THAT `str`
+    (`Document.table_cell` and `Document.table_position` go between it and a
+    cell's). `text` stays empty, or is exactly that text. A row may be shorter
+    than the others; a row with no cell at all is a row of one empty cell.
+    `columns` are `TableColumn`s. Both are a Table block's alone.
     """
 
     kind: int = BlockKind.Paragraph
@@ -318,6 +357,8 @@ class Block(NamedTuple):
     extent: float = 0.0
     flags: int = 0
     level: int = 0
+    rows: Sequence = ()
+    columns: Sequence = ()
 
 
 class Position(NamedTuple):
@@ -346,6 +387,8 @@ class DocumentHit(NamedTuple):
     tag: int
     inside: bool
     in_block: bool
+    row: int = -1  # In a table: the row and the column of the cell `position` is in.
+    column: int = -1
 
 
 class BlockGeometry(NamedTuple):
@@ -355,6 +398,40 @@ class BlockGeometry(NamedTuple):
     full_max: Tuple[float, float]
     line_count: int
     laid_out: bool
+
+
+class TableGeometry(NamedTuple):
+    """A table as last laid out, relative to the document's top-left corner."""
+
+    row_count: int
+    column_count: int
+    cell_count: int
+    min: Tuple[float, float]
+    max: Tuple[float, float]
+    stated: bool  # The columns are the widths held or stated, not fitted to the width.
+    laid_out: bool
+
+
+class TableColumnGeometry(NamedTuple):
+    min: float  # Its left and right edges, x from the document's left edge.
+    max: float
+    natural: float  # The widest of its cells on one line, with the padding.
+    floor: float  # The widest piece of any of them that cannot be broken, with the padding.
+
+
+class TableRowGeometry(NamedTuple):
+    min: float  # Its top and bottom, y from the document's top.
+    max: float
+    cell_start: int
+    cell_count: int
+    wrapped: bool
+
+
+class CellPosition(NamedTuple):
+    row: int  # -1, with the rest zero, if the position is in no table.
+    column: int
+    cell: int  # The cell's number among the table's cells.
+    offset: int  # An index into the cell's `str`.
 
 
 DocumentStats = NamedTuple(  # type: ignore[misc]
@@ -496,6 +573,16 @@ def _load():
         lib.ImTypeset_GetLastErrorMessage(message, len(message))
         raise ImportError(
             f"imtypeset: {path!r} refuses this package's document structs (written for "
+            f"{_capi.C_VERSION}): {message.value.decode('utf-8', 'replace')}"
+        )
+    ok = lib.ImTypeset_DebugCheckTableDataLayout(
+        *(_C.sizeof(struct) for _, struct in _capi.TABLE_STRUCTS)
+    )
+    if not ok:
+        message = _C.create_string_buffer(1024)
+        lib.ImTypeset_GetLastErrorMessage(message, len(message))
+        raise ImportError(
+            f"imtypeset: {path!r} refuses this package's table structs (written for "
             f"{_capi.C_VERSION}): {message.value.decode('utf-8', 'replace')}"
         )
     return lib, path, info, host, layout_checked, bundle_report
@@ -755,6 +842,19 @@ def font_atlas_index(face: int) -> Optional[int]:
     time. Ask again after any font is added to or removed from the atlas."""
     index = _lib.ImTypeset_GetFontAtlasIndex(int(face))
     return index if index >= 0 else None
+
+
+def face_has_glyph(face: int, char: Union[str, int]) -> bool:
+    """Whether the font added for a role has a glyph for a character.
+
+    The role's OWN font: not the faces a character it lacks is then set from.
+    `char` is one character or a codepoint. False for a role with no font and
+    with no context. What a host asks before handing over text in which a
+    borrowed glyph would not do (a grid of code, every character one cell)."""
+    codepoint = ord(char) if isinstance(char, str) else int(char)
+    if not 0 <= codepoint <= 0xFFFFFFFF:
+        return False
+    return bool(_lib.ImTypeset_FaceHasGlyph(int(face), codepoint))
 
 
 # --- Widgets ------------------------------------------------------------------------------
@@ -1064,7 +1164,7 @@ class Paragraph:
             ),
             "Paragraph.hit_test",
         )
-        return Hit(self._char(raw.TextOffset), raw.Line, bool(raw.Inside))
+        return Hit(self._char(raw.TextOffset), raw.Line, bool(raw.Inside), raw.Tag)
 
     def select_range(
         self,
@@ -1131,12 +1231,16 @@ class Paragraph:
 
 # ImTypeset_Block and ImTypeset_Run as struct formats: an edit packs its blocks
 # straight into the bytes the library reads, one pack a block, rather than
-# setting seventeen ctypes fields a block.
-_BLOCK = _struct.Struct("=10if3if2i")
+# setting nineteen ctypes fields a block. A table's cells and columns likewise.
+_BLOCK = _struct.Struct("=10if3if4i")
 _RUN = _struct.Struct("=3ifI2i")
 _MARK = _struct.Struct("=4iIi2f")
+_CELL = _struct.Struct("=3i")
+_COLUMN = _struct.Struct("=i2f")
 assert _BLOCK.size == _C.sizeof(_capi.Block) and _RUN.size == _C.sizeof(_capi.Run)
 assert _MARK.size == _C.sizeof(_capi.Mark)
+assert _CELL.size == _C.sizeof(_capi.Cell) and _COLUMN.size == _C.sizeof(_capi.TableColumn)
+_INT_MAX = 0x7FFFFFFF
 
 
 class _Marks:
@@ -1160,6 +1264,55 @@ def _byte_offsets(text: str, wanted) -> dict:
         previous = index
         out[offset] = total
     return out
+
+
+def _table_rows(rows: Sequence):
+    """(text, cells, runs) for the rows of a table: the text a copy of them
+    gives, each cell as (start, end, ImTypesetCellFlags) and each cell's runs
+    as `Run`s, all three indexing that text."""
+    parts = []
+    cells = []
+    runs = []
+    at = 0
+    for number, row in enumerate(rows):
+        if isinstance(row, (str, Cell)):
+            raise TypeError("a row of a table is a sequence of cells, not one cell")
+        if number:
+            parts.append("\n")
+            at += 1
+        flags = 1  # ImTypesetCellFlags_RowStart
+        for cell in row or ("",):
+            if not flags:
+                parts.append("\t")
+                at += 1
+            if type(cell) is str:
+                text = cell
+            else:
+                if type(cell) is not Cell:
+                    cell = Cell(*cell)
+                text = cell.text
+                size = len(text)
+                for run in cell.runs:
+                    if type(run) is not Run:
+                        run = Run(*run)
+                    runs.append(
+                        run._replace(
+                            start=at + min(max(run.start, 0), size),
+                            end=at + min(max(run.end, 0), size),
+                        )
+                    )
+            parts.append(text)
+            cells.append((at, at + len(text), flags))
+            at += len(text)
+            flags = 0
+    return "".join(parts), cells, runs
+
+
+def _pack_columns(columns: Sequence) -> list:
+    return [
+        _COLUMN.pack(int(column.align), column.width, column.share)
+        for column in (c if type(c) is TableColumn else TableColumn(*c) for c in columns)
+    ]
 
 
 class Document:
@@ -1194,9 +1347,17 @@ class Document:
     containers it is given to the document's: `style_count` and
     `container_count` say where the new ones start.
 
+    A TABLE is one block, given by `Block.rows` (and `Block.columns`); its
+    text is the cells of a row joined by a tab and the rows by a newline, and
+    that is what its positions index. `append_table_rows` adds rows to the
+    last block, `set_table_columns` states its columns again, `table_geometry`,
+    `table_column` and `table_row` say where it is, and `table_cell` and
+    `table_position` go between a position and (row, column, index into the
+    cell's `str`). One call into the library each.
+
     AN EDIT HAS THREE OUTCOMES. Applied whole: True. Applied in part (the
-    library cut what was wrong in the description, a Table block for one, and
-    set the rest): False, and `edit_error` holds what it said, with
+    library cut what was wrong in the description, a style that is not there
+    for one, and set the rest): False, and `edit_error` holds what it said, with
     ErrorCode.DescriptionCut; the document is consistent and may be used.
     Not applied: `Error` is raised, and what this object keeps of the
     document (block count, positions) is still what the library holds.
@@ -1212,6 +1373,9 @@ class Document:
         # One entry a block: None when its text is ASCII, else
         # [n, text, data]: after `n` ASCII bytes come `text` and its UTF-8.
         self._texts: list = []
+        # One entry a block: None, or for a table its rows, each a list of
+        # where its cells start, in bytes of the block's text.
+        self._tables: list = []
         self._last_size = 0  # Bytes of text the last block holds.
         # What the last edit reported: `code` 0 when it was applied whole.
         self.edit_error = _NO_ERROR
@@ -1325,16 +1489,21 @@ class Document:
         if count < 0 or count == len(self._texts):
             return
         self._texts = [None] * count
+        self._tables = [None] * count
         self._last_size = (
             max(_lib.ImTypeset_GetDocumentBlockTextSize(handle, count - 1), 0) if count else 0
         )
 
     @staticmethod
     def _pack(blocks: Sequence, styles: Sequence, containers: Sequence):
-        """(content, what it points into, the blocks' entries, the last block's bytes)."""
+        """(content, what it points into, the blocks' entries, the last
+        block's bytes, the blocks' tables)."""
         chunks = []
         runs = []
+        cells = []
+        columns = []
         entries = []
+        tables = []
         packed = bytearray(_BLOCK.size * len(blocks))
         at = 0
         last = 0
@@ -1342,6 +1511,26 @@ class Document:
             if type(block) is not Block:
                 block = Block(*block)
             text = block.text
+            given_runs = block.runs
+            spans = ()
+            is_table = int(block.kind) == BlockKind.Table
+            if (block.rows or block.columns) and not is_table:
+                raise ValueError("rows and columns are a Table block's")
+            if block.rows:
+                joined, spans, cell_runs = _table_rows(block.rows)
+                if text and text != joined:
+                    raise ValueError(
+                        "the text of a table given by rows is its cells joined by tabs and its "
+                        "rows by newlines: leave Block.text empty"
+                    )
+                text = joined
+                if cell_runs and given_runs:
+                    given_runs = sorted(
+                        [run if type(run) is Run else Run(*run) for run in given_runs] + cell_runs,
+                        key=lambda run: run.start,
+                    )
+                elif cell_runs:
+                    given_runs = cell_runs
             data = text.encode("utf-8")
             start = at
             at += len(data)
@@ -1357,8 +1546,8 @@ class Document:
                 at += len(marker)
                 marker_end = at
             run_start = len(runs)
-            if block.runs:
-                given = [run if type(run) is Run else Run(*run) for run in block.runs]
+            if given_runs:
+                given = [run if type(run) is Run else Run(*run) for run in given_runs]
                 if same:
                     size = len(data)
                     for run in given:
@@ -1387,6 +1576,25 @@ class Document:
                                 int(run.tag),
                             )
                         )
+            cell_start = len(cells)
+            table = [] if is_table else None
+            if spans:
+                where = (
+                    None
+                    if same
+                    else _byte_offsets(text, [s[0] for s in spans] + [s[1] for s in spans])
+                )
+                for first, end, flags in spans:
+                    if where is not None:
+                        first, end = where[first], where[end]
+                    cells.append(_CELL.pack(first, end, flags))
+                    if flags:
+                        table.append([])
+                    table[-1].append(first)
+            tables.append(table)
+            column_start = len(columns)
+            if block.columns:
+                columns.extend(_pack_columns(block.columns))
             _BLOCK.pack_into(
                 packed,
                 index * _BLOCK.size,
@@ -1405,11 +1613,15 @@ class Document:
                 int(block.container),
                 int(block.item),
                 block.extent,
-                0,
-                0,
+                cell_start if spans else 0,
+                len(cells) - cell_start,
+                column_start if block.columns else 0,
+                len(columns) - column_start,
             )
         text_bytes = b"".join(chunks)
         run_bytes = b"".join(runs)
+        cell_bytes = b"".join(cells)
+        column_bytes = b"".join(columns)
         for name, given, kind in (("styles", styles, BlockStyle), ("containers", containers, Container)):
             for one in given:
                 if not isinstance(one, kind):
@@ -1428,17 +1640,29 @@ class Document:
         content.StyleCount = len(styles)
         content.Containers = _C.addressof(container_array) if containers else None
         content.ContainerCount = len(containers)
-        held = (text_bytes, run_bytes, block_array, style_array, container_array)
-        return content, held, entries, last
+        content.Cells = _C.cast(_C.c_char_p(cell_bytes), _C.c_void_p) if cells else None
+        content.CellCount = len(cells)
+        content.Columns = _C.cast(_C.c_char_p(column_bytes), _C.c_void_p) if columns else None
+        content.ColumnCount = len(columns)
+        held = (
+            text_bytes,
+            run_bytes,
+            block_array,
+            style_array,
+            container_array,
+            cell_bytes,
+            column_bytes,
+        )
+        return content, held, entries, last, tables
 
     def set_blocks(self, blocks: Sequence, styles: Sequence = (), containers: Sequence = ()) -> bool:
         """Replaces everything the document holds. One call into the library.
         False, with `last_error()` saying ErrorCode.DescriptionCut, when
         something in the description was wrong and was cut to what is right
-        (a table, an index that names nothing): the blocks are set, and
+        (an index that names nothing, a run out of order): the blocks are set, and
         `edit_error` keeps what was said. Raises `Error` when they were not."""
         handle = self._h()
-        content, held, entries, last = self._pack(blocks, styles, containers)
+        content, held, entries, last, tables = self._pack(blocks, styles, containers)
         ok = _lib.ImTypeset_SetDocumentBlocks(handle, _C.byref(content))
         del held
         try:
@@ -1447,6 +1671,7 @@ class Document:
             self._refused(handle)
             raise
         self._texts = entries
+        self._tables = tables
         self._last_size = last
         return whole
 
@@ -1467,7 +1692,7 @@ class Document:
             raise ValueError(
                 f"blocks [{first}, {first + count}) are not all in a document of {len(self._texts)}"
             )
-        content, held, entries, last = self._pack(blocks, styles, containers)
+        content, held, entries, last, tables = self._pack(blocks, styles, containers)
         touches_end = first + count == len(self._texts)
         ok = _lib.ImTypeset_ReplaceDocumentBlocks(handle, first, count, _C.byref(content))
         del held
@@ -1477,6 +1702,7 @@ class Document:
             self._refused(handle)
             raise
         self._texts[first : first + count] = entries
+        self._tables[first : first + count] = tables
         if touches_end:
             if entries:
                 self._last_size = last
@@ -1492,6 +1718,7 @@ class Document:
         """Appends to the text of the LAST block: text that arrives a piece at a
         time. `runs` are further runs of that block, indexing its whole text.
         Only that block is laid out again. One call into the library.
+        On a table the text goes to its last cell.
         True, False or `Error` as `set_blocks`."""
         handle = self._h()
         if not self._texts:
@@ -1543,6 +1770,114 @@ class Document:
         self._texts[-1] = entry
         self._last_size = grown
         return whole
+
+    def append_table_rows(self, rows: Sequence) -> bool:
+        """Appends rows to the LAST block, which is a table: rows that arrive
+        one at a time. `rows` are as `Block.rows`. The text appended is the
+        rows as a copy gives them, after a newline when the table already has
+        a row, so the block's text stays what a copy of the whole table gives.
+        Rows the table had are not set again unless a column's width changes.
+        One call into the library. True, False or `Error` as `set_blocks`."""
+        handle = self._h()
+        if not self._texts:
+            raise ValueError("append_table_rows: the document has no block")
+        table = self._tables[-1]
+        if table is None:
+            raise ValueError("append_table_rows: the last block is not a table")
+        text, spans, cell_runs = _table_rows(rows)
+        if table and spans:
+            text = "\n" + text
+            spans = [(first + 1, end + 1, flags) for first, end, flags in spans]
+            cell_runs = [run._replace(start=run.start + 1, end=run.end + 1) for run in cell_runs]
+        data = text.encode("utf-8")
+        base = self._last_size
+        if len(data) == len(text):
+            where = None
+        else:
+            where = _byte_offsets(
+                text,
+                [s[0] for s in spans]
+                + [s[1] for s in spans]
+                + [r.start for r in cell_runs]
+                + [r.end for r in cell_runs],
+            )
+
+        def byte(index: int) -> int:
+            return base + (index if where is None else where[index])
+
+        added = []
+        packed = []
+        for first, end, flags in spans:
+            first, end = byte(first), byte(end)
+            packed.append(_CELL.pack(first, end, flags))
+            if flags:
+                added.append([])
+            added[-1].append(first)
+        cell_array = _C.create_string_buffer(b"".join(packed)) if packed else None
+        run_array = None
+        if cell_runs:
+            run_array = _C.create_string_buffer(
+                b"".join(
+                    _RUN.pack(
+                        byte(run.start),
+                        byte(run.end),
+                        int(run.face),
+                        run.scale,
+                        run.color,
+                        int(run.flags),
+                        int(run.tag),
+                    )
+                    for run in cell_runs
+                )
+            )
+        # The last block's entry as it will be once the text is appended.
+        entry = self._texts[-1]
+        if entry is None:
+            if where is not None:
+                entry = [base, text, data]
+        else:
+            entry = [entry[0], entry[1] + text, entry[2] + data]
+        grown = base + len(data)
+        ok = _lib.ImTypeset_AppendDocumentTableCells(
+            handle, *_text_args(data), cell_array, len(packed), run_array, len(cell_runs)
+        )
+        try:
+            whole = self._edited(ok, "Document.append_table_rows")
+        except Error:
+            # Refused. If the last block holds the text all the same (its size
+            # says), it is kept here too.
+            if (
+                data
+                and _lib.ImTypeset_GetDocumentBlockTextSize(handle, len(self._texts) - 1) == grown
+            ):
+                self._texts[-1] = entry
+                self._last_size = grown
+                table.extend(added)
+            raise
+        if not whole:
+            # Taken in part: the library may have cut the text (ErrorCode.TextTooLong).
+            size = _lib.ImTypeset_GetDocumentBlockTextSize(handle, len(self._texts) - 1)
+            if 0 <= size < grown:
+                if entry is not None:
+                    kept = entry[2][: max(size - entry[0], 0)]
+                    entry = [entry[0], kept.decode("utf-8", "ignore"), kept]
+                grown = size
+        self._texts[-1] = entry
+        self._last_size = grown
+        table.extend(added)
+        return whole
+
+    def set_table_columns(self, block: int, columns: Sequence) -> bool:
+        """States a table's columns again (`TableColumn`s): what a drag of a
+        column's edge does each frame. They replace the table's; rows are set
+        again only if a width or an alignment changed. One call into the
+        library. Raises `Error` if `block` is not a table."""
+        packed = _pack_columns(columns)
+        array = _C.create_string_buffer(b"".join(packed)) if packed else None
+        return _outcome(
+            _lib.ImTypeset_SetDocumentTableColumns(self._h(), int(block), array, len(packed)),
+            "Document.set_table_columns",
+        )
 
     def set_block_extent(self, block: int, extent: float) -> None:
         """A Rule's thickness or a Host block's height, in pixels."""
@@ -1779,6 +2114,8 @@ class Document:
             raw.Tag,
             bool(raw.Inside),
             bool(raw.InBlock),
+            raw.Row,
+            raw.Column,
         )
 
     def select_range(
@@ -1892,6 +2229,88 @@ class Document:
             self._char(block, raw.TextStart),
             self._char(block, raw.TextEnd),
         )
+
+    # --- Tables ---
+
+    def table_geometry(self, block: int) -> TableGeometry:
+        """A table as laid out at the document's width, relative to the
+        document's top-left corner. Lays it out. All zero, with a `row_count`
+        of 0, if `block` is not a table."""
+        raw = _capi.TableGeometry()
+        _must(
+            _lib.ImTypeset_GetDocumentTableGeometry(self._h(), int(block), _C.byref(raw)),
+            "Document.table_geometry",
+        )
+        return TableGeometry(
+            raw.RowCount,
+            raw.ColumnCount,
+            raw.CellCount,
+            (raw.Min.x, raw.Min.y),
+            (raw.Max.x, raw.Max.y),
+            bool(raw.Stated),
+            bool(raw.LaidOut),
+        )
+
+    def table_column(self, block: int, column: int) -> TableColumnGeometry:
+        """One column of a table. Lays the table out. All zero if there is none."""
+        raw = _capi.TableColumnGeometry()
+        _must(
+            _lib.ImTypeset_GetDocumentTableColumn(
+                self._h(), int(block), int(column), _C.byref(raw)
+            ),
+            "Document.table_column",
+        )
+        return TableColumnGeometry(raw.Min, raw.Max, raw.Natural, raw.Floor)
+
+    def table_row(self, block: int, row: int) -> TableRowGeometry:
+        """One row of a table. Lays the table out. All zero if there is none."""
+        raw = _capi.TableRowGeometry()
+        _must(
+            _lib.ImTypeset_GetDocumentTableRow(self._h(), int(block), int(row), _C.byref(raw)),
+            "Document.table_row",
+        )
+        return TableRowGeometry(raw.Min, raw.Max, raw.CellStart, raw.CellCount, bool(raw.Wrapped))
+
+    def table_cell(self, position) -> CellPosition:
+        """The cell a position is in: its row, its column, its number among
+        the table's cells, and the position as an index into the CELL's `str`.
+        A position between two cells is the start of the later one. `row` is
+        -1, with the rest zero, if the position is in no table. Lays nothing out."""
+        held = self._position(position)
+        raw = _capi.CellPosition()
+        _must(
+            _lib.ImTypeset_GetDocumentTableCell(self._h(), _C.byref(held), _C.byref(raw)),
+            "Document.table_cell",
+        )
+        offset = raw.Offset
+        if offset > 0:
+            # The library's offset is bytes from the cell's first byte, which
+            # is that many before the position's.
+            block = held.Block
+            first = max(held.Offset - offset, 0)
+            offset = self._char(block, first + offset) - self._char(block, first)
+        return CellPosition(raw.Row, raw.Column, raw.Cell, offset)
+
+    def table_position(self, block: int, row: int, column: int, offset: int = 0) -> Position:
+        """The position of character `offset` of a cell's `str` (clamped to
+        the cell), as an index into the block's `str`. Lays nothing out."""
+        block, row, column = int(block), int(row), int(column)
+        within = min(max(int(offset), 0), _INT_MAX)
+        entry = self._texts[block] if 0 <= block < len(self._texts) else None
+        if entry is not None and within:
+            table = self._tables[block]
+            if table and 0 <= row < len(table) and 0 <= column < len(table[row]):
+                # Characters of the cell into bytes of it, through the block's text.
+                first = table[row][column]
+                within = self._byte_in(entry, self._char(block, first) + within) - first
+        raw = _capi.Position()
+        _must(
+            _lib.ImTypeset_GetDocumentTablePosition(
+                self._h(), block, row, column, max(within, 0), _C.byref(raw)
+            ),
+            "Document.table_position",
+        )
+        return Position(raw.Block, self._char(raw.Block, raw.Offset))
 
 
 # --- Demo ---------------------------------------------------------------------------------

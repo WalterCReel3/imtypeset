@@ -390,6 +390,11 @@ Strut Strut::filling(Scaled leading)
 
 void Strut::apply_to(Box& box) const
 {
+    if (exact) {
+        box.height = height;
+        box.depth = depth;
+        return;
+    }
     if (box.height < height)
         box.height = height;
     if (box.depth < depth)

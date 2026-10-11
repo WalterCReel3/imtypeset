@@ -271,6 +271,10 @@ struct ImTypesetParagraph {
     // --- Layout
     ImTypeset::detail::ParagraphLayout layout;
     std::vector<uint32_t> index_bytes; // item_count + 1 entries, never decreasing
+    // A table's (a document's view of one): the first index of each cell but
+    // the first of its row, ascending. A copy puts a tab before each; the
+    // first index of each row but the first is in layout.hard_breaks.
+    std::vector<uint32_t> cell_breaks;
     // The lines, found in the commands at the first question about them.
     mutable std::vector<ImTypeset::detail::LineBox> line_boxes;
     mutable bool has_lines = false;
@@ -466,6 +470,12 @@ bool set_text(ImTypesetParagraph& p, const char* text, size_t size, const ImType
 void build_material_now(ImTypesetContext& ctx, ImTypesetParagraph& p, const ResolvedStyle& style);
 float ceil_px(double pixels);
 bool is_item(const DrawCmd& cmd);
+// The byte of the text that the item under `x` on `line` came from: the last
+// of the line's items that starts at or left of `x`. A caret position is the
+// boundary NEAREST a point and so is the next character's when the point is on
+// a character's right half; this is the character the point is on. `fallback`
+// if the line holds no item there.
+int byte_under(const ImTypesetParagraph& p, const LineBox& line, Scaled x, int fallback);
 void ensure_lines(const ImTypesetParagraph& p);
 void ensure_model(const ImTypesetParagraph& p);
 void map_index_bytes(const std::vector<uint32_t>& shipped_at,

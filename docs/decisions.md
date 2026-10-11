@@ -2774,3 +2774,187 @@ before it go through the renderer, which takes the atlas's textures, into a stri
 *Measured*: the sixteen pages are pixel-identical to rasterising every frame; 25 s to 3 s in
 release, and 46 s under ASan+UBSan where the sixteen pages took more than 550 s, past the
 example's 600 s ctest timeout.
+
+## D56. An exact line height, a glyph query, a paragraph hit's tag, and a draw that drops what a clip cannot show (task `tables-core`, stage 0, 2026-10-11)
+
+*Agent decisions, taken unattended for the session swapping advtext onto the library
+(`docs/advtext-swap-status.md`, item 5); the user may overrule any. The requests are
+`../imgui-adv-text/.concerns/FS-S1--builder--result.md` R1 and R1b and
+`FS-S2--builder--result.md` section 4.*
+
+**Decided.**
+
+1. **`ImTypesetBlockFlags_FixedLineHeight`: every line of the block is exactly its line height.**
+   The mechanism is the strut's: `Strut::exact` makes `Strut::apply_to` REPLACE a line box's
+   height and depth with the strut's where it otherwise floors them. `Strut::filling` already
+   makes height plus depth one `\baselineskip`, so `append_to_vlist` (tex.web section 679) finds
+   a gap of exactly zero between every two lines and the baselines are one `\baselineskip`
+   apart. It is what TeX reaches with a strut on a line whose contents are smashed, or with
+   `\lineskiplimit` at `-\maxdimen`; the box is changed rather than the limit because the
+   document stacks blocks from their line boxes (`LineDims`) and a block's height must be the sum
+   of them. A flag on the block and not a field of `ImTypesetBlockStyle`: it is one bit, a host
+   wants it for some blocks of a style and not others (a diff's code beside its prose), and a
+   flag costs the C mirror and the Python package one enumerator. It holds for text blocks as
+   well as code, since nothing in the mechanism is code's. `DocumentRules` and the reference
+   replays are untouched: the flag is not set by them.
+   **What overhang does.** The line's box is the pitch, so a selection's rectangle, a `Behind`
+   mark and `ImTypesetLine` are the pitch tall and ink that is taller reaches into the
+   neighbouring lines' boxes; nothing is clipped to a line box. A draw skips whole lines by their
+   box grown by `CULL_MARGIN_PX` (2 px), and a document lays out the units within
+   `WINDOW_MARGIN_PX` (2 px) of the clip rectangle, so ink that overhangs its line by more than
+   two pixels is not drawn while its line is wholly outside the clip rectangle by more than that:
+   it can go missing in a strip at most the overhang tall at the very edge of a scrolled view.
+   *Not measured:* how far the tallest glyph of an installed face overhangs a 1.25 em pitch.
+2. **`FaceHasGlyph(face, codepoint)`** answers for the font added for the role and nothing else:
+   `FaceData::has`, the reader's own character map with the codepoints minted for a math face,
+   which is what layout asks before it looks for a stand-in. `CodeBold` answers for `Bold`'s font
+   until it has its own, as layout sets it. It needs no ImGui context and is not an [E] function.
+3. **`ImTypesetHit::Tag`**, appended. `sizeof(ImTypesetHit)` goes from 12 to 16, which
+   `IMTYPESET_CHECKVERSION()` compares: a host and a library from either side of this change
+   refuse each other, as intended.
+4. **No natural-width query.** A paragraph laid out wider than its text has the text's natural
+   width in its line (`GetParagraphLine(p, 0)`: `Max.x - Min.x`), whatever the alignment, and the
+   header now says so at `GetParagraphSize`, whose own width is the wrap width for text that is
+   not left-aligned. A table's columns are the library's business from the next stage, which is
+   what the question was for.
+5. **`DrawRules::quads_off_clip_dropped`** (product; the reference's rule is unchanged): a glyph
+   whose quad lies wholly at or below the clip rectangle's bottom edge, or wholly above its top
+   edge, is not emitted. The comparison that let it through is `ImFont::RenderText`'s own, on the
+   font's cell: a glyph whose pen is exactly on the bottom edge passes it. A document drawn in
+   slices under clip rectangles that meet (columns) then emits a line in the slice that shows it
+   and in no other.
+
+**Found on the way, and fixed.** The tag a document's hit test answered was wrong on the right
+half of two characters of every tagged run: `HitTestDocument` looked for the item whose box held
+the point by `cmd.x + cmd.width`, and a GLYPH command carries no width, so no glyph ever matched
+and the tag was the run of the character the CARET was before. The right half of a link's last
+letter answered 0 and the right half of the character before a link answered the link. Both hit
+tests now find the last item of the line that starts at or left of the point (`byte_under`,
+`src/imtypeset.cpp`). Shown by `a_paragraph_hit_answers_the_tag_of_the_run_under_the_point`,
+which failed at the last letter with the old search copied into `HitTestParagraph`; the document
+test beside it was written after the fix and was not seen to fail.
+
+**Measured** (debug, FreeType 2.12.1, GCC 12.2, the bundled faces at a 16 px em and a 20 px
+pitch, `tests/test_api_requests.cpp`). A code line holding U+2320, U+27E8 and U+0416, none in the
+bundled Inconsolata: without the flag its box is more than 20.5 px and the line three below is
+more than half a pixel low; with it all four boxes are equal to the scaled point and the block is
+four pitches. 500 lines, every seventh with borrowed glyphs: the document's height is 10,000 px
+and line tops agree with a document of plain lines to the bit. The pitch is 20 px rounded to a
+scaled point (line `n` is within `n` times 8e-6 px of `20 n`). Under the reference's draw rule a
+whole-pixel cut through a line emits more vertices in the two slices than under the product's;
+under the product's a cut at any line top, at 16 document heights, emits exactly the whole
+document's. *Not reproduced as reported:* FS-S1's U+2502 and U+1EB2 are in the Inconsolata bundled
+here, so the reproduction uses other characters; the 22.4 px against 20 was not re-measured.
+
+**Reproduced and NOT fixed (review-5-swap F2): a null draw list after `EndFrame()` with no
+`Render()`.** `NewFrame(); EndFrame(); DrawParagraph(p, NULL, pos)` dies in
+`ImGui::GetCurrentWindow()` on a null window (run under ASan + UBSan: `imgui_internal.h:3350`
+"member access within null pointer of type 'struct ImGuiWindow'", then SEGV, from
+`ImGui::GetWindowDrawList()` at `src/imtypeset.cpp` `DrawParagraph`). The test for "inside a
+frame" is `GetFrameCount() > 0 && GetDrawData() == NULL`, which `NewFrame` makes true and only
+`Render` makes false. *Read, in the pinned `imgui.cpp`:* everything `EndFrame` changes that
+`imgui.h` can read — `io.MousePosPrev`, `io.AppFocusLost`, `io.MouseWheel`,
+`io.InputQueueCharacters`, `io.MetricsActiveWindows`, `ImGuiPlatformIO::Textures`,
+`ImTextureData::RefCount`, and `ImFontAtlas::Locked` (set only under a backend without texture
+updates, which nothing here draws under) — is something `NewFrame` does not reset, so none tells
+"ended, not rendered" from "inside"; the current font is the default font in both; and every
+public function that reads the current window (`GetWindowDrawList`, `GetCursorScreenPos`,
+`GetWindowPos`, `PushItemWidth`, `GetID`, `IsWindowAppearing`) dereferences it unchecked.
+`ImGuiContext::WithinFrameScope` is what answers, and it is `imgui_internal.h`: the library
+reads no internal field, and the sidecar in the stock wheel is compiled against stand-in headers
+whose `ImGuiStyle` is a different size, so an offset into `ImGuiContext` past it would be wrong
+there. **Decided:** the header says what is and is not refused (`DrawParagraph`), a test pins the
+two states that are (before the first frame, after `Render()`), and the state that is not is
+named in it. The same hole is in the widgets and `DocumentView()`, and was there before a null
+draw list was accepted. What would close it: a host-called `ImTypeset::EndFrame()`-style hook, or
+reading the internal field under upstream headers only; neither built.
+
+## D57. Tables are a block of the Document: cells as stretches of the block's text, TeX's alignment under them (task `tables-core`, 2026-10-11)
+
+*Agent decisions, taken unattended for the swap of advtext onto the library (the user's ruling:
+tables are TeX's alignment and belong in the core). The user may overrule any. Names are in
+`include/imtypeset.h` under "Tables" and, for the other session, in
+`docs/advtext-swap-status.md`.*
+
+**Decided: the layout core is `src/align.*`, named and commented against tex.web part 37
+(sections 768 to 812), and it does what the reference does.** `fin_col` records an entry's width
+in its column (796), `column_widths` is the step of 801 as the reference has it (`apportioned`,
+`squeezed`, `shared`), `Aligner::set_row` is 807 to 810, `fin_row` 799, `Aligner::fin_align` 800;
+a wrapped cell is reboxed as section 1087's `\vtop`. The eighteen departures are T1 to T18 of
+`docs/divergences.md`. *Checked:* 679, 768, 777, 796, 799 to 802, 804, 806 to 810 and 1087 by
+counting modules from the top of `tex.web` and reading each.
+
+**Decided: a table is ONE block, and a cell is a stretch of the block's text.**
+`ImTypesetCell {TextStart, TextEnd, Flags}`, in reading order, `ImTypesetCellFlags_RowStart`
+opening a row. Considered and not taken: a block a cell (the document's unit of laziness would
+be a cell, and a row's height is a property of all its cells); rows and columns as counts on the
+block (the reserved `TableRows`/`TableColumns`: a ragged row cannot be said, and the reference
+sets a row that LACKS a cell differently from one whose cell is EMPTY — the cell it lacks takes
+no part in whether the row fits its columns); a position of four numbers. **Positions stay
+(block, byte offset into the text the host handed in)**, so every call that takes or answers a
+position, a range, a mark or a copy works in a table with no new form, in three languages.
+`GetDocumentTableCell(position)` answers (row, column, cell, byte in the cell) by bisection over
+the cells' starts, a step for each doubling of their number, and
+`GetDocumentTablePosition` the other way in constant time; neither lays anything out. Asked for
+was "O(1) a query": the way back from a byte to its cell is O(log cells), which for the limit of
+262,144 cells is eighteen steps, and a table the size of a cell's index to make it one step
+would be paid by every table for a query a host makes on a click.
+**The host is advised to write the block's text as a copy of the table reads** (tab between
+cells, newline between rows). Then the bytes between two cells belong to no cell, the end of one
+cell is not also the start of the next, and the block's text is what a copy of the table gives.
+Nothing requires it.
+
+**Decided: a caret at the end of a cell is that cell's end.** An index that came from no
+character (the `\hss` that places a cell, the skips of a wrapped line) is, before its cell's
+first character, that character's byte, and after its last, the end of the cell's text
+(`map_table_indices`). The dump script of `tests/golden/doc-tables` resolves such an index
+FORWARD, to the next cell's first byte (`TMap.pos`); that is the script's convention, not the
+reference's, and is not the API's (coordinator's ruling). A position between two cells — which
+only exists when the host put a byte there — is the start of the later cell.
+
+**Decided: a copy separates cells by a tab and rows by a newline, fixed.** They are the
+reference's (`advtext.ui.units._separators_within`: `CELL_BREAK`, `LINE_BREAK`), written before
+the first index of each cell but the first of its row and of each row but the first; a copy
+writes a separator before the text it leads, so tabs after the last text copied are not written.
+Not a parameter: `AppendDocumentRangeText` has one separator argument and it is the blocks'; a
+host that wants another form of a table has the cells' texts.
+
+**Decided: the widths while a table grows — `ImTypesetBlockFlags_TableHeld`.** TeX's alignment
+needs every row before it knows a width, and the reference's default rule refits the table to
+the measure at every layout, so each arriving row moves every column. With the flag each column
+is the widest its cells have wanted at any layout since the block was described, never narrower;
+the table is as wide as that and not the measure; and when the held widths stop fitting, the
+default rule applies until they fit again. This is the reference's own streaming rule
+(`StreamView._held` and `_sized_to`, a column of no width raised to one scaled point), moved from
+a view into the block. The widths survive a replace of the one table by one table with the flag
+and as many columns, as `_held` is kept by block number and compared by length, because a host
+that parses its source again as it arrives re-describes the block each time. "Settle on close"
+is the host's: it replaces the table once more without the flag (the reference's `reset`), or
+leaves the flag on for good (its `keep_streamed`).
+
+**Decided: a table is laid out whole, and a row is kept as it was shipped.** One block, one unit
+of the lazy document: nothing of a table costs anything until a window reaches it. Its layout
+keeps each row shipped alone (`TableLayout`), and a row is set again only if its cells changed
+(a stamp from `table_stamp()`), the column widths changed, or anything else it was set from did
+(the indent, the alignments, the padding, the breaking parameters). The rows are stacked by
+arithmetic on their boxes, with the prev_depth a wrapped row carries (`LineDims::resumed`). A
+cell is made into material and measured once (`TableCellsMeasured`); its longest unbreakable
+piece is measured only when a solve needs it, and kept by the row's stamp. What stays O(rows) in
+an append: the rows' kept commands are copied into the block's and renumbered, and the widest
+cell of each column is taken again over the cells' kept widths. No line is broken and nothing
+is packed for a row that stands.
+
+**Decided: limits, by construction.** 1,024 columns and 262,144 cells a table; cells past
+either are left out and said (`DescriptionCut`). A table is set whole, so the limits are what
+bound one layout. *The reason for 2^18 and not 2^20:* a table of a million cells would be a
+million paragraphs' material built by the first frame that shows any of it.
+
+**Decided: what was reserved is renamed.** `ImTypesetBlock::TableRows` and `TableColumns`, which
+every host was told to leave zero, are `CellStart` and `CellCount`; `ColumnStart` and
+`ColumnCount` are appended. A block of `ImTypesetBlockKind_Table` with text and no cells was an
+empty Host block that said `DescriptionCut`; it is now a table with no rows, of no height, and
+says nothing.
+
+**Decided: the rule under a header is the options' colour, a formula's rule in a cell is ink.**
+`DrawArgs::rule_between` colours a rule that is no formula's, which under the product's draw
+rules is the head rule alone.

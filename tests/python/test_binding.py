@@ -219,10 +219,22 @@ class Loading(unittest.TestCase):
         self.assertIn("ImportError", result.stderr)
         self.assertIn("refuses this package's document structs", result.stderr)
 
+    def test_a_table_struct_that_moved_is_refused_at_import(self):
+        patch = (
+            "class Cell(ctypes.Structure):\n"
+            "    _fields_ = capi.Cell._fields_ + [('Extra', ctypes.c_int)]\n"
+            "capi.Cell = Cell\n"
+            "capi.TABLE_STRUCTS = tuple((n, Cell if n == 'Cell' else t) for n, t in capi.TABLE_STRUCTS)"
+        )
+        result = child(self.PATCHED_IMPORT.format(patch=patch))()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("ImportError", result.stderr)
+        self.assertIn("refuses this package's table structs", result.stderr)
+
     def test_the_mirrored_document_structs_have_the_sizes_the_library_reports(self):
         raw = ts._capi.BuildInfo()
         ts.library().ImTypeset_GetBuildInfo(raw, ts._capi.C.sizeof(raw))
-        for name, struct_type in ts._capi.DOCUMENT_STRUCTS:
+        for name, struct_type in ts._capi.DOCUMENT_STRUCTS + ts._capi.TABLE_STRUCTS:
             self.assertEqual(getattr(raw, "Sizeof" + name), ts._capi.C.sizeof(struct_type), name)
         self.assertEqual(raw.SizeofRun, ts._capi.C.sizeof(ts._capi.Run))
 
@@ -746,20 +758,33 @@ class Documents(unittest.TestCase):
         self.assertEqual((first.text_start, second.text_start), (0, CODE.index("\ty")))
         self.assertEqual(CODE[second.text_start : second.text_end], "\ty = 2")
 
-    def test_a_table_block_is_set_as_an_empty_block_and_said_without_raising(self):
+    def test_a_container_that_is_not_there_is_cut_and_said_without_raising(self):
         document = ts.Document()
         self.addCleanup(document.close)
         # Done, differently: the blocks are set, so nothing is raised.
         self.assertFalse(
-            document.set_blocks([ts.Block(text="before"), ts.Block(ts.BlockKind.Table), ts.Block(text="après")])
+            document.set_blocks([ts.Block(text="before"), ts.Block(text="between", container=3), ts.Block(text="après")])
         )
         self.assertEqual(ts.last_error().code, ts.ErrorCode.DescriptionCut)
         self.assertEqual(document.block_count, 3)
         document.layout(300.0)
+        self.assertEqual(document.range_text(((0, 0), (2, 5)), separator="|"), "before|between|après")
+
+    def test_a_table_with_no_cells_is_set_whole_and_gives_no_text(self):
+        document = ts.Document()
+        self.addCleanup(document.close)
+        self.assertTrue(
+            document.set_blocks([ts.Block(text="before"), ts.Block(ts.BlockKind.Table), ts.Block(text="après")])
+        )
+        self.assertEqual(document.edit_error.code, ts.ErrorCode.None_)
+        self.assertEqual(document.block_count, 3)
+        document.layout(300.0)
+        self.assertTrue(document.layout_window(0.0, 1e6))
+        self.assertEqual(document.table_geometry(1).row_count, 0)
         self.assertEqual(document.range_text(((0, 0), (2, 5)), separator="|"), "before|après")
 
     def test_from_blocks_keeps_what_the_library_cut(self):
-        document = ts.Document.from_blocks([ts.Block(text="before"), ts.Block(ts.BlockKind.Table)])
+        document = ts.Document.from_blocks([ts.Block(text="before"), ts.Block(text="cut", container=3)])
         self.addCleanup(document.close)
         self.assertEqual(document.edit_error.code, ts.ErrorCode.DescriptionCut)
         self.assertEqual((len(document), document.block_count), (2, 2))
@@ -1269,6 +1294,272 @@ class Documents(unittest.TestCase):
         finally:
             window.end_frame()
         self.assertEqual(results, [True, None])
+
+
+class Requests(unittest.TestCase):
+    """What a host building a grid of code asked for (tests/test_api_requests.cpp)."""
+
+    def test_face_has_glyph_answers_for_the_role_alone(self):
+        self.assertTrue(ts.face_has_glyph(ts.Face.Code, "A"))
+        self.assertTrue(ts.face_has_glyph(ts.Face.Code, ord("A")))
+        # Set, in code, from the regular and the math face: the code face lacks them.
+        self.assertFalse(ts.face_has_glyph(ts.Face.Code, "\u0416"))
+        self.assertTrue(ts.face_has_glyph(ts.Face.Regular, "\u0416"))
+        self.assertFalse(ts.face_has_glyph(ts.Face.Code, "\u2320"))
+        self.assertTrue(ts.face_has_glyph(ts.Face.Math, "\u2320"))
+        self.assertFalse(ts.face_has_glyph(ts.Face.Code, 0x110000))
+        self.assertFalse(ts.face_has_glyph(ts.Face.Code, -1))
+        self.assertFalse(ts.face_has_glyph(99, "A"))
+
+    def test_a_paragraph_hit_answers_the_tag_under_the_point(self):
+        text = "plain linked words and more"
+        with ts.Paragraph(text, [ts.Run(6, 18, tag=41)]) as paragraph:
+            paragraph.layout(1000.0, ts.Style(Align=ts.Align.Left))
+            line = paragraph.lines()[0]
+            y = (line.min[1] + line.max[1]) / 2.0
+            for index in range(len(text)):
+                left = paragraph.caret_rect(index)[0]
+                right = paragraph.caret_rect(index + 1)[0]
+                expected = 41 if 6 <= index < 18 else 0
+                for part in (0.25, 0.75):
+                    hit = paragraph.hit_test((left + (right - left) * part, y))
+                    self.assertEqual(hit.tag, expected, (index, part))
+            beside = paragraph.hit_test((line.max[0] + 40.0, y))
+            self.assertEqual((beside.inside, beside.tag), (False, 0))
+
+    def test_fixed_line_height_keeps_a_code_block_on_its_pitch(self):
+        source = "plain\na \u2320 b \u27e8 c \u0416\nbelow\nlast"
+        heights = {}
+        for flags in (0, ts.BlockFlags.FixedLineHeight):
+            document = ts.Document.from_blocks(
+                [ts.Block(ts.BlockKind.Code, source, flags=flags)],
+                [ts.BlockStyle(LineHeight=20.0 / 16.0)],
+            )
+            self.addCleanup(document.close)
+            document.layout(600.0, ts.Style(EmSize=16.0))
+            geometry = document.block_geometry(0)
+            self.assertEqual(geometry.line_count, 4)
+            heights[flags] = geometry.full_max[1] - geometry.full_min[1]
+            if flags:
+                for line in range(4):
+                    box = document.block_line(0, line)
+                    self.assertAlmostEqual(box.min[1], 20.0 * line, places=3)
+                    self.assertAlmostEqual(box.max[1], 20.0 * (line + 1), places=3)
+        self.assertAlmostEqual(heights[ts.BlockFlags.FixedLineHeight], 80.0, places=3)
+        self.assertGreater(heights[0], 80.5)
+
+
+class Tables(unittest.TestCase):
+    """A table through the package: one block given by rows of cells."""
+
+    ROWS = [["Name", "Unit", "Note"], ["mass", "kg", "the SI unit"]]
+    TEXT = "Name\tUnit\tNote\nmass\tkg\tthe SI unit"
+    # A two-byte character before, inside and after cells.
+    ACCENTED_ROWS = [["né", "Größe", "x"], ["été", "naïve çà", "plain"]]
+
+    def table(self, rows, width=400.0, **fields):
+        fields.setdefault("flags", ts.BlockFlags.TableHeader)
+        document = ts.Document.from_blocks([ts.Block(ts.BlockKind.Table, rows=rows, **fields)])
+        self.addCleanup(document.close)
+        self.assertEqual(document.edit_error.code, ts.ErrorCode.None_)
+        document.layout(width)
+        return document
+
+    def test_a_table_from_rows_lays_out_and_copies_as_its_joined_text(self):
+        document = ts.Document()
+        self.addCleanup(document.close)
+        with Calls() as calls:
+            whole = document.set_blocks(
+                [ts.Block(ts.BlockKind.Table, rows=self.ROWS, flags=ts.BlockFlags.TableHeader)]
+            )
+        self.assertTrue(whole)
+        self.assertEqual(calls.names, ["ImTypeset_SetDocumentBlocks"])
+        document.layout(400.0)
+        geometry = document.table_geometry(0)
+        self.assertEqual(
+            (geometry.row_count, geometry.column_count, geometry.cell_count), (2, 3, 6)
+        )
+        self.assertTrue(geometry.laid_out)
+        self.assertFalse(geometry.stated)
+        self.assertGreater(geometry.max[0], geometry.min[0])
+        self.assertGreater(geometry.max[1], geometry.min[1])
+        self.assertEqual(document.range_text(((0, 0), (0, len(self.TEXT)))), self.TEXT)
+        row = document.table_row(0, 1)
+        self.assertGreater(row.max, row.min)
+        self.assertEqual((row.cell_start, row.cell_count, row.wrapped), (3, 3, False))
+        stats = document.stats()
+        self.assertGreaterEqual(stats.TableCellsMeasured, 6)
+        self.assertGreaterEqual(stats.TableRowsSet, 2)
+        # What is not a table, or not there, is all zero.
+        self.assertEqual(document.table_geometry(3).row_count, 0)
+        self.assertEqual(document.table_column(0, 3), ts.TableColumnGeometry(0.0, 0.0, 0.0, 0.0))
+        self.assertEqual(document.table_row(0, 2), ts.TableRowGeometry(0.0, 0.0, 0, 0, False))
+
+    def test_the_text_of_a_table_may_be_given_too_if_it_is_the_joined_text(self):
+        document = self.table(self.ROWS, text=self.TEXT)
+        self.assertEqual(document.table_geometry(0).cell_count, 6)
+        self.assertEqual(document.range_text(((0, 0), (0, len(self.TEXT)))), self.TEXT)
+
+    def test_text_that_is_not_the_joined_text_raises(self):
+        with self.assertRaises(ValueError):
+            ts.Document.from_blocks([ts.Block(kind=ts.BlockKind.Table, text="x", rows=[["a"]])])
+        with self.assertRaises(ValueError):
+            ts.Document.from_blocks([ts.Block(text="a", rows=[["a"]])])
+        with self.assertRaises(ValueError):
+            ts.Document.from_blocks([ts.Block(text="a", columns=[ts.TableColumn()])])
+        with self.assertRaises(TypeError):
+            ts.Document.from_blocks([ts.Block(ts.BlockKind.Table, rows=["abc"])])
+
+    def test_cells_and_positions_round_trip_in_characters(self):
+        rows = self.ACCENTED_ROWS
+        text = "\n".join("\t".join(row) for row in rows)
+        document = self.table(rows)
+        self.assertEqual(document.range_text(((0, 0), (0, len(text)))), text)
+        start = 0
+        for r, row in enumerate(rows):
+            for c, cell in enumerate(row):
+                for offset in range(len(cell) + 1):
+                    with self.subTest(row=r, column=c, offset=offset):
+                        with Calls() as calls:
+                            position = document.table_position(0, r, c, offset)
+                        self.assertEqual(calls.names, ["ImTypeset_GetDocumentTablePosition"])
+                        self.assertEqual(position, ts.Position(0, start + offset))
+                        with Calls() as calls:
+                            where = document.table_cell(position)
+                        self.assertEqual(calls.names, ["ImTypeset_GetDocumentTableCell"])
+                        self.assertEqual(where, ts.CellPosition(r, c, r * len(row) + c, offset))
+                # Past the cell: its end.
+                self.assertEqual(
+                    document.table_position(0, r, c, 999), ts.Position(0, start + len(cell))
+                )
+                start += len(cell) + 1
+        self.assertEqual(document.table_cell((4, 0)), ts.CellPosition(-1, 0, 0, 0))
+
+    def test_a_run_of_a_cell_indexes_the_cell(self):
+        rows = [["né", ts.Cell("çà link ici", runs=[ts.Run(3, 7, tag=9)])], ["x", "y"]]
+        document = self.table(rows)
+        for offset, tag in ((1, 0), (4, 9), (6, 9), (9, 0)):
+            caret = document.caret_rect(document.table_position(0, 0, 1, offset))
+            hit = document.hit_test((caret[0] + 1.0, (caret[1] + caret[3]) / 2.0))
+            self.assertEqual((hit.tag, hit.row, hit.column), (tag, 0, 1), offset)
+
+    def test_a_hit_in_a_cell_answers_its_row_and_column(self):
+        document = self.table(self.ACCENTED_ROWS)
+        for r in range(2):
+            for c in range(3):
+                column = document.table_column(0, c)
+                row = document.table_row(0, r)
+                self.assertGreater(column.max, column.min)
+                self.assertGreater(row.max, row.min)
+                hit = document.hit_test(((column.min + column.max) / 2.0, (row.min + row.max) / 2.0))
+                self.assertEqual((hit.row, hit.column), (r, c))
+                self.assertEqual(hit.position.block, 0)
+                self.assertTrue(hit.in_block)
+                where = document.table_cell(hit.position)
+                self.assertEqual((where.row, where.column), (r, c))
+        prose = ts.Document.from_blocks([ts.Block(text="no table here")])
+        self.addCleanup(prose.close)
+        prose.layout(400.0)
+        hit = prose.hit_test((5.0, 5.0))
+        self.assertEqual((hit.row, hit.column), (-1, -1))
+
+    def test_append_table_rows_adds_rows_in_one_call(self):
+        document = self.table(self.ROWS)
+        self.assertEqual(document.table_geometry(0).row_count, 2)
+        with Calls() as calls:
+            whole = document.append_table_rows(
+                [["length", "m", ts.Cell("the mètre", runs=[ts.Run(4, 9, tag=3)])]]
+            )
+        self.assertTrue(whole)
+        self.assertEqual(calls.names, ["ImTypeset_AppendDocumentTableCells"])
+        geometry = document.table_geometry(0)
+        self.assertEqual((geometry.row_count, geometry.cell_count), (3, 9))
+        text = self.TEXT + "\nlength\tm\tthe mètre"
+        self.assertEqual(document.range_text(((0, 0), (0, len(text)))), text)
+        position = document.table_position(0, 2, 2, 6)
+        self.assertEqual(position, ts.Position(0, text.index("mètre") + 2))
+        self.assertEqual(document.table_cell(position), ts.CellPosition(2, 2, 8, 6))
+        caret = document.caret_rect(position)
+        self.assertEqual(document.hit_test((caret[0] + 1.0, (caret[1] + caret[3]) / 2.0)).tag, 3)
+        # Two rows at once, and then a table that had none.
+        document.append_table_rows([["a", "b", "c"], ["d", "e", "f"]])
+        self.assertEqual(document.table_geometry(0).row_count, 5)
+        text += "\na\tb\tc\nd\te\tf"
+        self.assertEqual(document.range_text(((0, 0), (0, len(text)))), text)
+        empty = ts.Document.from_blocks([ts.Block(ts.BlockKind.Table)])
+        self.addCleanup(empty.close)
+        empty.layout(400.0)
+        self.assertEqual(empty.table_geometry(0).row_count, 0)
+        empty.append_table_rows([["é", "b"]])
+        self.assertEqual(empty.table_geometry(0).row_count, 1)
+        self.assertEqual(empty.range_text(((0, 0), (0, 3))), "é\tb")
+        self.assertEqual(empty.table_position(0, 0, 1, 1), ts.Position(0, 3))
+        prose = ts.Document.from_blocks([ts.Block(text="no table here")])
+        self.addCleanup(prose.close)
+        with self.assertRaises(ValueError):
+            prose.append_table_rows([["a"]])
+
+    def test_set_table_columns_states_the_widths(self):
+        document = self.table(self.ROWS)
+        widths = (90.0, 60.0, 150.0)
+        columns = [
+            ts.TableColumn(width=widths[0]),
+            ts.TableColumn(ts.Align.Center, widths[1]),
+            ts.TableColumn(ts.Align.Right, widths[2]),
+        ]
+        with Calls() as calls:
+            self.assertTrue(document.set_table_columns(0, columns))
+        self.assertEqual(calls.names, ["ImTypeset_SetDocumentTableColumns"])
+        self.assertTrue(document.table_geometry(0).stated)
+        for index, width in enumerate(widths):
+            column = document.table_column(0, index)
+            self.assertAlmostEqual(column.max - column.min, width, delta=0.01)
+        with self.assertRaises(ts.Error):
+            document.set_table_columns(1, columns)
+        # The same, described with the block.
+        described = self.table(self.ROWS, columns=columns)
+        self.assertTrue(described.table_geometry(0).stated)
+        for index, width in enumerate(widths):
+            column = described.table_column(0, index)
+            self.assertAlmostEqual(column.max - column.min, width, delta=0.01)
+
+    RAGGED = [["a", "b", "c"], ["d"], ["", "e", ""], []]
+
+    def test_a_ragged_row_and_an_empty_cell_do_not_raise(self):
+        document = self.table(self.RAGGED)
+        geometry = document.table_geometry(0)
+        self.assertEqual((geometry.row_count, geometry.column_count), (4, 3))
+        # A row with no cell at all is a row of one empty cell.
+        self.assertEqual(geometry.cell_count, 8)
+        self.assertTrue(document.layout_window(0.0, 1e6))
+        # The text is "a\tb\tc\nd\n\te\t\n": "e" is its character 9.
+        self.assertEqual(document.table_position(0, 2, 1, 1), ts.Position(0, 10))
+        self.assertEqual(document.table_cell((0, 10)), ts.CellPosition(2, 1, 5, 1))
+        # An empty cell is a place: the one at the end of row 2, and row 3's.
+        self.assertEqual(document.table_cell((0, 11)), ts.CellPosition(2, 2, 6, 0))
+        self.assertEqual(document.table_cell((0, 12)), ts.CellPosition(3, 0, 7, 0))
+        self.assertEqual(document.table_row(0, 1).cell_count, 1)
+        for row in range(4):
+            box = document.table_row(0, row)
+            self.assertGreater(box.max, box.min)
+        frame(lambda: document.draw(None, (10.0, 10.0)))
+        document.append_table_rows([[], ["", "f"]])
+        self.assertEqual(document.table_geometry(0).row_count, 6)
+
+    def test_a_copy_keeps_the_tab_of_an_empty_cell_and_adds_none_to_a_short_row(self):
+        # imtypeset.h, "WHAT A COPY GIVES": a tab between the cells of a row,
+        # a newline between rows, and an empty cell keeps its tab.
+        for rows in (
+            [["a", "b"], ["d"], ["e", "f"]],
+            [["", "e", "x"]],
+            [["x", "e", ""]],
+            [["a"], [""]],
+            self.RAGGED,
+        ):
+            with self.subTest(rows=rows):
+                text = "\n".join("\t".join(row or [""]) for row in rows)
+                document = self.table(rows)
+                self.assertEqual(document.range_text(((0, 0), (0, len(text)))), text)
 
 
 class ParagraphFailures(unittest.TestCase):

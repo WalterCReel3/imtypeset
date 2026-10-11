@@ -868,6 +868,25 @@ bool is_item(const DrawCmd& cmd)
     return cmd.type == CmdType::GLYPH || cmd.type == CmdType::SET_GLUE || cmd.type == CmdType::ATOM;
 }
 
+int byte_under(const ImTypesetParagraph& p, const LineBox& line, Scaled x, int fallback)
+{
+    // A GLYPH command carries no width, so the item is found by where the
+    // items start: within a line they are shipped left to right.
+    bool found = false;
+    Scaled best = 0;
+    uint32_t index = 0;
+    const size_t end = std::min<size_t>(line.end, p.cmds.size());
+    for (size_t c = static_cast<size_t>(line.first) + 1; c < end; ++c) {
+        const DrawCmd& cmd = p.cmds[c];
+        if (!is_item(cmd) || cmd.x > x || (found && cmd.x < best))
+            continue;
+        found = true;
+        best = cmd.x;
+        index = cmd.index;
+    }
+    return found ? byte_at_index(p, index) : fallback;
+}
+
 // The lines of what was shipped, one per span of the line index that a LINE
 // command opens.
 //
@@ -1112,9 +1131,16 @@ void ensure_model(const ImTypesetParagraph& p)
     Building building(p.has_model);
     p.has_model = true;
     p.model.build(p.cmds);
+    // Ascending by index: the two lists are, and no index is in both.
     p.separators.clear();
-    for (const uint32_t index : p.layout.hard_breaks)
+    size_t tab = 0;
+    for (const uint32_t index : p.layout.hard_breaks) {
+        for (; tab < p.cell_breaks.size() && p.cell_breaks[tab] < index; ++tab)
+            p.separators.push_back(IndexedText{p.cell_breaks[tab], "\t", 1});
         p.separators.push_back(IndexedText{index, "\n", 1});
+    }
+    for (; tab < p.cell_breaks.size(); ++tab)
+        p.separators.push_back(IndexedText{p.cell_breaks[tab], "\t", 1});
     p.atom_texts.clear();
     for (const AtomSource& atom : p.atoms) {
         if (atom.node >= p.layout.shipped.size() || p.layout.shipped[atom.node] == NOT_SHIPPED)
@@ -2431,6 +2457,17 @@ ImFont* GetFont(ImTypesetFace face)
     return g_context->fonts.faces[role].font;
 }
 
+bool FaceHasGlyph(ImTypesetFace face, unsigned int codepoint)
+{
+    if (g_context == nullptr)
+        return false;
+    const int role = face == ImTypesetFace_Default ? 0 : role_of(face);
+    if (role < 0)
+        return false;
+    const FaceData* const data = g_context->library.face_data(static_cast<Face>(role));
+    return data != nullptr && data->has(codepoint);
+}
+
 bool TextUnformatted(const char* text, const char* text_end, ImTypesetTextFlags flags,
                      float wrap_width, const ImTypesetStyle* style)
 {
@@ -2753,7 +2790,7 @@ bool DrawParagraphToBuffers(const ImTypesetParagraph* paragraph, const ImVec2& p
 
 ImTypesetHit HitTestParagraph(const ImTypesetParagraph* paragraph, const ImVec2& local_pos)
 {
-    ImTypesetHit out = {0, -1, false};
+    ImTypesetHit out = {0, -1, false, 0};
     if (!laid_out(paragraph))
         return out;
     const ImTypesetParagraph& p = *paragraph;
@@ -2774,6 +2811,17 @@ ImTypesetHit HitTestParagraph(const ImTypesetParagraph* paragraph, const ImVec2&
                              [&](const LineBox& box) { return box.bottom <= point.y; });
     out.Inside = under != p.line_boxes.end() && point.y >= under->top && point.x >= under->x0 &&
                  point.x < under->x1;
+    if (out.Inside && !p.runs.empty()) {
+        // The run of the character under the point, which is not always the
+        // one the caret is before.
+        const uint32_t under_byte =
+            static_cast<uint32_t>(std::max(byte_under(p, *under, point.x, out.TextOffset), 0));
+        const auto run =
+            std::upper_bound(p.runs.begin(), p.runs.end(), under_byte,
+                             [](uint32_t wanted, const StyledRun& r) { return wanted < r.end; });
+        if (run != p.runs.end() && run->start <= under_byte)
+            out.Tag = run->tag;
+    }
     return out;
 }
 

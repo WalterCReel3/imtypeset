@@ -1015,8 +1015,8 @@ void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const 
                 break;
             }
             end_span(false);
-            push_area(OpType::RECT_FILLED, cmd.x, cmd.y, cmd.width, cmd.height, args.palette.rule,
-                      args);
+            push_area(OpType::RECT_FILLED, cmd.x, cmd.y, cmd.width, cmd.height,
+                      args.rule_between != 0 ? args.rule_between : args.palette.rule, args);
             break;
         case CmdType::SET_GLUE:
         case CmdType::ATOM:
@@ -1153,7 +1153,7 @@ DrawStats Drawer::place(const DrawRun* runs, size_t run_count, const DrawArgs& a
 // ImFont::RenderText make of one character, test for test and in their order;
 // a RECT_FILLED op is ImDrawList::AddRectFilled with square corners.
 template<class Sink>
-void Drawer::emit(Sink& sink, const ImVec4& clip)
+void Drawer::emit(Sink& sink, const ImVec4& clip, const DrawRules& rules)
 {
     const std::vector<ImGuiBinder::Box>& boxes = _binder->boxes;
     const size_t count = _ops.size();
@@ -1192,6 +1192,13 @@ void Drawer::emit(Sink& sink, const ImVec4& clip)
             const float x1 = op.x0 + box.x1;
             if (!(x0 <= clip.z && x1 >= clip.x))
                 continue;
+            // ImFont::RenderText's test above keeps a glyph whose pen is ON
+            // the clip rectangle's bottom edge, though a clip rectangle ends
+            // before its bottom row and the whole quad is then under it; and
+            // one whose cell reaches the top edge though its bitmap does not.
+            if (rules.quads_off_clip_dropped &&
+                !(op.y0 + box.y0 < clip.w && op.y0 + box.y1 > clip.y))
+                continue;
             // A coloured glyph keeps its own colours and takes only the alpha.
             const ImU32 colour = box.coloured ? (op.colour | ~IM_COL32_A_MASK) : op.colour;
             at.quad(x0, op.y0 + box.y0, x1, op.y0 + box.y1, box.u0, box.v0, box.u1, box.v1, colour);
@@ -1210,7 +1217,7 @@ DrawStats Drawer::draw_runs(ImDrawList* draw_list, const DrawRun* runs, size_t r
     const DrawStats stats = place(runs, run_count, args, *_binder, &clip);
     _binder->load(*this, clip);
     ListSink sink(draw_list);
-    emit(sink, clip);
+    emit(sink, clip, args.rules);
     return stats;
 }
 
@@ -1222,7 +1229,7 @@ DrawStats Drawer::draw_runs(DrawBuffers& out, const ImVec4& clip, const DrawRun*
     const DrawStats stats = place(runs, run_count, args, *_binder, &clip);
     _binder->load(*this, clip);
     BufferSink sink(out);
-    emit(sink, clip);
+    emit(sink, clip, args.rules);
     return stats;
 }
 
