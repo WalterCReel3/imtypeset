@@ -3670,6 +3670,11 @@ The comparison is the file's sha256, and failing that a sha256 of what the loade
 linker's build-id:** *measured*, a library truncated to half keeps its build-id, was accepted on
 it by a draft of this gate, and the process died with SIGBUS on load. The probe at import is kept
 only for a library named by `IMTYPESET_LIBRARY` with no attestation, never when `sys.frozen`.
+*Amended by D73 (2026-10-12):* the variable is read only by a package in a source checkout; an
+installed package reads none of `IMTYPESET_LIBRARY`, `IMTYPESET_PYTHON`, `IMTYPESET_GATE`,
+`IMTYPESET_PRELOAD_BUNDLE`, and in a checkout an unattested library is probed in a child BEFORE
+the importing process maps it. *Amended by D74:* the second hash is refused for a file shorter
+than its own headers say, and covers more of the headers than "segments" and "sections".
 *Not measured:* anything on macOS, the Mach-O reader on a real file, a frozen application.
 
 **Decided: Linux wheels link the module by name with run path `$ORIGIN/../imgui_bundle`,** so
@@ -3685,8 +3690,10 @@ tests hold the type to `ImportError` exactly.
 `5654eee` called itself 0.2.0 while names were added and meanings changed. The header stays the
 one place the version is written; `tools/version.py --check` holds the five copies to it.
 
-**Decided: a stand-in wheel is marked `+standin` and no release path accepts one.** Both wheels
-built here are such wheels; none against the wheel's own headers has been built anywhere.
+**Decided: a stand-in wheel is marked as one in its version and no release path accepts one.**
+The mark was `+standin` when this entry was written; **D75 supersedes that spelling with
+`.dev0+standin`**, because `+standin` was measured to order above the release of its line. Both
+wheels built here are such wheels; none against the wheel's own headers has been built anywhere.
 
 ## D72. On a dense display the pixel grid is the framebuffer's (task `hidpi`, request H19, 2026-10-12)
 
@@ -3814,3 +3821,129 @@ chrome is ImGui's.
 - The draw's cost at density 1 against the commit before. The path differs by a product with one
   per coordinate and one comparison per call; `bench_draw` was not run for it.
 - The sidecar under the fork's own headers (built here with stand-in headers, as before).
+
+## D73. An environment variable never chooses what a shipped application loads (task `gate-fixes`, 2026-10-12)
+
+The lead's ruling on review-8 F1, built by task `gate-fixes`; the text is that task's, appended
+here by task `v030-gate` because `gate-fixes` could not edit this file.
+
+**Decided.** Which route a package is on is read from its own directory: holding
+`_attestation.json` or a packaged library it is *installed*, and reads none of
+`IMTYPESET_LIBRARY`, `IMTYPESET_PYTHON`, `IMTYPESET_GATE`, `IMTYPESET_PRELOAD_BUNDLE`, frozen or
+not; `host_info()["ignored_environment"]` names the ones set. Holding neither it is a source
+checkout, and the variables are a developer's. This supersedes what D71 and the documents of that
+day said of the variable ("`IMTYPESET_LIBRARY` still wins"). *Why the library counts as well as
+the attestation* (the builder's extension of the ruling): a package that lost its attestation
+would otherwise turn into a development package and obey the variable.
+
+**Decided:** on the development route nothing is mapped before a content check or a child's
+verdict; an unattested library is loaded and probed in a child first, and where no child can be
+started the import is refused (`unchecked`). Whether one can is decided without running anything
+(`sys.frozen`, Nuitka's `__compiled__`, the executable's name), because starting a
+`sys.executable` that is an application starts the application.
+
+**Decided:** a library that is not a sidecar is accepted only on the development route, by its
+build information, and `host_info()["route"]` says "(build-info check only)".
+
+**Measured** (2026-10-12, before the change, installed wheel): the variable naming a truncated
+library killed the process with SIGBUS in a frozen shape; `IMTYPESET_GATE=probe` with an
+application for `sys.executable` tried to start it again. After: 27 imports with a variable set
+are the plain import; 92 of 92 checks in two environments.
+
+**Not measured:** any real freezer; macOS.
+
+## D74. The second hash: a file as long as its headers say, and what is left out of it (task `gate-fixes`, 2026-10-12)
+
+The same task's text, appended the same way.
+
+**Decided:** a file has no second hash, and is `damaged`, unless it is as long as its own headers
+state (Mach-O segments, `__LINKEDIT` included; ELF section header table and sections).
+
+**Decided:** the Mach-O load commands other than segments stay out of the hash, because signing
+and `install_name_tool` rewrite them and the hash exists for a re-signed, frozen application; an
+added `LC_LOAD_DYLIB` therefore passes. The gate guards against mismatch and damage, not
+tampering (D71). Segment and section addresses, protections and flags were added.
+
+**Measured:** on ELF and on hand-made Mach-O files only. **Read or recalled, not run:**
+everything about what Apple's tools rewrite.
+
+## D75. A stand-in wheel is a development release (task `gate-fixes`, 2026-10-12)
+
+The same task's text, appended the same way.
+
+**Decided:** `X.Y.Z.<line>.dev0+standin`, superseding D71's `+standin`, which *measured* orders
+above the release of its line (`packaging` 26.3; pip 26.2.1 chose it). An application pins
+`imgui-bundle==X` and `imtypeset==X.Y.Z.<line>` exactly.
+
+**Decided:** the Linux platform tag is measured from the built library and re-measured by
+`tools/wheel/check_wheel.py`; Linux wheels are built on `ubuntu-22.04`. A manylinux container is
+not built.
+
+**Decided:** a header cache is valid only against the tracked pins; the fork's checksums are
+recorded from the first CI run's job summary, and a release build is refused until they are.
+
+**Decided:** actions are named by commit id (ids read from api.github.com through a summarising
+fetch, two endpoints agreeing); metadata is 2.4 and names no licence.
+
+**Not measured:** a workflow run; a fetch of the fork; a release build that is accepted.
+
+## D76. A bar under a line is drawn wherever it is inside the clip (task `v030-gate`, 2026-10-12)
+
+Agent decisions, taken with nobody to ask, at the gate before the first tag.
+
+**Found.** review-8 F12, from reading: an `ImTypesetMarkPlace_Under` mark with a host-given
+`Offset` larger than about an em, on the line just above the clip rectangle, in a block with more
+than 16 marks, loses its bar. *Measured*
+(`tests/test_api_handoff.cpp`, `a_bar_under_a_line_above_the_window_is_drawn_where_it_hangs_into_the_window`,
+a 30 px window moved a pixel at a time, each draw held to a draw under a clip rectangle that shows
+everything): it reproduces, and it is wider than the finding. Before the change, of the windows
+that should have shown a bar:
+
+| a bar 2 px thick, its top this far under the baseline | 12 px | 30 px | 75 px |
+|---|---|---|---|
+| a code block of 120 lines, 3 marks | none lost | none lost | none lost |
+| the same, 40 marks | none lost | 280 of 811 lost | 811 of 811 lost |
+| one-line paragraphs, a mark each | 258 of 896 lost | 896 of 896 lost | 896 of 896 lost |
+| a table of 60 rows, a mark in each | 258 of 896 lost | 896 of 896 lost | 896 of 896 lost |
+
+(Counts printed by a scratch line in the test, since removed; with the library's own offset and
+that thickness none was lost. A later run with the widening switched off and more cases: 7,823
+failed checks, and the first 25 printed were one-line paragraphs under a bar 5 px thick at the
+library's own offset; the other cases of that run were not told apart.)
+
+So three things dropped a bar, not one: the marks of
+a crowded block being looked for by the bytes of the lines in view (F12); a block wholly above
+the clip not being visited at all; and a table's rows above the clip being left out of a range's
+rectangles. The second and third need no crowd and no large offset: a bar 5 px thick at the
+library's own offset is enough, under a paragraph that ends just above the clip.
+
+**Decided: a draw looks above the clip rectangle as far as the lowest bar among its marks can end
+below a baseline** (`bars_hang` in `src/imtypeset_document.cpp`): the top of the window a draw
+works in, from which the blocks, the table rows and the marks' bytes are all taken, is raised by
+that much. One pass over the marks a draw, a comparison each. Nothing changes for a draw with no
+Under mark. A mark that states no thickness has a sixteenth of its block's em, and the pass runs
+before the blocks are known, so it uses the largest em the document has resolved
+(`ImTypesetDocument::largest_em`, which never shrinks).
+
+**What it costs, and is not bounded.** An `Offset` of many lines makes every draw visit, and on
+first sight lay out, that many lines more above the clip; an absurd one makes it the whole
+document above. The value is the host's, not a document's, and the cost is that of
+`LayoutDocumentWindow` over the same stretch. Said in the header at `ImTypesetMark`. A cap was
+weighed and left out: it would be a second rule about where a bar is drawn.
+
+**Not changed:** a bar that hangs past the foot of a column is still dropped with the column cut
+("what is drawn behind and under its lines goes with the lines"); in columns the test above was
+not run. Bars hang down only: an `Offset` cannot be negative.
+
+**Decided: the demo keeps its own rounding helper.** `src/imtypeset_demo.cpp` placed one letter
+of the Specimen's kerning pairs with `(float)(int)(x + 0.5f)`, the spelling D18 forbids. The
+gate's specification said to use the helper of `src/units.h`; the demo cannot: it is a drop-in
+file of its own that uses `imgui.h` and `imtypeset.h` and nothing else, as its first comment
+promises. It has a five-line `SnapPx` (floor of the value plus a half, in double, which is what
+`snap_px` of `src/draw.h` is). *Measured:* all seventeen pages of `example_demo_headless` are
+0 px from the same build with the old line. Two other `(float)(int)(x * 0.5f)` in that file
+(centring a plate) truncate a quantity and are not that spelling; left.
+
+**Decided: two sentences of the demo were false and are corrected.** The Specimen said the
+library "says nothing about a face" and the Formula gallery that it "does not say what a font
+covers"; `GetFontMetrics` (D66) and `FaceHasGlyph` answer both. The pages name the calls now.

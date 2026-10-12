@@ -18,6 +18,22 @@ was measured, are in `docs/advtext-swap-status.md` ("API changes since
 that added a function or a struct makes a package from after it refuse a
 library from before it, at import, with a sentence.
 
+### At the gate before the tag (task `v030-gate`)
+
+No declaration changed.
+
+- **fixed**: the bar of an `Under` mark was not drawn where it hung into the
+  clip rectangle from a line above it: in a block of more than sixteen marks
+  when its `Offset` was more than about an em, and at any number of marks when
+  its line was in a block, or a table row, wholly above the clip (a thick bar
+  at the library's own offset was enough). A bar is now drawn wherever it is
+  inside the clip; a draw looks above the clip as far as the lowest bar among
+  its marks can end, so an `Offset` of many lines costs every draw that many
+  lines (D76).
+- **changed (text)**: two sentences of the demo's Specimen and Formula gallery
+  that said the library answers nothing about a face name `GetFontMetrics`
+  and `FaceHasGlyph` instead.
+
 ### Dense displays (task `hidpi`, request H19)
 
 - **changed**: on a display whose framebuffer is denser than ImGui's
@@ -44,8 +60,22 @@ library from before it, at import, with a sentence.
   by content with a record written when the wheel was built, and no longer
   starts a child interpreter or writes `<library>.gate`; it works in a packaged
   application (`docs/sidecar.md`, section 9). The full probe in a child
-  remains for a library named by `IMTYPESET_LIBRARY` that has no
-  `<library>.attestation.json` beside it, and for `IMTYPESET_GATE=probe`.
+  remains, in a source checkout only, for a library named by
+  `IMTYPESET_LIBRARY` that has no `<library>.attestation.json` beside it, and
+  for `IMTYPESET_GATE=probe`.
+- **changed** (task `gate-fixes`, D73): an installed package reads no
+  `IMTYPESET_LIBRARY`, `IMTYPESET_GATE` or `IMTYPESET_PRELOAD_BUNDLE`;
+  `host_info()` gains `"ignored_environment"` and `"checked_by"`.
+  `host_info()["route"]` has a third value,
+  `"IMTYPESET_LIBRARY (build-info check only)"`.
+- **changed** (D73): in a checkout, a library with no attestation is loaded
+  and probed in a child before the import loads it, and refused (`unchecked`)
+  where no child can be started.
+- **changed** (D75): a stand-in wheel's version ends `.dev0+standin` (it was
+  `+standin`, which ordered above the release of its line).
+- **changed** (D74): a file cut short anywhere is `damaged`; an attestation of
+  another shape is `damaged`; any other error while checking is `ImportError`
+  kind `unchecked`.
 - **changed**: a refused import is still an `ImportError`, and its text is
   different: the first line is a sentence without a path, the detail follows
   on later lines, and the error has `kind`, `sentence` and `detail`.

@@ -590,6 +590,187 @@ TEST(the_order_of_a_mark_set_is_made_once_and_again_only_when_a_range_changes)
     ImTypeset::DestroyDocument(document);
 }
 
+// --- A bar under a line stands where the host put it ------------------------------------------
+
+namespace
+{
+
+const ImU32 BAR = IM_COL32(255, 0, 255, 255);
+
+// The quads of colour BAR that a draw of `document`, scrolled by `scroll`
+// under a clip rectangle from `clip_top` to `clip_bottom`, emits with some
+// part between 0 and `window`.
+std::vector<Quad> bars_shown(ImTypesetDocument* document, const std::vector<ImTypesetMark>& marks,
+                             float scroll, float clip_top, float clip_bottom, float window)
+{
+    ImTypesetDocumentDraw draw;
+    draw.Marks = marks.data();
+    draw.MarkCount = static_cast<int>(marks.size());
+    ImVector<ImDrawVert> vertices;
+    ImVector<ImDrawIdx> indices;
+    ImTypeset::DrawDocumentToBuffers(document, ImVec2(0.0f, -scroll),
+                                     ImVec4(0.0f, clip_top, 600.0f, clip_bottom), &vertices,
+                                     &indices, &draw);
+    std::vector<Quad> out;
+    for (int v = 0; v + 3 < vertices.Size; v += 4) {
+        if (vertices[v].col != BAR)
+            continue;
+        Quad quad = {vertices[v].pos.x, vertices[v].pos.y, vertices[v].pos.x, vertices[v].pos.y};
+        for (int k = 1; k < 4; ++k) {
+            quad.x0 = std::min(quad.x0, vertices[v + k].pos.x);
+            quad.y0 = std::min(quad.y0, vertices[v + k].pos.y);
+            quad.x1 = std::max(quad.x1, vertices[v + k].pos.x);
+            quad.y1 = std::max(quad.y1, vertices[v + k].pos.y);
+        }
+        if (quad.y0 < window && quad.y1 > 0.0f)
+            out.push_back(quad);
+    }
+    std::sort(out.begin(), out.end(), [](const Quad& a, const Quad& b) {
+        return a.y0 < b.y0 || (a.y0 == b.y0 && a.x0 < b.x0);
+    });
+    return out;
+}
+
+// Under a window moved a pixel at a time down `document`, the bars a draw
+// emits inside the window are the bars a draw under a clip rectangle that
+// shows the whole document emits there. `shown` counts the windows that had
+// a bar in them.
+void check_bars_under_every_window(ImTypesetDocument* document,
+                                   const std::vector<ImTypesetMark>& marks, float from, float to,
+                                   float window, int& shown)
+{
+    for (float scroll = from; scroll < to; scroll += 1.0f) {
+        CHECK_CONTEXT("scroll %g", static_cast<double>(scroll));
+        const std::vector<Quad> all = bars_shown(document, marks, scroll, -1.0e6f, 1.0e6f, window);
+        const std::vector<Quad> seen = bars_shown(document, marks, scroll, 0.0f, window, window);
+        shown += !all.empty();
+        CHECK_EQ(seen.size(), all.size());
+        if (seen.size() != all.size())
+            continue;
+        for (size_t k = 0; k < all.size(); ++k)
+            CHECK(same_quad(seen[k], all[k]));
+    }
+}
+
+ImTypesetMark bar_under(int block, int start, int end, float thickness, float offset)
+{
+    ImTypesetMark mark;
+    mark.Range.Start.Block = block;
+    mark.Range.Start.Offset = start;
+    mark.Range.End.Block = block;
+    mark.Range.End.Offset = end;
+    mark.Color = BAR;
+    mark.Place = ImTypesetMarkPlace_Under;
+    mark.Thickness = thickness;
+    mark.Offset = offset;
+    return mark;
+}
+
+} // namespace
+
+// An Under mark's bar is below its line's baseline by the Offset the host
+// gave, which can put the bar inside a window that the line itself is wholly
+// above. The bar is drawn there whether the block has few marks or many, and
+// whether the line is in a block the window shows or in one above it.
+TEST(a_bar_under_a_line_above_the_window_is_drawn_where_it_hangs_into_the_window)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    Frame frame;
+    // Thickness and Offset, in pixels: both left to the library, a thick bar
+    // at the library's offset, and bars a host hangs from just under the line
+    // to several lines under it.
+    const float bars[][2] = {{0.0f, 0.0f},  {5.0f, 0.0f},  {2.0f, 12.0f},
+                             {0.0f, 30.0f}, {2.0f, 30.0f}, {2.0f, 75.0f}};
+    for (const auto& bar : bars) {
+        const float thickness = bar[0];
+        const float offset = bar[1];
+        CHECK_CONTEXT("thickness %g, offset %g", static_cast<double>(thickness),
+                      static_cast<double>(offset));
+        // One code block of 120 lines; a bar under a word of each of `count`
+        // lines in a row.
+        for (const int count : {3, 40}) {
+            CHECK_CONTEXT("a code block, %d marks", count);
+            std::string code;
+            std::vector<ImTypesetMark> marks;
+            for (int line = 0; line < 120; ++line) {
+                const int start = static_cast<int>(code.size());
+                code += "value = compute(item)  # line " + std::to_string(line) + "\n";
+                if (line >= 40 && line < 40 + count)
+                    marks.push_back(bar_under(0, start + 8, start + 15, thickness, offset));
+            }
+            ImTypesetDocument* document = code_document(code, 0, 20.0f);
+            REQUIRE(document != nullptr);
+            ImTypeset::LayoutDocumentWindow(document, 0.0f, 1.0e9f);
+            int shown = 0;
+            check_bars_under_every_window(document, marks, 700.0f, 1800.0f, 30.0f, shown);
+            CHECK(shown > 60);
+            ImTypeset::DestroyDocument(document);
+        }
+        // Paragraphs of one line each, a bar under a word of each: the bar of
+        // a paragraph's line hangs over the paragraphs after it.
+        {
+            CHECK_CONTEXT("paragraphs");
+            Mixed mixed;
+            std::vector<ImTypesetMark> marks;
+            for (int block = 0; block < 60; ++block) {
+                mixed.add(ImTypesetBlockKind_Paragraph,
+                          "Paragraph " + std::to_string(block) + " is one line long.");
+                marks.push_back(bar_under(block, 0, 9, thickness, offset));
+            }
+            ImTypesetDocumentContent content;
+            content.Text = mixed.text.data();
+            content.TextSize = static_cast<int>(mixed.text.size());
+            content.Blocks = mixed.blocks.data();
+            content.BlockCount = static_cast<int>(mixed.blocks.size());
+            ImTypesetDocument* document = ImTypeset::CreateDocument();
+            REQUIRE(document != nullptr);
+            ImTypeset::SetDocumentBlocks(document, &content);
+            ImTypeset::LayoutDocument(document, 520.0f);
+            ImTypeset::LayoutDocumentWindow(document, 0.0f, 1.0e9f);
+            const float height = ImTypeset::GetDocumentSize(document).y;
+            int shown = 0;
+            check_bars_under_every_window(document, marks, 200.0f, height - 200.0f, 30.0f, shown);
+            CHECK(shown > 100);
+            ImTypeset::DestroyDocument(document);
+        }
+        // A table of 60 rows, a bar under the first cell of each.
+        {
+            CHECK_CONTEXT("a table");
+            TableText table;
+            std::vector<ImTypesetMark> marks;
+            for (int row = 0; row < 60; ++row) {
+                const int start = static_cast<int>(table.text.size()) + (row > 0 ? 1 : 0);
+                table.row({"row " + std::to_string(row), "a cell", std::to_string(row * row)});
+                marks.push_back(bar_under(0, start, start + 3, thickness, offset));
+            }
+            ImTypesetBlock block;
+            block.Kind = ImTypesetBlockKind_Table;
+            block.TextStart = 0;
+            block.TextEnd = static_cast<int>(table.text.size());
+            block.CellStart = 0;
+            block.CellCount = static_cast<int>(table.cells.size());
+            ImTypesetDocumentContent content;
+            content.Text = table.text.data();
+            content.TextSize = static_cast<int>(table.text.size());
+            content.Blocks = &block;
+            content.BlockCount = 1;
+            content.Cells = table.cells.data();
+            content.CellCount = static_cast<int>(table.cells.size());
+            ImTypesetDocument* document = ImTypeset::CreateDocument();
+            REQUIRE(document != nullptr);
+            ImTypeset::SetDocumentBlocks(document, &content);
+            ImTypeset::LayoutDocument(document, 520.0f);
+            ImTypeset::LayoutDocumentWindow(document, 0.0f, 1.0e9f);
+            const float height = ImTypeset::GetDocumentSize(document).y;
+            int shown = 0;
+            check_bars_under_every_window(document, marks, 200.0f, height - 200.0f, 30.0f, shown);
+            CHECK(shown > 100);
+            ImTypeset::DestroyDocument(document);
+        }
+    }
+}
+
 // --- H9: a table row that arrives in pieces -------------------------------------------------
 
 namespace

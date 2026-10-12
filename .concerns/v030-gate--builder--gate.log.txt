@@ -1,0 +1,400 @@
+# v030-gate: the lines the result rests on (2026-10-12)
+
+## presets
+asan configure=0 build=0 (123 s, 0 warning lines, 0 in configure) ctest=0 (274 s): 100% tests passed, 0 tests failed out of 52
+stb configure=0 build=0 (62 s, 0 warning lines, 0 in configure) ctest=0 (105 s): 100% tests passed, 0 tests failed out of 52
+wchar16 configure=0 build=0 (66 s, 0 warning lines, 0 in configure) ctest=0 (82 s): 100% tests passed, 0 tests failed out of 52
+amalgamation configure=0 build=0 (57 s, 0 warning lines, 0 in configure) ctest=0 (93 s): 100% tests passed, 0 tests failed out of 52
+fp-host configure=0 build=0 (87 s, 0 warning lines, 0 in configure) ctest=0 (50 s): 100% tests passed, 0 tests failed out of 52
+exceptions configure=0 build=0 (120 s, 4 warning lines, 0 in configure) ctest=0 (257 s): 100% tests passed, 0 tests failed out of 52
+bundle-config configure=0 build=0 (71 s, 4 warning lines, 0 in configure) ctest=0 (97 s): 100% tests passed, 0 tests failed out of 52
+imgui-next configure=0 build=0 (63 s, 0 warning lines, 1 in configure) ctest=0 (86 s): 100% tests passed, 0 tests failed out of 52
+python-host configure=0 build=0 (55 s, 0 warning lines, 0 in configure) ctest=0 (89 s): 100% tests passed, 0 tests failed out of 54
+
+## route, 1.92.900
+== run_gate
+}
+accepted: (True, 'probe') (3.6 ms)
+exit=0
+== mutate_gate
+ImFontConfig.RasterizerDensity           -4: caught by ImFontConfig fields
+31 offsets, 90 mutants, 12 crashed, 0 survived: []
+== check_document_edits
+exit=0 PASS 23 FAIL 0
+== check_swap_answers
+exit=0 PASS 18 FAIL 0 all passed
+== new_calls
+  File "/home/wreel/Source/imtypeset/python/imtypeset/__init__.py", line 1082, in add_font
+    raise Error(last_error(), "add_font")
+imtypeset.Error: add_font: cannot open the font file /home/wreel/tests/data/fonts/Roboto-Regular.ttf
+
+## route, 1.92.801
+== run_gate
+}
+accepted: (True, 'probe') (2.4 ms)
+exit=0
+== mutate_gate
+ImFontConfig.RasterizerDensity           -4: caught by ImFontConfig fields
+31 offsets, 90 mutants, 12 crashed, 0 survived: []
+== check_document_edits
+exit=0 PASS 23 FAIL 0
+== check_swap_answers
+exit=0 PASS 18 FAIL 0 all passed
+== new_calls
+  File "/home/wreel/Source/imtypeset/python/imtypeset/__init__.py", line 1082, in add_font
+    raise Error(last_error(), "add_font")
+imtypeset.Error: add_font: cannot open the font file /home/wreel/tests/data/fonts/Roboto-Regular.ttf
+
+## windows on Xvfb, 1.92.900
+host exit=0 selection: (74, 284) layouts: 2
+demo-window exit=0 last error: 0
+demo-window-formulas exit=0 last error: 0
+demo-window-document exit=0 last error: 0
+demo-page-specimen exit=0 last error: 0
+demo-page-formulas exit=0 last error: 0
+demo-page-math exit=0 last error: 0
+demo-page-document exit=0 last error: 0
+demo-page-document-scroll exit=0 last error: 0
+hidpi-1 exit=0 hidpi_check: 89 glyphs and 2 rules at density 1: 1.000 to 1.000 texels per framebuffer pixel, 0 off the grid: PASS
+hidpi-2 exit=0 hidpi_check: 89 glyphs and 2 rules at density 2 (ASSUMED, not this display): 1.000 to 1.000 texels per framebuffer pixel, 0 off the grid: PASS
+hidpi-3 exit=0 hidpi_check: 89 glyphs and 2 rules at density 3 (ASSUMED, not this display): 1.000 to 1.000 texels per framebuffer pixel, 0 off the grid: PASS
+hidpi-1.5 exit=0 hidpi_check: 89 glyphs and 2 rules at density 1.5 (ASSUMED, not this display): 1.000 to 1.000 texels per framebuffer pixel, 0 off the grid: PASS
+lifetime-once exit=0 {"event": "done", "scenario": "once", "load_additional_fonts_calls": 1, "frames": 60, "errors": {}, "application_fonts_removed": 0}
+lifetime-reassign exit=0 {"event": "done", "scenario": "reassign", "load_additional_fonts_calls": 2, "frames": 60, "errors": {}, "application_fonts_removed": 0}
+lifetime-clear exit=0 {"event": "done", "scenario": "clear", "load_additional_fonts_calls": 2, "frames": 60, "errors": {}, "application_fonts_removed": 0}
+lifetime-clear-lost exit=0 {"event": "done", "scenario": "clear-lost", "load_additional_fonts_calls": 2, "frames": 60, "errors": {}, "application_fonts_removed": 0}
+lifetime-same-count exit=0 {"event": "done", "scenario": "same-count", "load_additional_fonts_calls": 2, "frames": 60, "errors": {}, "application_fonts_removed": 0}
+lifetime-same-count-add exit=0 {"event": "done", "scenario": "same-count-add", "load_additional_fonts_calls": 2, "frames": 60, "errors": {}, "application_fonts_removed": 0}
+lifetime-same-count-cycle exit=0 {"event": "done", "scenario": "same-count-cycle", "load_additional_fonts_calls": 2, "frames": 60, "errors": {}, "application_fonts_removed": 0}
+
+## windows on Xvfb, 1.92.801
+host exit=1 selection: (74, 284) layouts: 2
+demo-window exit=0 last error: 0
+demo-window-formulas exit=0 last error: 0
+demo-window-document exit=0 last error: 0
+demo-page-specimen exit=0 last error: 0
+demo-page-formulas exit=0 last error: 0
+demo-page-math exit=0 last error: 0
+demo-page-document exit=0 last error: 0
+demo-page-document-scroll exit=0 last error: 0
+hidpi-1 exit=1 hidpi_check: 89 glyphs and 2 rules at density 1: 1.000 to 1.000 texels per framebuffer pixel, 0 off the grid: PASS
+hidpi-2 exit=1 hidpi_check: 89 glyphs and 2 rules at density 2 (ASSUMED, not this display): 1.000 to 1.000 texels per framebuffer pixel, 0 off the grid: PASS
+hidpi-3 exit=0 hidpi_check: 89 glyphs and 2 rules at density 3 (ASSUMED, not this display): 1.000 to 1.000 texels per framebuffer pixel, 0 off the grid: PASS
+hidpi-1.5 exit=0 hidpi_check: 89 glyphs and 2 rules at density 1.5 (ASSUMED, not this display): 1.000 to 1.000 texels per framebuffer pixel, 0 off the grid: PASS
+lifetime-once exit=0 {"event": "done", "scenario": "once", "load_additional_fonts_calls": 1, "frames": 60, "errors": {}, "application_fonts_removed": 0}
+lifetime-reassign exit=0 {"event": "done", "scenario": "reassign", "load_additional_fonts_calls": 2, "frames": 60, "errors": {}, "application_fonts_removed": 0}
+lifetime-clear exit=0 {"event": "done", "scenario": "clear", "load_additional_fonts_calls": 2, "frames": 60, "errors": {}, "application_fonts_removed": 0}
+lifetime-clear-lost exit=0 {"event": "done", "scenario": "clear-lost", "load_additional_fonts_calls": 2, "frames": 60, "errors": {}, "application_fonts_removed": 0}
+lifetime-same-count exit=0 {"event": "done", "scenario": "same-count", "load_additional_fonts_calls": 2, "frames": 60, "errors": {}, "application_fonts_removed": 0}
+lifetime-same-count-add exit=0 {"event": "done", "scenario": "same-count-add", "load_additional_fonts_calls": 2, "frames": 60, "errors": {}, "application_fonts_removed": 0}
+lifetime-same-count-cycle exit=0 {"event": "done", "scenario": "same-count-cycle", "load_additional_fonts_calls": 2, "frames": 60, "errors": {}, "application_fonts_removed": 0}
+host (no --screenshot) exit=0 selection: (74, 284) layouts: 2
+hidpi-1 (no --screenshot) exit=0 hidpi_check: 89 glyphs and 2 rules at density 1: 1.000 to 1.000 texels per framebuffer pixel, 0 off the grid: PASS
+hidpi-2 (no --screenshot) exit=0 hidpi_check: 89 glyphs and 2 rules at density 2 (ASSUMED, not this display): 1.000 to 1.000 texels per framebuffer pixel, 0 off the grid: PASS
+
+## wheels
+imtypeset 0.3.0 for imgui-bundle 1.92.900 (cp311, Linux x86_64): distribution 0.3.0.192900.dev0+standin
+attested: libimtypeset_bundle.so sha256 646c11be0ffc250a... beside imgui_bundle 1.92.900 (_imgui_bundle.cpython-311-x86_64-linux-gnu.so sha256 56427434653d326d...), headers stand-in:ocornut-v1.92.9-docking, accepted by probe, 25 probe rows
+platform tag manylinux_2_28_x86_64: measured with objdump: the newest versioned symbols the library needs are CXXABI_1.3.9, GCC_7.0.0, GLIBC_2.14, GLIBCXX_3.4.21, and it needs no library but the system's and _imgui_bundle.cpython-311-x86_64-linux-gnu.so; the floor is 2.28, the imgui-bundle wheel's own tag
+wrote /home/wreel/Source/imtypeset/build/v030-gate/wheels/imtypeset-0.3.0.192900.dev0+standin-cp311-none-manylinux_2_28_x86_64.whl (589279 bytes, 11 files)
+imtypeset 0.3.0 for imgui-bundle 1.92.801 (cp311, Linux x86_64): distribution 0.3.0.192801.dev0+standin
+attested: libimtypeset_bundle.so sha256 12d70407af0a032b... beside imgui_bundle 1.92.801 (_imgui_bundle.cpython-311-x86_64-linux-gnu.so sha256 fb2d0b72646a179b...), headers stand-in:ocornut-v1.92.8-docking, accepted by probe, 25 probe rows
+platform tag manylinux_2_28_x86_64: measured with objdump: the newest versioned symbols the library needs are CXXABI_1.3.9, GCC_7.0.0, GLIBC_2.14, GLIBCXX_3.4.21, and it needs no library but the system's and _imgui_bundle.cpython-311-x86_64-linux-gnu.so; the floor is 2.28, the imgui-bundle wheel's own tag
+wrote /home/wreel/Source/imtypeset/build/v030-gate/wheels/imtypeset-0.3.0.192801.dev0+standin-cp311-none-manylinux_2_28_x86_64.whl (589277 bytes, 11 files)
+
+## check_installed, env-900
+PASS import imtypeset, no variable set
+     imtypeset 0.3.0 (distribution 0.3.0.192900.dev0+standin), library /home/wreel/Source/imtypeset/build/v030-gate/env-900/lib/python3.11/site-packages/imtypeset/libimtypeset_bundle.so, headers stand-in:ocornut-v1.92.9-docking
+PASS the library is the one inside the package: route installed
+PASS accepted on the attestation, by content: attestation {'library': 'sha256', 'module': 'sha256'}, probe, 25 probe rows
+PASS the duplicate-module check was made: done: /proc/self/maps; global Dear ImGui names: none but the wheel's (dlsym and dladdr on the global scope)
+PASS the metadata pins the imgui-bundle that is running, exactly: Requires-Dist ['imgui-bundle==1.92.900'], running 1.92.900, built for 1.92.900
+PASS the metadata's version is the one host_info() gives: 0.3.0.192900.dev0+standin
+PASS a stand-in build says so in its version, and only a stand-in build does: stand_in True, version 0.3.0.192900.dev0+standin
+PASS frozen: imported with sys.executable not an interpreter and the package read-only: checked in attestation
+PASS frozen: no process was started: []
+PASS frozen: nothing was written in the package
+PASS unflagged (no sys.frozen, sys.executable an application): imported, nothing started, nothing written: checked in attestation, started []
+PASS tools/bundle_route/check_document_edits.py through the installed package: 23 PASS
+PASS tools/bundle_route/check_swap_answers.py through the installed package: 18 PASS
+PASS a copy of the package beside the same imgui_bundle is accepted (the baseline)
+PASS the library truncated to half (an interrupted update): [damaged] imtypeset: The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again.
+PASS one byte of the library changed: [damaged] imtypeset: The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again.
+PASS the library empty: [damaged] imtypeset: The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again.
+PASS the attestation missing: [unchecked] imtypeset: This copy of imtypeset carries no record that it was checked against the imgui-bundle it is running beside, and it is not checked here. Install a released imtypeset wheel.
+PASS the attestation missing, frozen: refused and nothing started: [unchecked] imtypeset: This copy of imtypeset carries no record that it was checked against the imgui-bundle it is running beside, and it is not checked here. Install a released imtypeset wheel.
+PASS the attestation missing, unflagged: refused and nothing started: [unchecked] imtypeset: This copy of imtypeset carries no record that it was checked against the imgui-bundle it is running beside, and it is not checked here. Install a released imtypeset wheel.
+PASS the attestation missing and IMTYPESET_LIBRARY naming a good library, plain: still an installed package, still refused: [unchecked] imtypeset: This copy of imtypeset carries no record that it was checked against the imgui-bundle it is running beside, and it is not checked here. Install a released imtypeset wheel.
+PASS the attestation missing and IMTYPESET_LIBRARY naming a good library, frozen: still an installed package, still refused: [unchecked] imtypeset: This copy of imtypeset carries no record that it was checked against the imgui-bundle it is running beside, and it is not checked here. Install a released imtypeset wheel.
+PASS the attestation missing and IMTYPESET_LIBRARY naming a good library, unflagged: still an installed package, still refused: [unchecked] imtypeset: This copy of imtypeset carries no record that it was checked against the imgui-bundle it is running beside, and it is not checked here. Install a released imtypeset wheel.
+PASS the library missing, the attestation there: [damaged] imtypeset: This copy of imtypeset is incomplete: its library is missing. Install imtypeset again.
+PASS the attestation's library record not an object: [damaged] imtypeset: This copy of imtypeset is damaged: its record of what it was built for cannot be read. Install imtypeset again.
+PASS the attestation's module record not an object: [damaged] imtypeset: This copy of imtypeset is damaged: its record of what it was built for cannot be read. Install imtypeset again.
+PASS the attestation's probe rows not triples: [damaged] imtypeset: This copy of imtypeset is damaged: its record of what it was built for cannot be read. Install imtypeset again.
+PASS the attestation's probe rows not a list: [damaged] imtypeset: This copy of imtypeset is damaged: its record of what it was built for cannot be read. Install imtypeset again.
+PASS the attestation's platform a string: [damaged] imtypeset: This copy of imtypeset is damaged: its record of what it was built for cannot be read. Install imtypeset again.
+PASS the attestation lacking what the library is compared with after the load: [refused] imtypeset: The imtypeset library does not fit imgui-bundle 1.92.900 (Dear ImGui 1.92.9) in this application. Install the imtypeset built for this imgui-bundle.
+PASS the attestation cut short: [damaged] imtypeset: This copy of imtypeset is damaged: its record of what it was built for cannot be read. Install imtypeset again.
+PASS a package copied from another platform: [wrong-platform] imtypeset: This copy of imtypeset 0.3.0 was built for Darwin arm64, and this computer is Linux x86_64. Install the imtypeset built for this computer.
+PASS the Python modules of another version over this library (version string): [package-mismatch] imtypeset: The imtypeset library refuses this package (written for 9.0.3.0): imtypeset.h is version 9.0.3.0 and the library is 0.3.0. The library and the package are installed together, from one release.
+PASS the Python modules of a later release over this library (a new function): [package-mismatch] imtypeset: The imtypeset library does not export 1 of the 96 functions this imtypeset package calls: it is not an imtypeset library, or it is an older one. The library and the package are installed together, from one release.
+PASS imgui_bundle imported from another directory than the package's neighbour: [layout] imtypeset: imtypeset and imgui-bundle are installed in two different places, and imtypeset finds imgui-bundle only beside itself. Install both into the same environment.
+PASS the library cut 1 bytes short at its tail: [damaged] imtypeset: The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again.
+PASS the library cut 64 bytes short at its tail: [damaged] imtypeset: The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again.
+PASS the library cut 4096 bytes short at its tail: [damaged] imtypeset: The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again.
+PASS the library with bytes added after its end: accepted by its image: {'library': 'image', 'module': 'sha256'}
+PASS the library rewritten by a tool that keeps what is mapped (strip): accepted by its image: {'library': 'image', 'module': 'sha256'}
+PASS that stripped library cut one byte short: [damaged] imtypeset: The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again.
+PASS this wheel beside imgui-bundle 1.92.801 (only one of the two updated): [bundle-mismatch] imtypeset: imtypeset 0.3.0 was built for imgui-bundle 1.92.900, and this application has imgui-bundle 1.92.801. The two are updated together: install imgui-bundle 1.92.900, or the imtypeset built for imgui-bundle 1.92.801.
+PASS the same, frozen: [bundle-mismatch] imtypeset: imtypeset 0.3.0 was built for imgui-bundle 1.92.900, and this application has imgui-bundle 1.92.801. The two are updated together: install imgui-bundle 1.92.900, or the imtypeset built for imgui-bundle 1.92.801.
+PASS --dev-library has its attestation beside it: /home/wreel/Source/imtypeset/build/bundle-advtext/libimtypeset_bundle.so
+PASS IMTYPESET_LIBRARY naming a sidecar with no attestation (review-8 F1 a), plain: not read
+PASS IMTYPESET_LIBRARY naming a sidecar with no attestation (review-8 F1 a), frozen: not read
+PASS IMTYPESET_LIBRARY naming a sidecar with no attestation (review-8 F1 a), unflagged: not read
+PASS IMTYPESET_LIBRARY naming a truncated sidecar (F1 a), plain: not read
+PASS IMTYPESET_LIBRARY naming a truncated sidecar (F1 a), frozen: not read
+PASS IMTYPESET_LIBRARY naming a truncated sidecar (F1 a), unflagged: not read
+PASS IMTYPESET_LIBRARY naming a self-hosted library (F1 b), plain: not read
+PASS IMTYPESET_LIBRARY naming a self-hosted library (F1 b), frozen: not read
+PASS IMTYPESET_LIBRARY naming a self-hosted library (F1 b), unflagged: not read
+PASS IMTYPESET_LIBRARY naming a development build with its attestation (F1 c), plain: not read
+PASS IMTYPESET_LIBRARY naming a development build with its attestation (F1 c), frozen: not read
+PASS IMTYPESET_LIBRARY naming a development build with its attestation (F1 c), unflagged: not read
+PASS IMTYPESET_LIBRARY naming no file, plain: not read
+PASS IMTYPESET_LIBRARY naming no file, frozen: not read
+PASS IMTYPESET_LIBRARY naming no file, unflagged: not read
+PASS IMTYPESET_GATE=probe, plain: not read
+PASS IMTYPESET_GATE=probe, frozen: not read
+PASS IMTYPESET_GATE=probe, unflagged: not read
+PASS IMTYPESET_GATE=nonsense, plain: not read
+PASS IMTYPESET_GATE=nonsense, frozen: not read
+PASS IMTYPESET_GATE=nonsense, unflagged: not read
+PASS IMTYPESET_PRELOAD_BUNDLE=1, plain: not read
+PASS IMTYPESET_PRELOAD_BUNDLE=1, frozen: not read
+PASS IMTYPESET_PRELOAD_BUNDLE=1, unflagged: not read
+PASS all four at once, plain: not read
+PASS all four at once, frozen: not read
+PASS all four at once, unflagged: not read
+PASS with no variable set, host_info() names none as ignored: []
+PASS a second Dear ImGui in the global symbol scope (review-8 F10): [refused] imtypeset: imtypeset found a second Dear ImGui in this application, beside imgui-bundle's, and would draw through the wrong one. imtypeset works only where imgui-bundle's is the one Dear ImGui that is visible to it.
+PASS the plain import says the global scope was looked at: done: /proc/self/maps; global Dear ImGui names: none but the wheel's (dlsym and dladdr on the global scope)
+PASS a checkout, a library with its attestation, plain: held to it, nothing started
+PASS a checkout, a library with its attestation, frozen: held to it, nothing started
+PASS a checkout, a library with its attestation, unflagged: held to it, nothing started
+PASS a checkout, a library with no attestation: loaded and probed in a child first
+PASS a checkout, a library with no attestation, frozen: refused, nothing started (review-8 F1 a): [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. Install a released imtypeset wheel.
+PASS a checkout, a truncated library, frozen: refused, never mapped: [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. Install a released imtypeset wheel.
+PASS a checkout, IMTYPESET_GATE=probe over an attestation, frozen: refused, nothing started: [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. Install a released imtypeset wheel.
+PASS a checkout, a library with no attestation, unflagged: refused, nothing started (review-8 F1 a): [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. Install a released imtypeset wheel.
+PASS a checkout, a truncated library, unflagged: refused, never mapped: [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. Install a released imtypeset wheel.
+PASS a checkout, IMTYPESET_GATE=probe over an attestation, unflagged: refused, nothing started: [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. Install a released imtypeset wheel.
+PASS a checkout, a truncated library with no attestation: an ImportError, and the importing process lives: status 0 [not-a-library] imtypeset: The imtypeset library cannot be loaded: it is damaged, or it was built for another system or another imgui-bundle. Build it again.
+PASS a checkout, IMTYPESET_GATE=attested and no attestation: [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and IMTYPESET_GATE=attested forbids checking it here.
+PASS a checkout, IMTYPESET_GATE=nonsense: [configuration] imtypeset: IMTYPESET_GATE is 'attested' or 'probe', not 'nonsense'.
+PASS a checkout, IMTYPESET_GATE=probe over an attestation: the child decides
+PASS a checkout, an attested library cut one byte short: refused before the load: [damaged] imtypeset: The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again.
+PASS a checkout, a self-hosted library: loaded in a child first, then accepted by its build information, and the route says so (review-8 F1 b)
+     checked by: a child interpreter loaded it; then its own build information: C ABI revision, the version of the Dear ImGui inside it, struct sizes
+PASS a checkout, a self-hosted library, frozen: refused, nothing started: [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. Install a released imtypeset wheel.
+PASS a checkout, a self-hosted library, unflagged: refused, nothing started: [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. Install a released imtypeset wheel.
+all passed
+
+## check_installed, env-801
+PASS import imtypeset, no variable set
+     imtypeset 0.3.0 (distribution 0.3.0.192801.dev0+standin), library /home/wreel/Source/imtypeset/build/v030-gate/env-801/lib/python3.11/site-packages/imtypeset/libimtypeset_bundle.so, headers stand-in:ocornut-v1.92.8-docking
+PASS the library is the one inside the package: route installed
+PASS accepted on the attestation, by content: attestation {'library': 'sha256', 'module': 'sha256'}, probe, 25 probe rows
+PASS the duplicate-module check was made: done: /proc/self/maps; global Dear ImGui names: none but the wheel's (dlsym and dladdr on the global scope)
+PASS the metadata pins the imgui-bundle that is running, exactly: Requires-Dist ['imgui-bundle==1.92.801'], running 1.92.801, built for 1.92.801
+PASS the metadata's version is the one host_info() gives: 0.3.0.192801.dev0+standin
+PASS a stand-in build says so in its version, and only a stand-in build does: stand_in True, version 0.3.0.192801.dev0+standin
+PASS frozen: imported with sys.executable not an interpreter and the package read-only: checked in attestation
+PASS frozen: no process was started: []
+PASS frozen: nothing was written in the package
+PASS unflagged (no sys.frozen, sys.executable an application): imported, nothing started, nothing written: checked in attestation, started []
+PASS tools/bundle_route/check_document_edits.py through the installed package: 23 PASS
+PASS tools/bundle_route/check_swap_answers.py through the installed package: 18 PASS
+PASS a copy of the package beside the same imgui_bundle is accepted (the baseline)
+PASS the library truncated to half (an interrupted update): [damaged] imtypeset: The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again.
+PASS one byte of the library changed: [damaged] imtypeset: The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again.
+PASS the library empty: [damaged] imtypeset: The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again.
+PASS the attestation missing: [unchecked] imtypeset: This copy of imtypeset carries no record that it was checked against the imgui-bundle it is running beside, and it is not checked here. Install a released imtypeset wheel.
+PASS the attestation missing, frozen: refused and nothing started: [unchecked] imtypeset: This copy of imtypeset carries no record that it was checked against the imgui-bundle it is running beside, and it is not checked here. Install a released imtypeset wheel.
+PASS the attestation missing, unflagged: refused and nothing started: [unchecked] imtypeset: This copy of imtypeset carries no record that it was checked against the imgui-bundle it is running beside, and it is not checked here. Install a released imtypeset wheel.
+PASS the attestation missing and IMTYPESET_LIBRARY naming a good library, plain: still an installed package, still refused: [unchecked] imtypeset: This copy of imtypeset carries no record that it was checked against the imgui-bundle it is running beside, and it is not checked here. Install a released imtypeset wheel.
+PASS the attestation missing and IMTYPESET_LIBRARY naming a good library, frozen: still an installed package, still refused: [unchecked] imtypeset: This copy of imtypeset carries no record that it was checked against the imgui-bundle it is running beside, and it is not checked here. Install a released imtypeset wheel.
+PASS the attestation missing and IMTYPESET_LIBRARY naming a good library, unflagged: still an installed package, still refused: [unchecked] imtypeset: This copy of imtypeset carries no record that it was checked against the imgui-bundle it is running beside, and it is not checked here. Install a released imtypeset wheel.
+PASS the library missing, the attestation there: [damaged] imtypeset: This copy of imtypeset is incomplete: its library is missing. Install imtypeset again.
+PASS the attestation's library record not an object: [damaged] imtypeset: This copy of imtypeset is damaged: its record of what it was built for cannot be read. Install imtypeset again.
+PASS the attestation's module record not an object: [damaged] imtypeset: This copy of imtypeset is damaged: its record of what it was built for cannot be read. Install imtypeset again.
+PASS the attestation's probe rows not triples: [damaged] imtypeset: This copy of imtypeset is damaged: its record of what it was built for cannot be read. Install imtypeset again.
+PASS the attestation's probe rows not a list: [damaged] imtypeset: This copy of imtypeset is damaged: its record of what it was built for cannot be read. Install imtypeset again.
+PASS the attestation's platform a string: [damaged] imtypeset: This copy of imtypeset is damaged: its record of what it was built for cannot be read. Install imtypeset again.
+PASS the attestation lacking what the library is compared with after the load: [refused] imtypeset: The imtypeset library does not fit imgui-bundle 1.92.801 (Dear ImGui 1.92.8) in this application. Install the imtypeset built for this imgui-bundle.
+PASS the attestation cut short: [damaged] imtypeset: This copy of imtypeset is damaged: its record of what it was built for cannot be read. Install imtypeset again.
+PASS a package copied from another platform: [wrong-platform] imtypeset: This copy of imtypeset 0.3.0 was built for Darwin arm64, and this computer is Linux x86_64. Install the imtypeset built for this computer.
+PASS the Python modules of another version over this library (version string): [package-mismatch] imtypeset: The imtypeset library refuses this package (written for 9.0.3.0): imtypeset.h is version 9.0.3.0 and the library is 0.3.0. The library and the package are installed together, from one release.
+PASS the Python modules of a later release over this library (a new function): [package-mismatch] imtypeset: The imtypeset library does not export 1 of the 96 functions this imtypeset package calls: it is not an imtypeset library, or it is an older one. The library and the package are installed together, from one release.
+PASS imgui_bundle imported from another directory than the package's neighbour: [layout] imtypeset: imtypeset and imgui-bundle are installed in two different places, and imtypeset finds imgui-bundle only beside itself. Install both into the same environment.
+PASS the library cut 1 bytes short at its tail: [damaged] imtypeset: The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again.
+PASS the library cut 64 bytes short at its tail: [damaged] imtypeset: The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again.
+PASS the library cut 4096 bytes short at its tail: [damaged] imtypeset: The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again.
+PASS the library with bytes added after its end: accepted by its image: {'library': 'image', 'module': 'sha256'}
+PASS the library rewritten by a tool that keeps what is mapped (strip): accepted by its image: {'library': 'image', 'module': 'sha256'}
+PASS that stripped library cut one byte short: [damaged] imtypeset: The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again.
+PASS this wheel beside imgui-bundle 1.92.900 (only one of the two updated): [bundle-mismatch] imtypeset: imtypeset 0.3.0 was built for imgui-bundle 1.92.801, and this application has imgui-bundle 1.92.900. The two are updated together: install imgui-bundle 1.92.801, or the imtypeset built for imgui-bundle 1.92.900.
+PASS the same, frozen: [bundle-mismatch] imtypeset: imtypeset 0.3.0 was built for imgui-bundle 1.92.801, and this application has imgui-bundle 1.92.900. The two are updated together: install imgui-bundle 1.92.801, or the imtypeset built for imgui-bundle 1.92.900.
+PASS --dev-library has its attestation beside it: /home/wreel/Source/imtypeset/build/pptmstr-bundle/libimtypeset_bundle.so
+PASS IMTYPESET_LIBRARY naming a sidecar with no attestation (review-8 F1 a), plain: not read
+PASS IMTYPESET_LIBRARY naming a sidecar with no attestation (review-8 F1 a), frozen: not read
+PASS IMTYPESET_LIBRARY naming a sidecar with no attestation (review-8 F1 a), unflagged: not read
+PASS IMTYPESET_LIBRARY naming a truncated sidecar (F1 a), plain: not read
+PASS IMTYPESET_LIBRARY naming a truncated sidecar (F1 a), frozen: not read
+PASS IMTYPESET_LIBRARY naming a truncated sidecar (F1 a), unflagged: not read
+PASS IMTYPESET_LIBRARY naming a self-hosted library (F1 b), plain: not read
+PASS IMTYPESET_LIBRARY naming a self-hosted library (F1 b), frozen: not read
+PASS IMTYPESET_LIBRARY naming a self-hosted library (F1 b), unflagged: not read
+PASS IMTYPESET_LIBRARY naming a development build with its attestation (F1 c), plain: not read
+PASS IMTYPESET_LIBRARY naming a development build with its attestation (F1 c), frozen: not read
+PASS IMTYPESET_LIBRARY naming a development build with its attestation (F1 c), unflagged: not read
+PASS IMTYPESET_LIBRARY naming no file, plain: not read
+PASS IMTYPESET_LIBRARY naming no file, frozen: not read
+PASS IMTYPESET_LIBRARY naming no file, unflagged: not read
+PASS IMTYPESET_GATE=probe, plain: not read
+PASS IMTYPESET_GATE=probe, frozen: not read
+PASS IMTYPESET_GATE=probe, unflagged: not read
+PASS IMTYPESET_GATE=nonsense, plain: not read
+PASS IMTYPESET_GATE=nonsense, frozen: not read
+PASS IMTYPESET_GATE=nonsense, unflagged: not read
+PASS IMTYPESET_PRELOAD_BUNDLE=1, plain: not read
+PASS IMTYPESET_PRELOAD_BUNDLE=1, frozen: not read
+PASS IMTYPESET_PRELOAD_BUNDLE=1, unflagged: not read
+PASS all four at once, plain: not read
+PASS all four at once, frozen: not read
+PASS all four at once, unflagged: not read
+PASS with no variable set, host_info() names none as ignored: []
+PASS a second Dear ImGui in the global symbol scope (review-8 F10): [refused] imtypeset: imtypeset found a second Dear ImGui in this application, beside imgui-bundle's, and would draw through the wrong one. imtypeset works only where imgui-bundle's is the one Dear ImGui that is visible to it.
+PASS the plain import says the global scope was looked at: done: /proc/self/maps; global Dear ImGui names: none but the wheel's (dlsym and dladdr on the global scope)
+PASS a checkout, a library with its attestation, plain: held to it, nothing started
+PASS a checkout, a library with its attestation, frozen: held to it, nothing started
+PASS a checkout, a library with its attestation, unflagged: held to it, nothing started
+PASS a checkout, a library with no attestation: loaded and probed in a child first
+PASS a checkout, a library with no attestation, frozen: refused, nothing started (review-8 F1 a): [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. Install a released imtypeset wheel.
+PASS a checkout, a truncated library, frozen: refused, never mapped: [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. Install a released imtypeset wheel.
+PASS a checkout, IMTYPESET_GATE=probe over an attestation, frozen: refused, nothing started: [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. Install a released imtypeset wheel.
+PASS a checkout, a library with no attestation, unflagged: refused, nothing started (review-8 F1 a): [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. Install a released imtypeset wheel.
+PASS a checkout, a truncated library, unflagged: refused, never mapped: [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. Install a released imtypeset wheel.
+PASS a checkout, IMTYPESET_GATE=probe over an attestation, unflagged: refused, nothing started: [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. Install a released imtypeset wheel.
+PASS a checkout, a truncated library with no attestation: an ImportError, and the importing process lives: status 0 [not-a-library] imtypeset: The imtypeset library cannot be loaded: it is damaged, or it was built for another system or another imgui-bundle. Build it again.
+PASS a checkout, IMTYPESET_GATE=attested and no attestation: [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and IMTYPESET_GATE=attested forbids checking it here.
+PASS a checkout, IMTYPESET_GATE=nonsense: [configuration] imtypeset: IMTYPESET_GATE is 'attested' or 'probe', not 'nonsense'.
+PASS a checkout, IMTYPESET_GATE=probe over an attestation: the child decides
+PASS a checkout, an attested library cut one byte short: refused before the load: [damaged] imtypeset: The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again.
+PASS a checkout, a self-hosted library: loaded in a child first, then accepted by its build information, and the route says so (review-8 F1 b)
+     checked by: a child interpreter loaded it; then its own build information: C ABI revision, the version of the Dear ImGui inside it, struct sizes
+PASS a checkout, a self-hosted library, frozen: refused, nothing started: [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. Install a released imtypeset wheel.
+PASS a checkout, a self-hosted library, unflagged: refused, nothing started: [unchecked] imtypeset: The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. Install a released imtypeset wheel.
+all passed
+
+## oracle
+oracle-dump_blocks--verify.log: total: 69 cases, 284 replayed checks ok
+oracle-dump_core--verify.log: total: 599 cases, 6624 replayed checks ok
+oracle-dump_doc_extras--verify.log: stream.golden: 12 cases, 28735 records re-derived and equal
+oracle-dump_doc_tables--check.log: stream.golden: 9 cases, identical
+oracle-dump_math--verify.log: total: 8555 cases, 10728 replayed checks ok
+oracle-dump_para--verify.log: total: 253 cases, 2088 replayed checks ok
+oracle-dump_selection--verify.log: total: 57 cases, 25267 replayed checks ok
+oracle-dump_specimen--check.log: specimen.golden: 1 cases, identical
+oracle-dump_specimen--verify.log: specimen.golden: re-read, every stated sum holds
+oracle-dump_tables--verify.log: total: 64 cases, 262 replayed checks ok
+oracle-gen_mathtext_tables--check.log: src/mathtext_tables.inc: up to date
+
+## release.sh on this tree
+version 0.3.0: every copy agrees, and the tag v0.3.0
+release.sh: the working tree has uncommitted changes; a tag names a commit
+ M README.md
+ M docs/CHANGELOG.md
+ M docs/bindings-notes.md
+ M docs/decisions.md
+ M docs/distribution.md
+ M docs/images/demo-document-columns.png
+ M docs/images/demo-document.png
+ M docs/images/demo-faces.png
+ M docs/images/demo-fonts.png
+ M docs/images/demo-formulas.png
+ M docs/images/demo-inspector.png
+ M docs/images/demo-limits.png
+ M docs/images/demo-math-stream.png
+ M docs/images/demo-math-subset.png
+ M docs/images/demo-math.png
+ M docs/images/demo-paragraph.png
+ M docs/images/demo-section-formulas.png
+ M docs/images/demo-section-math.png
+ M docs/images/demo-section-specimen.png
+ M docs/images/demo-selection.png
+ M docs/images/demo-specimen.png
+ M docs/images/demo-stress.png
+ M docs/performance.md
+ M docs/sidecar.md
+ M docs/spec-status.md
+ M include/imtypeset.h
+ M src/imtypeset_demo.cpp
+ M src/imtypeset_document.cpp
+ M src/imtypeset_document.h
+ M tests/test_api_handoff.cpp
+release.sh exit=1
+
+## release.sh on a committed scratch copy
+version 0.3.0: every copy agrees, and the tag v0.3.0
+the drop-in files generate (5 files)
+ok   .github/workflows/ci.yml
+ok   .github/workflows/sidecar-probe.yml
+ok   .github/workflows/wheels.yml
+........................
+----------------------------------------------------------------------
+Ran 24 tests in 0.520s
+
+OK
+
+v0.3.0: everything this script checks holds at 54394bd6a590461f097ae6dc5eb43d454ef43afb.
+Not checked here: the presets, and the wheels (CI builds and checks them for the tag).
+
+To release, a person runs:
+    git tag -a v0.3.0 -m "imtypeset 0.3.0" 54394bd6a590461f097ae6dc5eb43d454ef43afb
+    git push origin v0.3.0
+and the workflow "wheels" attaches the wheels to the GitHub Release of v0.3.0.
+release.sh exit=0
+tools/version.py: the tag is 'v0.2.0' and the version is '0.3.0': the tag must be 'v0.3.0'
+release.sh v0.2.0 exit=1
+
+## sidecar_probe report (1.92.900)
+# Sidecar probe: Linux x86_64, CPython 3.11.2
+
+**Where:** Linux x86_64, CPython 3.11.2; imgui-bundle 1.92.900.
+
+**H1 (does the sidecar work here): YES.** A library bound by `link`, built against stand-in headers, was accepted by the import gate by the package's own loading (the wheel's module imported first; the gate's `preload:` line says whether it was also reopened RTLD_GLOBAL), `import imtypeset` succeeded, and the headless checks passed.
+- Symbols (stand-in headers, compiled here): 117 Dear ImGui symbols needed, **0 not exported by the wheel's module**.
+- Symbols (the Linux list, nothing compiled here): 117 needed, 0 not exported.
+- Module visible to the process after a plain import: **False**; after reopening it global: **True**.
+
+**H2 (the wheel's own headers): not attempted.**
+
+For comparison, the same objects bound by `lookup` on this platform: accepted only after the wheel's module is reopened with RTLD_GLOBAL.
+
+Written by `tools/ci/sidecar_probe.py` in 81 s. Everything below is what ran on this machine; a number or a message here was printed by a tool, not recalled.
+
+## 1. The machine
+
+- **system**: Linux 6.1.0-45-amd64 x86_64
+- **platform**: Linux-6.1.0-45-amd64-x86_64-with-glibc2.36
+- **python**: 3.11.2 at /home/wreel/Source/imtypeset/../imgui-adv-text/.venv/bin/python
+- **extension suffix**: .cpython-311-x86_64-linux-gnu.so
+- **how this Python links an extension module (LDSHARED)**: x86_64-linux-gnu-gcc -shared -Wl,-O1 -Wl,-Bsymbolic-functions   -g -fwrapv -O2   
+- **how this Python loads one (sys.getdlopenflags())**: 0x2 (RTLD_NOW); RTLD_GLOBAL is 0x100, RTLD_LOCAL is 0x0
+- **compiler**: `g++`: g++ (Debian 12.2.0-14+deb12u1) 12.2.0
+- **git**: git version 2.39.5
+- **linker**: GNU ld (GNU Binutils for Debian) 2.40
+
+## 2. The wheel
+
+- **imgui-bundle**: 1.92.900, Dear ImGui 1.92.9

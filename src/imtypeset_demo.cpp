@@ -56,6 +56,7 @@ const char* ImTypeset::GetDemoSectionName(ImTypesetDemoSection)
 
 #else
 
+#include <math.h>   // floor
 #include <stdio.h>  // snprintf
 #include <string.h> // strlen, strchr, strstr, memcpy, memcmp
 
@@ -103,6 +104,15 @@ void HelpMarker(const char* text)
         ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
+}
+
+// A length in pixels put on the pixel grid, a half going up: floor(value + 0.5)
+// in double, which is how the library snaps a coordinate. `(float)(int)(v +
+// 0.5f)` is not that: it truncates, so it rounds a negative length the other
+// way.
+float SnapPx(float value)
+{
+    return (float)floor((double)value + 0.5);
 }
 
 // What the last library call marked [E] reported, if it reported anything.
@@ -684,7 +694,7 @@ void ShowDemoSpecimen(DemoSpecimenState* state, int fonts_added)
             ImGui::PushID("left");
             pos = SpecimenSample(KERN_PAIRS[i][0], ImTypesetFace_Regular, state->KernSize, left);
             ImGui::PopID();
-            ImGui::SetCursorScreenPos(ImVec2(pos.x + (float)(int)(left.x + 0.5f), pos.y));
+            ImGui::SetCursorScreenPos(ImVec2(pos.x + SnapPx(left.x), pos.y));
             ImGui::PushID("right");
             SpecimenSample(KERN_PAIRS[i][1], ImTypesetFace_Regular, state->KernSize, right);
             ImGui::PopID();
@@ -698,9 +708,10 @@ void ShowDemoSpecimen(DemoSpecimenState* state, int fonts_added)
         }
         ImGui::EndTable();
     }
-    DisabledTextWrapped("Not here: a face's ascent, descent and x-height, which characters it has "
-                        "a glyph for, and an overlay of its boxes. The library answers for a "
-                        "text and says nothing about a face.",
+    DisabledTextWrapped("Not here: a face's ascent, descent and x-height, which "
+                        "ImTypeset::GetFontMetrics() answers; which characters it has a glyph "
+                        "for, which ImTypeset::FaceHasGlyph() answers; and an overlay of its "
+                        "boxes.",
                         NULL);
 }
 
@@ -1543,7 +1554,7 @@ void ShowDemoFormulas(DemoFormulasState* state)
     }
     ImGui::Spacing();
     DisabledTextWrapped("Not here: whether the math face has a glyph for every character of a "
-                        "source. The library does not say what a font covers.",
+                        "source. ImTypeset::FaceHasGlyph() answers that for one character.",
                         NULL);
 }
 

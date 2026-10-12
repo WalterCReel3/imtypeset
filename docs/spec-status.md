@@ -43,8 +43,9 @@ Section numbers (`§`) are the note's. `Dn` is an entry of `docs/decisions.md`.
 ## §1. The scope
 
 **"The `implot` shape: C++ over ImGui, then bindings."** Established. One
-public header (`include/imtypeset.h`, 72 exported functions by
-`grep -c '^IMTYPESET_API ' include/imtypeset.h`), a C ABI over it
+public header (`include/imtypeset.h`, 90 exported functions by
+`grep -c '^IMTYPESET_API ' include/imtypeset.h` on 2026-10-12; it was 72 when
+this file was written), a C ABI over it
 (`include/imtypeset_c.h`, checked declaration by declaration by
 `tests/test_c_api_map.cpp`), a `ctypes` package over that (`python/imtypeset`).
 
@@ -260,6 +261,15 @@ never been built (it needs the network and a full bundle build). What is
 established instead is a sidecar library inside the stock wheel
 (`docs/distribution.md` section 1), because the two applications run on wheels
 from PyPI and cannot wait for upstream.
+Since 2026-10-11 that sidecar is also packaged: a wheel of imtypeset's own
+with the library inside, pinned to one imgui-bundle, and an import gate that
+compares both files by content with a record written when the wheel was built
+(D71, D73 to D75; `docs/sidecar.md` sections 8 to 12). **Established on Linux
+x86-64 against stand-in headers only**: built, installed into throwaway
+environments and imported with no environment variable. **Open:** a wheel
+built against the fork's own headers (none exists; it needs the network),
+macOS (nothing has run there), and the three workflows that would build and
+publish wheels (written, never run).
 
 **"The public header wants to stay narrow and POD-ish."** Established and
 tested: `tests/test_header_pod.cpp` and `tests/test_api.cpp` scan the header
@@ -363,6 +373,35 @@ Recorded because a reader of the note would not guess them.
 - **`ImWchar` is 16 bits by default** and the math face lives in planes 1 and
   15 (D8, D15); the note's "bindings over ImGui only" has to work in a host
   that never defined `IMGUI_USE_WCHAR32`, and does (preset `wchar16`).
+
+- **A face's own numbers were wanted after all.** The note has the library
+  answer for a text. The first host that drew through it alone still needed a
+  role's ascent, descent, x-height and an advance to size its own chrome, and
+  kept seven modules of the prototype's font reader loaded for that until
+  `GetFontMetrics` and `GetGlyphAdvance` existed (D66; 42 answers and 20,508
+  advances equal to the reference's as floats, `tests/test_api_handoff.cpp`).
+- **A host with pages of its own wants one section of the demo, not the
+  window.** `ShowDemoSection()` submits one section into the current window
+  (D55), and the header says at which text sizes each section holds its shape
+  (D70).
+- **"Every glyph on a whole pixel" needs to say whose pixel.** On a display
+  whose framebuffer is denser than ImGui's coordinates (macOS Retina) the
+  library's glyphs were the bitmaps of density 1, stretched, and its positions
+  whole units: ImGui raises a font's density only while that font is current,
+  and the draw loop never makes its fonts current. The product now places and
+  rasterises in framebuffer pixels (D72). *Measured headless on Linux with the
+  framebuffer scale set; never seen on such a display.*
+- **A gate that probes at import cannot ship in a packaged application.** It
+  started a child interpreter, which in a frozen application is the
+  application itself (D71, D73).
+
+## Brought level on 2026-10-12 (task `v030-gate`)
+
+By reading the tree at the gate before the first tag; nothing in this section
+was run for this file. Changed here: the function count in §1, the wheel in
+§6, and the four items above. Not re-read against the tree: §2 to §5 and §7
+to §11, which describe findings of 2026-10-10 that later work has not touched
+as far as the result files of the tasks since say.
 
 ## Not verified for this file
 

@@ -31,17 +31,25 @@ two libraries:
 
 ```sh
 # the interpreter whose wheel the library is for is the second argument
-IMTYPESET_BUNDLE_OUT=build/py-host-bundle-pptmstr \
+IMTYPESET_BUNDLE_HEADERS=stand-in IMTYPESET_BUNDLE_OUT=build/py-host-bundle-pptmstr \
     python/host/build_bundle_library.sh ../imgui_bundle ../pptmstr/.venv/bin/python
-IMTYPESET_BUNDLE_OUT=build/py-host-bundle-advtext \
+IMTYPESET_BUNDLE_HEADERS=stand-in IMTYPESET_BUNDLE_OUT=build/py-host-bundle-advtext \
     python/host/build_bundle_library.sh ../imgui_bundle ../imgui-adv-text/.venv/bin/python
 ```
+
+(`IMTYPESET_BUNDLE_HEADERS=stand-in` is what every run here has said. Without
+it the script fetches the fork's headers from GitHub and never substitutes;
+with no network it stops at the fetch.)
 
 and then, in the application's environment:
 
 ```sh
 IMTYPESET_LIBRARY=<out>/libimtypeset_bundle.so  PYTHONPATH=<this repository>/python  python app.py
 ```
+
+The variable is read by the package of a source checkout only; a package
+installed from a wheel ignores it and says so in
+`host_info()["ignored_environment"]` (D73).
 
 ```python
 import imtypeset            # raises ImportError, with the reason, if the pairing is refused
@@ -58,11 +66,12 @@ atlas after `post_init`.
 - a clone of Dear ImGui Bundle (first argument, default `../imgui_bundle`): the
   ImGui configuration header of the wheel's release tag is read from its git
   objects (`imgui_bundle_cmake/imgui_bundle_config.h`);
-- Dear ImGui's headers for that version. Either the fork the wheel is built
-  from (`<bundle-checkout>/external/imgui/imgui` at the commit the tag pins), or,
-  when that submodule is not there, upstream's `v<version>-docking` tag from a
-  clone of `ocornut/imgui` (`IMTYPESET_IMGUI_CLONE`, default `../imgui`) as a
-  stand-in.
+- Dear ImGui's headers for that version. By default the fork the wheel is
+  built from, fetched from GitHub at the commit `python/host/bundle_pins.toml`
+  records for the wheel's version (`python/host/fetch_headers.py`; **never
+  run against GitHub**). With `IMTYPESET_BUNDLE_HEADERS=stand-in`, and only
+  then, upstream's `v<version>-docking` tag from a clone of `ocornut/imgui`
+  (`IMTYPESET_IMGUI_CLONE`, default `../imgui`).
 
 **What it does**, which is short enough to do by hand:
 
@@ -80,23 +89,29 @@ atlas after `post_init`.
 3. One link line against the wheel's module with `-Wl,--no-undefined` and a
    version script, so the library exports `ImTypeset_*` and `ImTypesetBundle_*`
    and nothing else.
-4. The import gate, in a child interpreter (`tools/bundle_route/run_gate.py`).
+4. The import gate, in a child interpreter (`tools/bundle_route/run_gate.py`),
+   whose verdict is written beside the library as
+   `<library>.attestation.json`.
 
 Exceptions are on because the wheel's `IM_ASSERT` throws; the C ABI turns a
 C++ exception into an error status at each entry.
 
-**Ran** (both through the amalgamation, 28 s each):
+**Ran** (both through the amalgamation; first on 2026-10-10 at 28 s each and
+22 probe rows, last on 2026-10-12 by task `v030-gate` at 37 s each, which is
+what the table says):
 
 | interpreter | wheel | headers | gate | example |
 |---|---|---|---|---|
-| `../pptmstr/.venv` | imgui_bundle 1.92.801, Dear ImGui 1.92.8 | stand-in `v1.92.8-docking` | accepted, 24 probes | `examples/python/bundle_host.py --frames 30` on Xvfb: selection (74, 284), 2 layouts |
-| `../imgui-adv-text/.venv` | imgui_bundle 1.92.900, Dear ImGui 1.92.9 | stand-in `v1.92.9-docking` | accepted, 24 probes | the same numbers; screenshot looked at |
+| `../pptmstr/.venv` | imgui_bundle 1.92.801, Dear ImGui 1.92.8 | stand-in `v1.92.8-docking` | accepted, 25 probes | `examples/python/bundle_host.py --frames 30` on Xvfb: selection (74, 284), 2 layouts |
+| `../imgui-adv-text/.venv` | imgui_bundle 1.92.900, Dear ImGui 1.92.9 | stand-in `v1.92.9-docking` | accepted, 25 probes | the same numbers; its screenshot was not looked at this time |
 
-The library exports 95 `ImTypeset_*` and 8 `ImTypesetBundle_*` symbols (`nm -D
---defined-only`, type `T`) and leaves 194 symbols undefined, 117 of them Dear
-ImGui's for the wheel to supply (99 `ImGui::` functions and 18 members of its
-classes, by `nm -D --undefined-only | c++filt`); counted on 2026-10-11, with
-the demo window built in, for both wheels alike.
+The library exports 97 `ImTypeset_*` and 9 `ImTypesetBundle_*` symbols (`nm -D
+--defined-only`, type `T`; 106 defined in all) and leaves 194 symbols
+undefined, 117 of them Dear ImGui's for the wheel to supply (by `nm -D
+--undefined-only | c++filt`, names in `ImGui::` or a member of one of its
+classes); counted on 2026-10-12, with the demo window built in, for both
+wheels alike. On 2026-10-11 the same count gave 95 and 8, and 99 functions
+and 18 members among the 117; that split was not counted again.
 
 **The caveat that remains.** Both libraries above are built against stand-in
 headers. Dear ImGui's own layout check then refuses one size
@@ -104,15 +119,8 @@ headers. Dear ImGui's own layout check then refuses one size
 library because a probe of every ImGui field the library touches passes
 (`python/imtypeset/_bundle.py`). `IMTYPESET_BUNDLE_STRICT=1` refuses stand-in
 libraries. A library that passes ImGui's own check needs the fork's headers,
-which needs the network:
-
-```sh
-# in the bundle checkout, once per wheel version
-git submodule update --init external/imgui/imgui
-git -C external/imgui/imgui checkout <the commit the script prints>
-```
-
-That branch of the script has never run.
+which the script fetches when it is not told `stand-in`, and which needs the
+network. No library has been compiled against them, anywhere.
 
 **When the wheel is upgraded** the import fails (another module path, another
 ImGui version, or another binary of the same version) and the remedy is to run
@@ -400,22 +408,22 @@ a syntax check; 1.93 in any configuration but debug.
 test presets run four jobs. The two sanitised test presets set
 `ASAN_OPTIONS=hard_rss_limit_mb=3000`.
 
-| preset | what | ctest, 2026-10-11 |
+| preset | what | ctest, 2026-10-12 |
 |---|---|---|
-| `debug` | Debug; the consumer-project test runs here | 51 of 51 |
-| `release` | `-O3`; the one to take a timing from | 50 of 50 |
-| `asan` | ASan + UBSan, the C test included | 50 of 50 |
-| `stb` | stb_truetype in place of FreeType | 50 of 50 |
-| `wchar16` | ImGui's default 16-bit `ImWchar` | 50 of 50 |
-| `amalgamation` | the library built from the generated drop-in files | 50 of 50 |
-| `fp-host` | release, the drop-in files at `-O3 -march=native` with **no** `-ffp-contract=off` on the library (section 5) | 50 of 50 |
-| `exceptions` | ASan + UBSan, exceptions and RTTI on, `IM_ASSERT` throws (`tests/imconfig_throwing.h`); `test_exception_safety` does its work only here | 50 of 50 |
-| `bundle-config` | exceptions on, Dear ImGui Bundle's own configuration header from `../imgui_bundle` (throwing `IM_ASSERT`, 32-bit `ImDrawIdx`), `IMGUI_DISABLE_OBSOLETE_FUNCTIONS`. `test_exception_safety` reports itself skipped here: it catches the exception type of `tests/imconfig_throwing.h`, which this configuration does not use | 50 of 50 |
-| `imgui-next` | the Dear ImGui checked out in `../imgui` (1.93.0 WIP, 19298) | 50 of 50 |
-| `python-host` | debug plus `python/` and the `python_binding` and `python_demo_sections` tests (SDL2 from `.deps/sdl2`) | 52 of 52 |
+| `debug` | Debug; the consumer-project test runs here | 53 of 53 |
+| `release` | `-O3`; the one to take a timing from | 52 of 52 |
+| `asan` | ASan + UBSan, the C test included | 52 of 52 |
+| `stb` | stb_truetype in place of FreeType | 52 of 52 |
+| `wchar16` | ImGui's default 16-bit `ImWchar` | 52 of 52 |
+| `amalgamation` | the library built from the generated drop-in files | 52 of 52 |
+| `fp-host` | release, the drop-in files at `-O3 -march=native` with **no** `-ffp-contract=off` on the library (section 5) | 52 of 52 |
+| `exceptions` | ASan + UBSan, exceptions and RTTI on, `IM_ASSERT` throws (`tests/imconfig_throwing.h`); `test_exception_safety` does its work only here | 52 of 52 |
+| `bundle-config` | exceptions on, Dear ImGui Bundle's own configuration header from `../imgui_bundle` (throwing `IM_ASSERT`, 32-bit `ImDrawIdx`), `IMGUI_DISABLE_OBSOLETE_FUNCTIONS`. `test_exception_safety` reports itself skipped here: it catches the exception type of `tests/imconfig_throwing.h`, which this configuration does not use | 52 of 52 |
+| `imgui-next` | the Dear ImGui checked out in `../imgui` (1.93.0 WIP, 19298) | 52 of 52 |
+| `python-host` | debug plus `python/` and the `python_binding` and `python_demo_sections` tests (SDL2 from `.deps/sdl2`) | 54 of 54 |
 
-Each was run on the tree with tables, columns and the galleries in it (D53 to
-D65), one at a time in a single pass, from a directory under `build/` that did not exist before it, FreeType 2.12.1 except `stb`, 32-bit `ImWchar`
+Each was run on the tree the first tag is to be made from (D1 to D76), by GCC
+12.2 on Linux x86-64 and by nothing else, one at a time in a single pass, from a directory under `build/` that did not exist before it, FreeType 2.12.1 except `stb`, 32-bit `ImWchar`
 except `wchar16`. No warning from this tree's sources in any of them;
 `exceptions` and `bundle-config` each print four `-Wterminate` warnings, all in
 Dear ImGui's own destructors (`~ImDrawListSharedData`, `~ImFontAtlas`,

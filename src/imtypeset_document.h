@@ -256,6 +256,11 @@ struct ImTypesetDocument {
     // window a little too large only visits a block more). Inside a block the
     // lines are tested with LineIndex::overhang.
     ImTypeset::detail::Scaled exact_reach = 0;
+    // The largest em of a block this document has resolved (it never shrinks,
+    // like `exact_reach`): the bar of an Under mark that states no thickness
+    // is a sixteenth of its block's em thick, and a draw has to know how far
+    // under a line a bar can end before it knows which blocks it will visit.
+    ImTypeset::detail::Scaled largest_em = 0;
 
     // --- Scratch and caches
     // The paragraph a block's material is built in.

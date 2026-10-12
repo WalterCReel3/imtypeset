@@ -1030,6 +1030,11 @@ struct ImTypesetMark {
     // Under: the bar's thickness in pixels (0 is a sixteenth of the line's
     // em, at least one pixel) and how far its top is below the baseline
     // (0 is twice that).
+    // A bar is drawn wherever it is inside the clip
+    // rectangle, whether or not its line is: a draw looks above the clip
+    // rectangle as far as the lowest bar among its marks ends below a
+    // baseline, so an Offset of many lines has every draw visit that many
+    // lines more.
     float Thickness;
     float Offset;
 

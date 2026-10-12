@@ -1000,6 +1000,41 @@ its lines outside the clip are not skipped before their commands are visited); m
 balanced document keeps a node, a height and a unit number for each line and gap while its
 columns stand: about 44 bytes each, 3.7 MB at 84,000); columns of tables and code.
 
+## Marks (task `handoff-core`, D69; rows taken by task `v030-gate`, D76)
+
+`bench/bench_marks.cpp`: one code block of 600 lines with 1,881 marks on it
+(three colour spans a line, as a syntax highlighter hands them over), drawn
+through a window of 768 px, warm.
+
+**Not a result from a quiet machine.** Two runs one after the other on
+2026-10-12, with the load average at 4.4 to 5.0 from other sessions' work
+before, between and after them, from a private directory configured as the
+`release` preset (`-O3 -DNDEBUG -ffp-contract=off -fno-exceptions -fno-rtti`,
+GCC 12.2.0, FreeType 2.12.1, each after the benchmark's own eight seconds of
+warm-up). Read the ratios between rows of one run:
+
+```sh
+cmake --preset release -B build/<dir> && cmake --build build/<dir> --target bench_marks
+build/<dir>/bench/bench_marks
+```
+
+| a draw (2,000 samples each) | run 1: min / median / p95, us | run 2 |
+|---|---|---|
+| no marks | 36.5 / 37.0 / 38.6 | 35.5 / 36.2 / 48.1 |
+| every mark, Ink, in text order | 69.6 / 70.8 / 74.1 | 66.9 / 68.0 / 72.3 |
+| every mark, Ink, shuffled (the same picture) | 95.6 / 97.2 / 102.0 | 91.6 / 92.7 / 97.7 |
+| every mark, Behind, in text order | 71.3 / 72.5 / 75.5 | 66.7 / 67.3 / 80.1 |
+
+Before marks were looked for where the clip is, `handoff-core` measured the
+same four rows at 54, 2,766, 8,914 and 710 us on a machine as busy (medians;
+D69): that comparison is across two sittings and two trees and is good for
+its order of magnitude only. These rows are of the tree with D76 in it, where
+a draw with marks makes one more pass over them (a comparison a mark); every
+mark of this benchmark is Ink or Behind, so the window is not widened in it.
+**Not measured:** the same benchmark on the commit before D76, run
+alternately with this one, which is what would say what that pass costs; a
+draw with Under marks; a quiet machine.
+
 ## Not measured
 
 - **stb_truetype.** Every number is the FreeType build. Layout does not depend

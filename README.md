@@ -5,7 +5,8 @@ Dear ImGui draws text; this typesets it.
 A C++17 extension for Dear ImGui, in the shape `implot` has. It lays text out
 the way TeX does (boxes, glue and penalties; lines chosen for the whole
 paragraph at once; formulas built from a math list) and draws the result
-through ImGui's own font atlas, every glyph on a whole pixel. Justified
+through ImGui's own font atlas, every glyph on a whole pixel of the
+display. Justified
 paragraphs, mixed faces and sizes, inline and display formulas, selection with
 copy, and a document of thousands of blocks (paragraphs, headings, lists,
 code, tables) that lays out only what is on screen and can be shown in
@@ -16,7 +17,7 @@ columns.
 *`ImTypeset::ShowDemoWindow()`, the Paragraph section, drawn with no display by
 `example_demo_headless`. The seventeen `demo-*.png` pages in the repository are
 what that program renders from the tree the presets below were run on
-(2026-10-11), pixel for pixel (the command is under "Running"), and each was
+(2026-10-12), pixel for pixel (the command is under "Running"), and each was
 looked at. Other pages: [math](docs/images/demo-math.png),
 [the specimen](docs/images/demo-specimen.png),
 [the formula gallery](docs/images/demo-formulas.png),
@@ -30,9 +31,11 @@ not re-made since:
 [the Python host](docs/images/py-host.png),
 [a `Document` beside pptmstr's own pane, on pptmstr's wheel](docs/images/py-bundle-pptmstr-document.png).*
 
-**Status, 2026-10-11.** Version 0.3.0, not yet tagged, **no licence chosen**. Built
+**Status, 2026-10-12.** Version 0.3.0, not yet tagged, **no licence chosen**. Built
 and tested with one compiler on one platform: GCC 12.2 on Linux x86-64. Clang
-and MSVC have never compiled it. It needs Dear ImGui 1.92.0 or later and is
+and MSVC have never compiled it, **nothing has run on macOS or Windows, and
+the GitHub Actions workflows in `.github/workflows` have never run**: they
+were written in a session that cannot reach GitHub. It needs Dear ImGui 1.92.0 or later and is
 tested against 1.92.9. What works, what does not and what is rough is said
 below with the numbers that were measured; `docs/spec-status.md` holds the
 design note it started from against what was found.
@@ -50,10 +53,10 @@ Contents: [Running the demos and examples](#running-the-demos-and-examples) ·
 ## Running the demos and examples
 
 Every command below was run from a build directory that did not exist before
-it and what it printed is what is reported: sections 1, 2, 3, 6 and 7 again on
-2026-10-11, on the tree with tables, columns and the galleries in it; sections
+it and what it printed is what is reported: sections 1, 2, 3, 6, 7 and 8 again
+on 2026-10-12, on the tree the first tag is to be made from; sections
 4 and 5 on 2026-10-10 and not since (the Python host of 5 is built and tested
-by the `python-host` preset of 3, which was). They were run inside a sandbox that has no display: **nothing here
+by the `python-host` preset of 3, which was run). They were run inside a sandbox that has no display: **nothing here
 was seen in a window on a real screen, with a GPU, or under a real mouse.**
 Where a program opens a window it was run on Xvfb (a real X server in memory,
 OpenGL by Mesa's llvmpipe) through `tools/shot.sh`, or with SDL's `dummy` or
@@ -116,7 +119,7 @@ in place of SDL_Renderer; `--fonts DIR` takes the fonts from elsewhere than
 (or `wayland`); `offscreen` means SDL found no display and there is no window
 although the program runs.
 
-*Ran:* the build (36 steps, no warning). In the sandbox the
+*Ran:* the build (36 steps, no warning; again on 2026-10-12). In the sandbox the
 program printed `video_driver=offscreen`, as it must there (run with
 `--frames 3`, which ends it after three frames; without that it runs until its
 window is closed, which was not tried). Run unattended instead:
@@ -130,7 +133,9 @@ tools/shot.sh -- examples/demo_sdl2/grab.sh build/demo/demo_sdl2 "$PWD/out" \
     --backend opengl3 --size 1280x800 --dpi-scale 1 --open "Paragraph,Math"
 ```
 
-Both exit 0; so does `SDL_VIDEODRIVER=offscreen`. The Xvfb run reported
+Both exit 0; so does `SDL_VIDEODRIVER=offscreen`. On 2026-10-12 the first of
+the two was run again (exit 0, 7,826 vertices in the last frame) and the Xvfb
+one was not. The Xvfb run reported
 `video_driver=x11`, llvmpipe, and the X grab differing from the program's own
 read-back in 46 pixels of 1,024,000 on one run, 79 on a later one and 301 on
 2026-10-11; the grab was looked at the first two times and not the third, and
@@ -172,34 +177,36 @@ again; `ctest` runs both in every preset.
 cmake --preset release && cmake --build --preset release && ctest --preset release
 ```
 
-*Ran,* from an empty directory: built in 1 min 27 s at four jobs with no
-warning, **50 of 50 tests passed** in 64 s. `ctest` lists the three examples
-and the drop-in-files compile test among the 50.
+*Ran,* from an empty directory: built in 1 min 55 s at four jobs with no
+warning, **52 of 52 tests passed** in 60 s. `ctest` lists the three examples
+and the drop-in-files compile test among the 52.
 
 Other presets, same three commands with the name changed:
 
 | preset | what | from an empty directory, here |
 |---|---|---|
-| `release` | `-O3`; the only one to take a timing from | 50 of 50 |
-| `debug` | unoptimised, ImGui's assertions live; also builds three small consumer projects | 51 of 51 |
-| `asan` | ASan + UBSan | 50 of 50 (tests 3 min 32 s) |
-| `stb` | stb_truetype in place of FreeType | 50 of 50 |
-| `wchar16` | Dear ImGui's default 16-bit `ImWchar` | 50 of 50 |
-| `amalgamation`, `fp-host` | the library built from the generated drop-in files; the second at `-O3 -march=native` without `-ffp-contract=off` | 50 of 50 each |
-| `exceptions` | ASan + UBSan, exceptions on, `IM_ASSERT` throws: where `test_exception_safety` does its work | 50 of 50 (tests 3 min 51 s); four `-Wterminate` warnings, all in Dear ImGui's own destructors |
-| `bundle-config` | exceptions on, Dear ImGui Bundle's own configuration header (needs `../imgui_bundle`); `test_exception_safety` reports itself skipped here | 50 of 50; the same four warnings |
-| `imgui-next` | Dear ImGui 1.93 WIP from `../imgui` (19298, commit `2859f6723`) | 50 of 50 |
-| `python-host` | debug plus the Python host and its two tests (needs an SDL2; here from `.deps/sdl2`) | 52 of 52 |
+| `release` | `-O3`; the only one to take a timing from | 52 of 52 |
+| `debug` | unoptimised, ImGui's assertions live; also builds three small consumer projects | 53 of 53 |
+| `asan` | ASan + UBSan | 52 of 52 (tests 4 min 34 s) |
+| `stb` | stb_truetype in place of FreeType | 52 of 52 |
+| `wchar16` | Dear ImGui's default 16-bit `ImWchar` | 52 of 52 |
+| `amalgamation`, `fp-host` | the library built from the generated drop-in files; the second at `-O3 -march=native` without `-ffp-contract=off` | 52 of 52 each |
+| `exceptions` | ASan + UBSan, exceptions on, `IM_ASSERT` throws: where `test_exception_safety` does its work | 52 of 52 (tests 4 min 17 s); four `-Wterminate` warnings, all in Dear ImGui's own destructors |
+| `bundle-config` | exceptions on, Dear ImGui Bundle's own configuration header (needs `../imgui_bundle`); `test_exception_safety` reports itself skipped here | 52 of 52; the same four warnings |
+| `imgui-next` | Dear ImGui 1.93 WIP from `../imgui` (19298, commit `2859f6723`) | 52 of 52 |
+| `python-host` | debug plus the Python host and its two tests (needs an SDL2; here from `.deps/sdl2`) | 54 of 54 |
 
-All eleven were run on 2026-10-11 one after another in a single pass, each
+All eleven were run on 2026-10-12 one after another in a single pass, each
 from a directory that did not exist, at four jobs, with no warning from this
 tree's sources in any, and after the last change to anything they compile or
-read: the 492 files of the tree hashed the same before the pass and after it,
-and the only edits since are to documents and to the pictures under
-`docs/images`. It was the second such pass of the day: the first, also green,
-came before one page was added to `example_demo_headless`. The build at `-O2`
+read: the 533 files of the tree outside `.concerns/` hashed the same before
+the pass and after it, and the only edits since are to documents (this file,
+`docs/distribution.md`, `docs/sidecar.md`). The pass was made once. The build
+at `-O2`
 (`-DCMAKE_BUILD_TYPE=RelWithDebInfo`, no preset) that gave 41 of 41 on
-2026-10-10 was not run on this tree.
+2026-10-10 was not run on this tree. **GCC 12.2 on Linux x86-64 only: the
+same presets are what the workflow `ci` is written to run with Clang and on
+macOS, and it has never run.**
 The machine these ran on has no swap, and one hostile-input test run against
 unfixed code once took all its memory: the sanitised presets set
 `ASAN_OPTIONS=hard_rss_limit_mb=3000` for that reason.
@@ -259,16 +266,19 @@ The route for an application that already runs on the `imgui_bundle` wheel from
 PyPI. One library **per virtual environment**: it is linked against that
 interpreter's wheel and refuses any other.
 
-As an installable wheel, with the library inside the package and no
-environment variable (built and installed here for Linux x86-64 against
-stand-in headers; CI for the rest is written and has never run):
-`tools/wheel/build_wheel.py`, [docs/sidecar.md](docs/sidecar.md) sections 8 to
-12, [docs/versioning.md](docs/versioning.md). What follows is the development
-build.
+This section is the development build, for someone working on the library:
+it needs `IMTYPESET_LIBRARY`, and a package that came out of a wheel ignores
+that variable. The wheel, which needs no variable, is section 8.
+
+A wheel ships no headers and this machine has no network, so every build here
+says `IMTYPESET_BUNDLE_HEADERS=stand-in`: upstream Dear ImGui's headers of the
+same version in place of the fork's. Without that the script fetches the
+fork's own headers from GitHub at the commit the wheel pins, **which nobody
+has done**; with no network it stops there and says so.
 
 ```sh
 # arguments: a clone of imgui_bundle, and the interpreter whose wheel it is for
-IMTYPESET_BUNDLE_OUT=build/bundle-advtext \
+IMTYPESET_BUNDLE_HEADERS=stand-in IMTYPESET_BUNDLE_OUT=build/bundle-advtext \
     python/host/build_bundle_library.sh ../imgui_bundle ../imgui-adv-text/.venv/bin/python
 IMTYPESET_LIBRARY=$PWD/build/bundle-advtext/libimtypeset_bundle.so \
     ../imgui-adv-text/.venv/bin/python -P -B examples/python/bundle_host.py
@@ -289,8 +299,8 @@ open.
 
 | environment | wheel | build | `bundle_host.py --frames 30` on Xvfb |
 |---|---|---|---|
-| `../imgui-adv-text/.venv` | imgui_bundle 1.92.900, Dear ImGui 1.92.9 | 35 s, gate accepted, 24 probes | `selection: (74, 284) layouts: 2`, exit 0 |
-| `../pptmstr/.venv` | imgui_bundle 1.92.801, Dear ImGui 1.92.8 | 34 s, gate accepted, 24 probes | the same, exit 0 |
+| `../imgui-adv-text/.venv` | imgui_bundle 1.92.900, Dear ImGui 1.92.9 | 37 s, gate accepted, 25 probes | `selection: (74, 284) layouts: 2`, exit 0 |
+| `../pptmstr/.venv` | imgui_bundle 1.92.801, Dear ImGui 1.92.8 | 37 s, gate accepted, 25 probes | the same, exit 0 |
 
 The library's own demo runs there too, as a window or as pages of the
 application's (`imtypeset.demo`):
@@ -302,8 +312,10 @@ IMTYPESET_LIBRARY=$PWD/build/bundle-advtext/libimtypeset_bundle.so \
 
 *Ran* on Xvfb with `--frames 40 --grab FILE` in both environments, eight ways
 each (the window; the window with the Formula gallery and with the Document
-open; the pages Specimen, Formula gallery, Math and Document): sixteen runs,
-all exit 0 with `last error: 0`. Seven pictures were looked at; the two
+open; the pages Specimen, Formula gallery, Math and Document, the last also
+with `--scroll 400`): sixteen runs, all exit 0 with `last error: 0`. On
+2026-10-12 two of the sixteen pictures were looked at (the window with the
+Document open, the Math page) and the rest only compared: the two
 environments' pictures differ in 0 to 162 pixels. None shows the table or more
 than one column: the script has no way to move the demo's sliders.
 
@@ -318,7 +330,7 @@ A patch of three files, `python/spike_bundle/pptmstr_overlay/pptmstr.patch`;
 `docs/advtext-rework-plan.md`, "Start here", is the full account.
 
 ```sh
-IMTYPESET_BUNDLE_OUT=build/pptmstr-bundle \
+IMTYPESET_BUNDLE_HEADERS=stand-in IMTYPESET_BUNDLE_OUT=build/pptmstr-bundle \
     python/host/build_bundle_library.sh ../imgui_bundle ../pptmstr/.venv/bin/python
 cd ../pptmstr && git apply ../imtypeset/python/spike_bundle/pptmstr_overlay/pptmstr.patch
 IMTYPESET_LIBRARY=$HOME/Source/imtypeset/build/pptmstr-bundle/libimtypeset_bundle.so \
@@ -329,14 +341,69 @@ Without `IMTYPESET_LIBRARY` nothing is imported and pptmstr is what it is
 today. **The patch itself was not applied here**: this work may not write into
 `../pptmstr`. What ran instead: `git -C ../pptmstr apply --check` on the patch
 passes at pptmstr commit `4974657` (750 lines added and 19 removed by `git
-apply --numstat`); and the real application, `pptmstr.app.main --fake`, was run
+apply --numstat`; again on 2026-10-12, with the twelve scenarios of
+`python/spike_bundle/pptmstr_patch_faults.py`, all exit 0); and the real application, `pptmstr.app.main --fake`, was run
 on Xvfb with the patch's three modules imported from the overlay directory in
 place of pptmstr's (the command is in the plan). It reported `imtypeset: in
 use`, wheel 1.92.801, 3.02 library calls per `rich_pane.draw`, and its picture
 was looked at. All of that was run again on 2026-10-11 against a library built
-from this tree and gave the same: the patch did not need changing for the
-structs that have grown since. `make run` with the patch applied has not been
+from the tree of that day and gave the same: the patch did not need changing
+for the structs that have grown since. The run of the real application was
+not repeated on 2026-10-12. `make run` with the patch applied has not been
 run by anyone.
+
+### 8. The Python wheel: built, installed into a throwaway environment, imported with no variable
+
+What an application installs: the package with the library inside it, pinned
+to one imgui-bundle. No wheel has been published anywhere and none has been
+built against the fork's own headers; what follows builds a **stand-in** wheel
+(version `0.3.0.192900.dev0+standin`, which no release path accepts) and
+installs it beside an imgui-bundle that is already on the machine.
+
+```sh
+# 1. build the wheel for the imgui-bundle that one interpreter has installed
+python3 -P -B tools/wheel/build_wheel.py --python ../imgui-adv-text/.venv/bin/python \
+    --headers stand-in --bundle-checkout ../imgui_bundle --out build/wheels
+python3 -I -B tools/wheel/check_wheel.py build/wheels/*.whl
+
+# 2. a new virtual environment that sees that interpreter's packages through
+#    links (nothing is installed into the other environment), and the wheel in it
+env=$(../imgui-adv-text/.venv/bin/python -P -B tools/wheel/local_env.py build/wheel-env)
+$env -P -B -m pip install --no-cache-dir --no-index --find-links build/wheels --pre \
+    imtypeset imgui-bundle==1.92.900
+
+# 3. no IMTYPESET_* variable, from a directory that is not the repository
+(cd build && $env -P -B -c 'import imtypeset; print(imtypeset.version(), imtypeset.host_info()["route"])')
+$env -P -B tools/wheel/check_installed.py
+```
+
+`python3` in step 1 is any Python 3.11 or later with nothing installed; the
+build takes about a minute. `--pre` is there because a stand-in wheel is a
+development release; `--headers stand-in` and `local_env.py` are there because
+this machine has no network: on one that has, step 1 without `--headers`
+fetches the fork's headers and step 2 is `pip install` into any environment.
+**Neither of those has been done by anyone.**
+
+*Ran* on 2026-10-12, for both environments (imgui-bundle 1.92.900 in
+`../imgui-adv-text/.venv` and 1.92.801 in `../pptmstr/.venv`, each with its
+own interpreter in the commands above and its own version in step 2): the two
+wheels built in 38 and 40 s (`imtypeset-0.3.0.192900.dev0+standin-cp311-none-manylinux_2_28_x86_64.whl`
+and `…192801.dev0+standin…`, 589 kB, 11 files, 25 probe rows, the platform tag
+measured from the library); `check_wheel.py` said `ok` for both and, with
+`--release --tag v0.3.0`, refused both as stand-in builds, as it must; pip
+26.2.1 took from the one directory the wheel of each environment's
+imgui-bundle and `pip check` was clean; step 3 printed `0.3.0 installed` in
+each; `check_installed.py` (here also given `--other-python`,
+`--dev-library` and `--self-hosted-library`) passed **92 of 92 checks in
+each**: the import, the frozen shapes, every partial update it makes, and the
+environment variables being ignored.
+
+Linux x86-64 and CPython 3.11 only. The wheels for macOS arm64 and for other
+CPython versions are what the workflow `wheels` is written to build
+(`.github/workflows/wheels.yml`), and **it has never run**;
+[docs/sidecar.md](docs/sidecar.md) sections 8 to 12 say what a wheel holds,
+what the import gate checks and what an update is, and
+[docs/versioning.md](docs/versioning.md) what an application pins.
 
 ---
 
@@ -375,9 +442,10 @@ ImGui's default font. The renderer backend must announce
 `ImGuiBackendFlags_RendererHasTextures`, as every stock backend of ImGui 1.92
 does.
 
-The whole public surface is `include/imtypeset.h` (88 functions:
-context, fonts, widgets, paragraphs you keep, hit testing and selection,
-documents with their tables and columns, the demo window and its sections). `include/imtypeset_c.h` is the same as a C99 ABI
+The whole public surface is `include/imtypeset.h` (90 functions:
+context, fonts and what a font's metrics are, widgets, paragraphs you keep,
+hit testing and selection, documents with their tables and columns, the demo
+window and its sections). `include/imtypeset_c.h` is the same as a C99 ABI
 for bindings. `src/imtypeset_demo.cpp` is the place to look up how each thing
 is called, as `imgui_demo.cpp` is for ImGui.
 
@@ -421,8 +489,10 @@ reaches them as a **sidecar library inside the unmodified wheel**
 (`docs/distribution.md` section 1): `libimtypeset_bundle.so` holds no Dear
 ImGui of its own, its ImGui symbols resolve against the wheel's extension
 module, and it draws into the application's own context, font atlas and
-windows. Nothing is installed into the environment. `python/imtypeset` is a
-pure-Python `ctypes` package over the C ABI. Dear ImGui Bundle adopting the
+windows. `python/imtypeset` is a pure-Python `ctypes` package over the C ABI.
+The two travel together, as a development build beside a checkout (section 6
+above; nothing is installed into the environment) or as one wheel (section
+8). Dear ImGui Bundle adopting the
 library upstream is backlog and nothing here waits for it.
 
 **How far it goes, exactly.**
@@ -434,17 +504,33 @@ library upstream is backlog and nothing here waits for it.
   docking tag of the same version as a stand-in. Dear ImGui's own layout check
   then refuses one size, `sizeof(ImGuiStyle)` (the fork adds a field), and the
   package accepts the library because a probe of every ImGui field the library
-  touches passes against the live wheel (`python/imtypeset/_bundle.py`; 24
-  probe rows on both wheels, and of 87 deliberately wrong offsets none gets
+  touches passes against the live wheel (`python/imtypeset/_bundle.py`; 25
+  probe rows on both wheels, and of 90 deliberately wrong offsets none gets
   past them: `tools/bundle_route/mutate_gate.py`). `IMTYPESET_BUNDLE_STRICT=1` refuses stand-in
   libraries. A library that passes ImGui's own check needs the fork's headers
-  at the wheel's commit, which needs the network and a person; **that branch
-  of the build script has never run.** The census of fields the probe covers is
+  at the wheel's commit. The build script fetches them by default
+  (`python/host/fetch_headers.py`, held to the commit and checksums in
+  `python/host/bundle_pins.toml`), which needs the network; **that fetch has
+  only met local stand-ins for GitHub, and no library has been compiled
+  against the fork's headers anywhere.** The census of fields the probe covers is
   kept by hand: a future change that touches a new ImGui field is not probed
   until someone adds it.
-- **One library per interpreter**, about 30 s to build. When a wheel is
-  upgraded the import fails with a reason and the remedy is to run the script
-  again.
+- **One library per interpreter and imgui-bundle version**, about 30 s to
+  build. When imgui-bundle is upgraded under it the import fails with a
+  sentence and a `kind` (`docs/sidecar.md` section 11), and the remedy is the
+  wheel built for the new one, or the script run again.
+- **The import gate.** In an installed wheel, `import imtypeset` compares the
+  library and the wheel's module by content with a record made when the wheel
+  was built, starts no process and writes nothing, and reads no
+  `IMTYPESET_*` variable but `IMTYPESET_BUNDLE_STRICT`; that is what lets it
+  work inside a packaged application (D71, D73). Run here in an imitation of
+  a frozen interpreter; **no real application freezer has been tried.**
+- **Dense displays (macOS Retina).** Each draw reads
+  `io.DisplayFramebufferScale` and places and rasterises on the framebuffer's
+  pixels; a host passes nothing and must not put the scale into
+  `PixelsPerInch` (D72). Measured headless on Linux with the scale set to 1,
+  1.5, 2 and 3; **never seen on such a display.**
+  `examples/python/hidpi_check.py` is what a person at one runs.
 - In the application: create the imtypeset context and add its fonts in
   hello_imgui's `load_additional_fonts` callback, not in `post_init`
   (hello_imgui empties the atlas after `post_init`).
@@ -465,9 +551,11 @@ library upstream is backlog and nothing here waits for it.
   defects known. Nothing here has run the rewritten advtext. `BareView` on `sample.md`: 7,026 us today against 167 us
   through one `Document` (same source, same caveat).
 - Not shown by anyone: either application on a real display with a GPU and a
-  mouse; a wheel upgrade; macOS or Windows (a wheel ships no import library, so
-  the Windows link step does not exist as written); any Python but 3.11.
-- This is not a wheel, a `pyproject.toml` or anything portable.
+  mouse; **anything on macOS** (the link line, the Mach-O side of the import
+  gate and the dyld check are written from memory of Apple's tools and have
+  never run); Windows (a wheel ships no import library, so the Windows link
+  step does not exist as written); any Python but 3.11; a wheel from an index;
+  an update of an installed application.
 
 ---
 
@@ -500,7 +588,14 @@ hold:
 - Fonts a host brings: TrueType and CFF outlines, collections, CID-keyed CFF;
   pair kerning from GPOS and legacy `kern`; the `MATH` table. FreeType or
   stb_truetype as ImGui's rasteriser; a 16-bit or a 32-bit `ImWchar`.
-- A C ABI over all of it, and a Python package over that.
+- A role's font at a size, without setting any text: ascent, descent, line
+  gap, x-height, the space's advance, and one character's advance
+  (`GetFontMetrics`, `GetGlyphAdvance`; equal to the reference's reader as
+  floats, D66); and whether a face has a glyph (`FaceHasGlyph`).
+- Displays denser than ImGui's coordinates: glyphs, rules and rectangles on
+  the framebuffer's pixels (D72; headless measurement only, see Python).
+- A C ABI over all of it, and a Python package over that, which installs as a
+  wheel.
 
 **Not supported**, and not hidden:
 
@@ -626,6 +721,10 @@ Stated with the numbers that were measured, and where each number is from.
   `demo-*.png` pages are this tree's; the `py-bundle-demo-*` shots are of
   2026-10-11 before the table and column work; the others (the specimen, the
   three `demo-sdl2-*` window shots, the two Python hosts) are of 2026-10-10.
+- **Marks drawn under a line** (`ImTypesetMarkPlace_Under`) with a large
+  `Offset` make a draw look that much further above the clip rectangle, every
+  frame (D76). In columns, a bar that hangs past the foot of its column is
+  not drawn (read in the code; not run).
 - **Clang and MSVC have never compiled any of it**; no Windows or macOS build
   has been attempted.
 
@@ -748,8 +847,12 @@ code.
 - A decision on the trades under "Known rough edges": the word-width bound,
   and how far the line breaker may shrink a space. (Whether tables and
   columns belong in the core is decided: they are in it, D57 and D58.)
-- Continuous integration: every result in this file is from one machine on one
-  day.
+- Continuous integration that has run. Three workflows are written
+  (`ci`, `sidecar-probe`, `wheels`) and none has ever run; every result in
+  this file is from one machine.
+- A wheel built against the fork's headers, a wheel for macOS, and a person at
+  a Mac: `docs/sidecar.md` sections 6, 7 and 10 and
+  `examples/python/hidpi_check.py` say what to run and what to send back.
 
 ## Where things are
 
@@ -761,6 +864,12 @@ code.
 | `bench/` | the benchmarks |
 | `tests/`, `tests/golden/`, `tools/oracle/` | tests, the reference's answers, the scripts that dump them |
 | `python/imtypeset/`, `python/host/` | the `ctypes` package; the two shared libraries |
+| `tools/wheel/`, `pyproject.toml` | the wheel: built, checked, checked once installed |
+| `.github/workflows/`, `tools/ci/` | three workflows, never run, and the scripts they call, which were run here |
+| `tools/release.sh` | what is checked before a tag; it creates nothing |
+| `docs/sidecar.md` | the sidecar and the wheel: binding, headers, the import gate, updates, what never ran |
+| `docs/versioning.md`, `docs/CHANGELOG.md` | what a version promises and what an application pins; what changed |
+| `docs/python-errors.md` | which Python call raises what |
 | `docs/decisions.md` | what was decided and why (D1 onwards) |
 | `docs/distribution.md` | the integration routes, the ImGui floor, floating point, presets |
 | `docs/divergences.md` | where this, the reference and TeX differ |

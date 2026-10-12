@@ -26,7 +26,7 @@ and 12). Three words are kept apart throughout:
 | the wheel exports the Dear ImGui symbols the library needs | RAN: 117 needed, 117 exported, wheels 1.92.900 and 1.92.801 | not known | no wheel |
 | a library builds | RAN, stand-in headers, GCC 12.2 | never built | no wheel |
 | it loads and binds | RAN, bound by `link` (section 2) | never loaded | no wheel |
-| import gate, `import imtypeset`, headless checks | RAN: accepted by the field probe (24 rows), 23 + 18 checks pass, both wheels | never run | no wheel |
+| import gate, `import imtypeset`, headless checks | RAN: accepted by the field probe (24 rows then; 25 since D72, run again 2026-10-12, section 12), 23 + 18 checks pass, both wheels | never run | no wheel |
 | built against the wheel's own headers | **never**: the fetch needs the network and no session here has had it | never | no wheel |
 | Dear ImGui's own layout check passes | never (it refuses stand-in headers, as it should: `sizeof(ImGuiStyle)` 1368 against the wheel's 1372) | never | no wheel |
 
@@ -894,6 +894,28 @@ process under `ulimit -v 6000000`:
 
 Not run again on 2026-10-12: the C++ presets (this task changed no C++);
 `pip wheel .` through `pyproject.toml`'s backend; `tools/release.sh`.
+
+RAN a third time, by the builder of task `v030-gate`, later on 2026-10-12,
+same machine, after every preset of `CMakePresets.json` had passed from clean
+on the same unchanged tree (533 files hashed before and after), every process
+under `ulimit -v 6000000`:
+
+| what | result |
+|---|---|
+| both development sidecars from clean, `IMTYPESET_BUNDLE_HEADERS=stand-in python/host/build_bundle_library.sh` | exit 0, 37 s each, no warning line, accepted by probe, 25 rows, attestation written; 106 symbols exported (97 `ImTypeset_*`, 9 `ImTypesetBundle_*`), 117 Dear ImGui symbols left to the wheel |
+| in both environments, against those: `run_gate.py`, `mutate_gate.py`, `check_document_edits.py`, `check_swap_answers.py` | accepted; 31 offsets, 90 mutants, 12 crashed, 0 survived; 23 PASS 0 FAIL; 18 PASS 0 FAIL |
+| in both, on Xvfb through `tools/shot.sh`: `examples/python/bundle_host.py --frames 30`; `bundle_demo.py` eight ways; `hidpi_check.py` at the display's density (1) and with `--assume-density` 1.5, 2, 3; `tools/bundle_route/font_lifetime.py`, seven scenarios | `selection: (74, 284) layouts: 2`; `last error: 0` sixteen times; `PASS` (1.000 texels per framebuffer pixel, 0 off the grid) eight times; `application_fonts_removed` 0 fourteen times. **With `--screenshot`, `bundle_host.py` and `hidpi_check.py` exit 1 in the 1.92.801 environment after printing their line: hello_imgui's screenshot needs numpy, which that environment does not have.** Without it, exit 0 |
+| both wheels, `build_wheel.py --headers stand-in` | 38 and 40 s; `…192900.dev0+standin…` and `…192801.dev0+standin…`, 589 kB, 11 files, 25 probe rows, tag `manylinux_2_28_x86_64` measured |
+| `check_wheel.py`; with `--release --tag v0.3.0` | both ok; both refused |
+| two new throwaway environments (`local_env.py`), `pip install --no-cache-dir --no-index --find-links <both> --pre imtypeset imgui-bundle==X`, `pip check` | each got its own line; clean; `import imtypeset` with no variable: route `installed`, checked in `attestation` |
+| `check_installed.py` in each, with `--other-python`, `--dev-library`, `--self-hosted-library` | **92 PASS, 0 FAIL, 0 SKIP in each** |
+| `tools/ci/test_wheel.py` (under `/usr/bin/python3` and under a throwaway environment's, `packaging` 26.3), `test_fetch_headers.py`, `check_workflows.py`, `tools/version.py --check`, `shellcheck` 0.9.0 on `tools/ci/*.sh`, `python/host/*.sh`, `tools/release.sh` | 24 tests OK twice; 17 tests OK; three files ok; agree; clean |
+| `tools/ci/sidecar_probe.py --also-lookup --only-stand-in` (1.92.900) | exit 0: H1 YES by `link`; H2 not attempted |
+| `python/spike_bundle/pptmstr_patch_faults.py`, twelve scenarios (1.92.801, Xvfb); `git -C ../pptmstr apply --check` of the patch | all exit 0; exit 0 at `4974657`, 750 added and 19 removed |
+
+Not run that time either: `pip wheel .` through `pyproject.toml`'s backend;
+`check_installed.py --old-library`. And everything under NEVER RUN below is
+still never run.
 
 NEVER RUN:
 

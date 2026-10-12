@@ -593,6 +593,7 @@ void apply_spec(ImTypesetDocument& d, size_t i)
     block.style.marker_gap = spec.marker_gap;
     block.style.interline = spec.interline;
     block.style.strut = spec.strut;
+    d.largest_em = std::max(d.largest_em, spec.font.size);
     // Ink may stand outside a block of exact lines: see `exact_reach`.
     if (spec.strut.exact)
         d.exact_reach = std::max(d.exact_reach, 4 * std::max<Scaled>(spec.font.size, 0));
@@ -1888,6 +1889,36 @@ void pick_marks(MarkOrder& m, const ImTypesetMark* marks, size_t i, int low, int
     }
 }
 
+// An Under mark's bar on a line of a block whose em is `em`: how thick it is,
+// and how far its top is below the line's baseline.
+Scaled bar_thickness(const ImTypesetDocument& d, const ImTypesetMark& mark, Scaled em)
+{
+    return mark.Thickness > 0.0f ? length_sp(d, mark.Thickness)
+                                 : std::max(em / 16, length_sp(d, 1.0f));
+}
+
+Scaled bar_offset(const ImTypesetDocument& d, const ImTypesetMark& mark, Scaled thickness)
+{
+    return mark.Offset > 0.0f ? length_sp(d, mark.Offset) : 2 * thickness;
+}
+
+// How far below the baseline of its line the bar of an Under mark among
+// `marks` can end, and so how far below the line's box and its block's: zero
+// with no such mark. A draw looks that much further above the clip rectangle
+// for the blocks, the lines and the marks it shows, because a bar a host
+// hangs well under a line is inside a clip rectangle the line is wholly above.
+Scaled bars_hang(const ImTypesetDocument& d, const ImTypesetMark* marks, size_t count)
+{
+    Scaled hang = 0;
+    for (size_t k = 0; k < count; ++k) {
+        if (marks[k].Place != ImTypesetMarkPlace_Under)
+            continue;
+        const Scaled thickness = bar_thickness(d, marks[k], d.largest_em);
+        hang = std::max(hang, add_saturating(bar_offset(d, marks[k], thickness), thickness));
+    }
+    return hang;
+}
+
 // The bytes of block `i` that the lines between two heights of it hold, the
 // heights taken generously (by what a draw looks past a clip rectangle for,
 // and an em more for a bar under a line): every item of those lines has a
@@ -2069,10 +2100,8 @@ void draw_block(ImTypesetDocument& d, size_t i, double left, double top, const T
             }
             // Under: a bar below the baseline of each line the range is on.
             ensure_lines(view);
-            const Scaled em = b.font.size;
-            const Scaled thickness = mark.Thickness > 0.0f ? length_sp(d, mark.Thickness)
-                                                           : std::max(em / 16, length_sp(d, 1.0f));
-            const Scaled offset = mark.Offset > 0.0f ? length_sp(d, mark.Offset) : 2 * thickness;
+            const Scaled thickness = bar_thickness(d, mark, b.font.size);
+            const Scaled offset = bar_offset(d, mark, thickness);
             for (const Rect& rect : ctx.rects) {
                 const Scaled middle = rect.y + rect.height / 2;
                 const auto line =
@@ -2294,12 +2323,17 @@ bool draw_document(ImTypesetDocument& d, const Target& target, const ImVec2& pos
     ready(d);
     const double left = is_finite(pos.x) ? static_cast<double>(pos.x) : 0.0;
     const double top = is_finite(pos.y) ? static_cast<double>(pos.y) : 0.0;
-    const Scaled window_top = sub_saturating(
-        coordinate_sp(d, static_cast<double>(clip.y) - top - WINDOW_MARGIN_PX), d.exact_reach);
-    const Scaled window_bottom = add_saturating(
-        coordinate_sp(d, static_cast<double>(clip.w) - top + WINDOW_MARGIN_PX), d.exact_reach);
     if (!(clip.w > clip.y) || !(clip.z > clip.x) || d.blocks.empty())
         return succeed();
+    const bool marked = draw != nullptr && draw->Marks != nullptr && draw->MarkCount > 0;
+    const Scaled hang =
+        marked ? bars_hang(d, draw->Marks, static_cast<size_t>(draw->MarkCount)) : 0;
+    const Scaled window_top = sub_saturating(
+        sub_saturating(coordinate_sp(d, static_cast<double>(clip.y) - top - WINDOW_MARGIN_PX),
+                       d.exact_reach),
+        hang);
+    const Scaled window_bottom = add_saturating(
+        coordinate_sp(d, static_cast<double>(clip.w) - top + WINDOW_MARGIN_PX), d.exact_reach);
 
     const UnitRange range = d.columned ? UnitRange() : layout_window(d, window_top, window_bottom);
     const ImTypesetDocumentRange selection =
@@ -2315,7 +2349,7 @@ bool draw_document(ImTypesetDocument& d, const Target& target, const ImVec2& pos
                                  : ImGui::GetColorU32(ImGuiCol_TextSelectedBg);
 
     d.marks.looked_at = 0;
-    if (draw != nullptr && draw->Marks != nullptr && draw->MarkCount > 0)
+    if (marked)
         order_marks(d.marks, draw->Marks, static_cast<size_t>(draw->MarkCount));
 
     const ErrorState* trouble = nullptr;
