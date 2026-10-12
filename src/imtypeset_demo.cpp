@@ -1977,7 +1977,9 @@ void ShowDemoKnownLimits()
         "Word gaps. Every glyph is drawn on a whole pixel, so that type is as sharp as ImGui's "
         "own, and the rounding has to go somewhere. A word is held to the width layout gave it "
         "and placed from the word before it, so a space between two words is drawn within a "
-        "pixel and a half of the width it was laid out with. The price is paid inside the "
+        "pixel and a half of the width it was laid out with, and every glyph within two pixels "
+        "of where it was laid out, which is how far a caret can stand from its letter. The "
+        "price is paid inside the "
         "words: about one pair of neighbouring letters in eleven stands more than half a pixel "
         "from its laid-out distance. A justified line whose spaces are nearly closed was laid "
         "out that way: the line breaker shrinks the spaces of a line to make it fit, and how "
@@ -2004,6 +2006,41 @@ void ShowDemoKnownLimits()
     for (int i = 0; i < IM_ARRAYSIZE(LIMITS); ++i) {
         ImGui::Bullet();
         ImTypeset::TextUnformatted(LIMITS[i], NULL, ImTypesetTextFlags_Math, 0.0f, &style);
+    }
+
+    // Two widths for a character (ADVANCES in imtypeset.h). A ruler in the
+    // Code face three ways from one x: measured on the device, which is the
+    // default for that face; measured by the font; and drawn by ImGui itself
+    // in the role's ImFont at the pixel height the typeset rows have.
+    ImGui::Bullet();
+    ImTypeset::TextUnformatted(
+        "A character has two widths. The font's own is a fraction of a pixel; the one ImGui's "
+        "atlas holds for the size on this display is, under a hinting rasteriser, a whole "
+        "number of pixels. Text in the Code faces is measured by the second unless a style "
+        "says otherwise (ImTypesetStyle::Advances), so that rows of code stand on one grid "
+        "and under ImGui's own text in the same font; it is then a layout for this display, "
+        "and its characters are not the width the designer drew. Everything else is measured "
+        "by its font and drawn within two pixels of that. The same ruler three ways:",
+        NULL, 0, 0.0f, &style);
+    static const char* const RULER = "1234567890123456789012345678901234567890";
+    ImTypesetStyle code = style;
+    code.Face = ImTypesetFace_Code;
+    ImGui::TextDisabled("ImTypesetAdvances_Default: the device's advances");
+    ImTypeset::TextUnformatted(RULER, NULL, 0, 0.0f, &code);
+    code.Advances = ImTypesetAdvances_Font;
+    ImGui::TextDisabled("ImTypesetAdvances_Font: the font's advances, each glyph on a pixel");
+    ImTypeset::TextUnformatted(RULER, NULL, 0, 0.0f, &code);
+    ImTypesetFontMetrics regular_face, code_face;
+    ImFont* code_font = ImTypeset::GetFont(ImTypesetFace_Code);
+    if (code_font != NULL &&
+        ImTypeset::GetFontMetrics(ImTypesetFace_Regular, 1000.0f, &regular_face) &&
+        ImTypeset::GetFontMetrics(ImTypesetFace_Code, 1000.0f, &code_face)) {
+        ImGui::TextDisabled("ImGui::TextUnformatted in the same ImFont at the same pixel height");
+        // The pixel height of the Code face at the em the rows above are set
+        // at: the two faces are one em, not one height.
+        ImGui::PushFont(code_font, g_font_size * code_face.FontSize / regular_face.FontSize);
+        ImGui::TextUnformatted(RULER);
+        ImGui::PopFont();
     }
 }
 

@@ -46,9 +46,10 @@
 //   - The debug overlay's outlines are rectangles of its own and not ImGui's
 //     AddRect and AddLine (see Drawer::draw_runs).
 //   - Under DrawRules::product(), a formula is placed whole and not as a
-//     rigid span, a word is held to its laid-out width, and words and
-//     formulas along a line are each placed from the one before: see
-//     DrawRules, which states the one bound those three keep between them.
+//     rigid span, a word is held to its laid-out width and each of its
+//     glyphs to its place in it, and words and formulas along a line are
+//     each placed from the one before: see DrawRules, which states the
+//     bounds those keep between them.
 //   - Past 64k vertices with 16-bit indices, a draw command of the list ends
 //     up to 1,023 quads earlier than the reference's does: space is reserved
 //     for a run of up to 1,024 quads at a time, so ImGui starts a new command
@@ -96,6 +97,23 @@ void snap_span(double from, double to, double* lo, double* hi);
 // size_px * (ascent + descent) / em. The three metrics may be in any one
 // unit. `size_px` unchanged when em <= 0.
 double baked_size_px(double size_px, double ascent, double descent, double em);
+
+// The atlas entry a face's glyphs are drawn from: `font` at an em of `size`
+// scaled points, where there are `px_per_inch` of ImGui's units to the inch
+// and `density` pixels of the grid placement is done on to the unit. The em
+// is turned into those pixels and corrected to the pixel height ImGui sizes a
+// font by (`baked_size_px`, from `ours`, the face's own metrics; uncorrected
+// if null), and ImGui rounds that to a whole size itself. At density 1 the
+// entry is the font's at whatever rasteriser density the font now has; above
+// it the size is in framebuffer pixels already and the entry is at ImGui's
+// rasteriser density 1, said outright. Null for a size below half a pixel or
+// above Drawer::MAX_BAKED_SIZE_PX, and if ImGui has no entry to give.
+//
+// One function for the draw loop and for whoever measures a character as the
+// atlas has it (src/device), so that the two cannot name different entries.
+// Good for the frame it is asked in, as any ImFontBaked is.
+ImFontBaked* face_bake(ImFont* font, const FontMetrics* ours, Scaled size, double px_per_inch,
+                       double density);
 
 // One axis of a document coordinate as the screen position an ImVec2 holds:
 // origin + px_from_sp(length), summed in double and rounded to float32.
@@ -353,7 +371,8 @@ struct DrawRules {
     // pixels from its laid-out distance to a particular glyph of the
     // formula; text after a formula is less than a pixel and a half from the
     // formula's rightmost part and at most a pixel from its box's edge.
-    // And a glyph in the middle of a long word is held by nothing.
+    // And a glyph in the middle of a long word is not held by these three
+    // rules: word_glyphs_held is what holds it.
     //
     // What it costs: where a word or a formula stands depends, by a pixel,
     // on what is before it on the line, so two lines whose words start at
@@ -369,6 +388,47 @@ struct DrawRules {
     // formula one rounded gap from the glyph the formula shipped last,
     // wherever that glyph went.
     bool word_spaces_led = false;
+
+    // Every glyph of a word is drawn within WORD_GLYPH_BOUND_PX, a pixel, of
+    // its laid-out distance from the word's first glyph, and the word's last
+    // within WORD_WIDTH_BOUND_PX of it as under word_width_held. The gaps
+    // are rounded as ever, and as each glyph is placed the distance it has
+    // gathered is compared with the one layout gave it. When it is more than
+    // the bound too far along, one gap before it is rounded down instead of
+    // up: of the gaps into the glyphs, placed since a gap last gave, that
+    // have stood at or right of their places without a break up to this one,
+    // the one that was rounded up by the most, the earliest of equals. The
+    // glyphs from that gap on move a pixel left, none of them more than a
+    // pixel past its place, and this one is back within half a pixel. The
+    // other way about for a glyph too far back. At the
+    // word's end the same choice is made once more if the last glyph is
+    // more than half a pixel out. A step between two glyphs is still its
+    // laid-out size rounded down or up, and which gaps give depends on the
+    // word and its size alone, so a word is the same picture wherever it
+    // stands. It takes the place of word_width_held's choice of gaps, which
+    // looks at the word's two ends alone.
+    //
+    // With a word's first glyph less than a pixel from its own place
+    // (word_spaces_led), EVERY GLYPH OF TEXT IS DRAWN LESS THAN TWO PIXELS
+    // FROM WHERE LAYOUT PUT IT, however long the word: the bound a caret, a
+    // selection's edge and a hit test have against the glyph they are for,
+    // since those answer from layout. tests/test_device_advances.cpp asserts
+    // it for a number of forty digits and for a row of code of seventy-four
+    // characters, which is one word.
+    //
+    // What it costs: in a word whose roundings gather to more than a pixel
+    // part of the way along and come back by its end, a gap gives that
+    // word_width_held alone would have left; and the gap that gives is the
+    // best of a run and not of the whole word. Measured over the bundled
+    // faces at 13 to 20 px (tests/test_word_gaps.cpp prints the tallies).
+    //
+    // The reference, and word_width_held alone, hold nothing in the middle
+    // of a word. In text set in one advance (a monospace face; a row of
+    // digits) every gap rounds the same way and the earliest give, so the
+    // middle of a row is out by the row's length times what the rounding
+    // loses: measured, 16.9 px in a row of 74 characters and 9.8 px in a
+    // number of 40 digits.
+    bool word_glyphs_held = false;
 
     // A glyph's quad is emitted exactly when part of it is inside the clip
     // rectangle vertically: its top above the rectangle's bottom edge and its
@@ -437,6 +497,7 @@ struct DrawRules {
         DrawRules rules;
         rules.formula_placed_whole = true;
         rules.word_width_held = true;
+        rules.word_glyphs_held = true;
         rules.word_spaces_led = true;
         rules.quads_off_clip_dropped = true;
         rules.device_pixels = true;
@@ -447,6 +508,10 @@ struct DrawRules {
 // The most a word's drawn width differs from its laid-out width under
 // DrawRules::word_width_held.
 constexpr double WORD_WIDTH_BOUND_PX = 0.5;
+
+// The most a glyph's drawn distance from the first glyph of its word differs
+// from the laid-out one under DrawRules::word_glyphs_held.
+constexpr double WORD_GLYPH_BOUND_PX = 1.0;
 
 // The most framebuffer pixels to a unit of ImGui's coordinates that
 // DrawRules::device_pixels follows.
@@ -526,8 +591,11 @@ public:
 // One call the reference would have made on the draw list.
 enum class OpType : uint8_t {
     // A glyph: pen position (x0, y0), the glyph slot, the colour. Under
-    // DrawRules::word_width_held, x1 is how far the gap from the glyph before
-    // it is rounded up, in pixels (down, if negative); zero otherwise.
+    // DrawRules::word_width_held or word_glyphs_held, x1 is how far the gap
+    // from the glyph before it is rounded up, in pixels (down, if negative);
+    // zero otherwise. Under word_glyphs_held, y1 is how far the glyph stands
+    // right of its laid-out distance from the first glyph of its word, in
+    // pixels; zero otherwise, and for a word's first glyph.
     TEXT,
     // AddRectFilled between (x0, y0) and (x1, y1).
     RECT_FILLED,
@@ -660,6 +728,7 @@ private:
                    const DrawArgs& args);
     void ops_to_units();
     double settle_word(size_t word_op, double drift);
+    double give_in_run(size_t word_op, size_t& floor_op, bool right);
 
     template<class Sink>
     void emit(Sink& sink, const ImVec4& clip, const DrawRules& rules);

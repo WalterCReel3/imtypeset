@@ -80,11 +80,19 @@ enum class Align : uint8_t { JUSTIFY = 0, LEFT, CENTER, RIGHT };
 
 // --- Font keys ----------------------------------------------------------------------
 
+// The most devices a key can tell apart: see FontSpec::device.
+constexpr uint32_t MAX_DEVICES = 0x7FF;
+
 // A face resolved at a size: what a FontKey names. `size` is the em size in
 // scaled points.
 struct FontSpec {
     Face face = Face::PROSE;
     Scaled size = 0;
+    // Zero: the face is measured from its font file, which is all the
+    // reference knows. Otherwise the number, from 1 to MAX_DEVICES, of a
+    // device (src/device.h): the face's advances are the ones the rasteriser
+    // bakes for that device, and mean something only to whoever numbered it.
+    uint16_t device = 0;
 
     // The key CHAR nodes carry. The size must be within [0, FontKey::MAX_SIZE].
     FontKey key() const;
@@ -92,11 +100,12 @@ struct FontSpec {
 
 // The key for a face at a size: the face id of a FontKey is the Face's value.
 // A size outside [0, FontKey::MAX_SIZE] is a contract violation and is clamped
-// (FontKey::make).
-FontKey font_key(Face face, Scaled size);
+// (FontKey::make). With a device, the face id is 0x4000 + 8 * device + the
+// Face's value: no face id from 7 to 0x3FFF is a key of this library's.
+FontKey font_key(Face face, Scaled size, uint16_t device = 0);
 
 // The inverse. False, leaving `out` alone, for a key whose face id is not one
-// of the seven Faces: a key minted by something else.
+// of the seven Faces, alone or with a device: a key minted by something else.
 bool parse_font_key(FontKey key, FontSpec* out);
 
 // The reference's spelling of a key, "prose-bold@789381", for messages and for

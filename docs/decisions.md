@@ -3947,3 +3947,233 @@ promises. It has a five-line `SnapPx` (floor of the value plus a half, in double
 **Decided: two sentences of the demo were false and are corrected.** The Specimen said the
 library "says nothing about a face" and the Formula gallery that it "does not say what a font
 covers"; `GetFontMetrics` (D66) and `FaceHasGlyph` answer both. The pages name the calls now.
+
+## D77. Text can be measured by the advances the rasteriser bakes, and code is by default (task `device-advances`, requests H34 and H35, 2026-10-12)
+
+Agent decisions, taken with nobody to ask, except the default, which is the lead's ruling for this
+task from the owner's words ("I think we need to tackle H34/H35. This is important to get the new
+diff interface working."). The owner's recorded preference for PROSE, from three pictures drawn by
+an older rule ("I think I prefer hinted", 2026-10-08), is theirs to restate: prose keeps the
+font's advances until they do, and the other way is one field away.
+
+**Found, reproduced before anything was changed** (`tests/test_device_advances.cpp` at commit
+`edbaddb`, release, FreeType 2.12.1 and stb_truetype, vertices read, no pixel; the raw rows are in
+`.concerns/device-advances--builder--repro-head.txt`). The two hosts' figures reproduce exactly at
+density 1. With every role the monospace file and a pixel height of 16: the font's advance is
+7.6263 px; a ruler of forty digits is drawn as fifteen steps of 7 and twenty-four of 8; its 40th
+character is at 297 drawn, 297.43 laid out, 312 in Dear ImGui's own text from the same atlas
+entry; eight rows of a fenced block differ at one column by 16 px; a glyph of a row of 74
+characters stands 16.91 px from the rectangle `GetDocumentRangeRects` answers for it; the
+selection's fill starts 13 px right of the first glyph selected; and of two points in every drawn
+cell, a quarter and three quarters across, 170 of 340 hit another character. At an em of 14, 16,
+18 and 20 everything is exact, because half an em is then a whole pixel.
+
+**Read** (`.deps/imgui`, v1.92.9):
+
+- FreeType loader (`ImGui_ImplFreeType_FontBakedLoadGlyph`): `AdvanceX` is
+  `slot->advance.x / 64 / rasterizer_density`. With hinting, which is its default
+  (`FT_LOAD_TARGET_NORMAL`), FreeType has rounded `slot->advance.x` to a whole pixel of the size it
+  rasterised at. So an entry baked at rasteriser density 1 has whole-pixel advances.
+- stb_truetype loader (`ImGui_ImplStbTrueType_FontBakedLoadGlyph`): `AdvanceX` is the font's
+  advance in font units times `ScaleFactor * baked->Size`. A fraction of a pixel, the same number
+  layout has when the baked size is the size asked for, and independent of the rasteriser density.
+- Both then pass through `ImFontAtlasBakedAddFontGlyph`: with `ImFontConfig::PixelSnapH` the
+  advance becomes `IM_ROUND(advance)`, **in units**, after the division by the density.
+- `ImFont::RenderText` adds each character's advance to a float pen and does not round it. Its
+  pens are whole pixels exactly when the advances are.
+- `ImFont::GetFontBaked(size)` rounds the size to a whole number (`GetRoundedFontSize`) whatever
+  the density; `ImDrawList::AddText(font, size, ...)` with a size that is not whole draws the
+  whole-size entry scaled, on fractional pens (the hosts measured this; it is what the code does).
+
+**Decided: a second way to measure a character, chosen by a style.** `ImTypesetAdvances_` has
+`Font` (the font file's advance, scaled, with its kerns: what everything was measured by until
+now), `Device` (below) and `Default`. `ImTypesetStyle::Advances` says it for a paragraph, a widget
+or a document, and `ImTypesetBlockStyle::Advances` for the blocks of one style (0 there is the
+document's). The unit of choice is the style and not a flag of a block or a run: it is a property
+of how a kind of text looks, like its face, and a host states those in styles; a run needs none,
+because `Default` already measures a Code-face run on the device inside prose.
+
+**Decided: the device's advance** of a character is the `AdvanceX` of its glyph in the atlas entry
+the draw loop will draw that face from, at that size, on that display, **rounded to a whole
+framebuffer pixel, half up**, and there are **no pair kerns** (`src/device.{h,cpp}`). The entry is
+found by the one function the draw loop finds it by (`face_bake` in `src/draw.cpp`, factored out
+of the binder for this), so the two cannot name different entries: a size is corrected to ImGui's
+pixel height and rounded by ImGui, at density 1 in the font's own entry and above it at the size
+in framebuffer pixels with rasteriser density 1 (D72). The rounding is the identity under every
+hinting FreeType mode; under stb_truetype, and FreeType told not to hint, it is the library's
+own, and it is what `PixelSnapH` does at density 1.
+
+**Why this makes the four requirements true by construction.** The draw loop places a glyph by
+the gap from the glyph before it, rounded to a pixel (the reference's `advance` rule, which the
+owner chose over `whole`). A gap that is a whole number of pixels in the layout rounds to itself.
+So within a rigid span nothing gathers: each glyph is at exactly its laid-out distance from the
+span's first, every step is the advance layout used, and N characters of one advance take N times
+it. A Code block passes its spaces as characters, so a row is one span. The draw loop needed no
+new rule, and none was added for this.
+
+**Decided: `Default` is the two Code faces on the device and every other face by its font**
+(the lead's ruling). It is a rule of the product's layout, `TexRules::code_on_device`: under
+`TexRules::reference()` `Default` is `Font`, so every replay of the reference's goldens through
+the public calls is byte for byte what it was (no golden was touched; the whole suite passes).
+An explicit `Device` is the device under either set of rules.
+
+**Decided: a key says how it was measured.** A font key carries a device number (`FontSpec::
+device`; face id `0x4000 + 8 * device + face`, so no id from 7 to `0x3FFF` became a key), and a
+context numbers the devices it meets: a device is the units to the inch and the framebuffer
+pixels to the unit, which with the face and the em are everything a baked advance depends on. The
+memo of measurements, a paragraph's material and a block's layout are keyed by the key, so a
+character measured for one display is never taken for the same character on another, and
+returning to a display finds its number again. 2,047 numbers; when they run out (a host animating
+`PixelsPerInch`) the table starts again under a new epoch and what was resolved before is stale.
+
+**A layout made this way is for one size on one display, by construction.** That is the relation
+to `docs/vector-output.md`'s first proposed rule ("a laid-out object never holds a pixel
+decision"), which is a proposal and was not accepted: text measured by its FONT still keeps it,
+positions are still scaled points everywhere, and no call returns snapped geometry; but text
+measured on the DEVICE holds one, on purpose: its advances are pixel sizes of one display. A
+host that wants a layout it can redraw at any zoom, or export, sets `ImTypesetAdvances_Font`.
+What keeps the device kind sound is that the device is part of the style as resolved
+(`ResolvedStyle::device`, `device_faces`, `device_epoch`): `LayoutParagraph`, the widgets and
+`LayoutDocument` resolve it at each call, and a document also looks whenever it is drawn or asked
+anything (`ready`), so a window moved to another display is laid out again with no call from the
+host. A style that measures no face on a device has none and is the same style on every display.
+
+**Measured** (`tests/test_device_advances.cpp`, 14 tests; debug and release, FreeType 2.12.1 and
+stb_truetype; densities 1 and 2; an em and a pixel height of 14 to 20; the usual faces and all
+roles the monospace file: 56 pages a way of measuring):
+
+| | on the device (code by default; everything under `Device`) | by the font (`Font`) |
+|---|---|---|
+| a glyph from the rectangle answered for it, worst | under 1/256 px (the rounding of advances to scaled points) | 1.00 px (was 18.2) |
+| sizes of step in the eight rows | 1 on every page | two |
+| two rows at one column, worst | 0 px | 1 px (was 17) |
+| the ruler's 40th character at pixel height 16, mono: drawn / laid out / ImGui | 312 / 312.00 / 312 | 297 / 297.43 / 312 |
+| pens against ImGui's own for the ruler and the 74-character row | 0.000 px on all 49 pages where ImGui has that size, FreeType; see stb below | not the same advances |
+| selection fill's edges less the pens | 0 / 0 | within 1 px |
+| caret less pen, worst | under 1/256 px | 1.00 px |
+| points in drawn cells that hit another character | 0 of 19,040 code + 4,368 prose | 0 of 23,408 (was 170 of 340 on the page above) |
+
+The 7 pages not compared with ImGui are at density 2 where the face's size in framebuffer pixels
+is odd: ImGui draws whole sizes of units only, so it has no line to stand beside.
+
+**stb_truetype, and any loader that does not hint: what "baked" means there.** The entry's
+advance is the font's own and ImGui's pens are at fractions of a pixel, so "ImGui's pens" and "on
+whole pixels" cannot both hold. Promised and asserted under stb: the first three requirements
+exactly as under FreeType (the rounding is the library's), and the device's advance equal to
+ImGui's rounded half up at density 1. The fourth holds where the host bakes the font with
+`ImFontConfig::PixelSnapH` at density 1 (asserted, 28 pages, under both loaders). At a density
+above 1 `PixelSnapH` rounds in units where the library rounds in framebuffer pixels, and stb's
+advance is that of the size in units where the library's entry is the size in framebuffer pixels:
+there ImGui's own text in the font is not on the library's grid under stb, with or without the
+flag. **Not changed:** the library does not set `PixelSnapH` on the fonts it adds. It was weighed
+for the Code roles and left out: under FreeType at density 2 it moves ImGui's own advance OFF the
+grid wherever the entry's advance is an odd number of framebuffer pixels (15 is 7.5 units, which
+it rounds to 8), where without it the two agree (*measured*: the test of `PixelSnapH` asserts
+both halves at density 2).
+
+**Decided: kerns, formulas, borrowed characters.** No kerns on the device (ImGui's text has
+none, and a kern is a fraction of a pixel): *measured*, "AVATAR Wavy To" has at least four kerned
+pairs by the font and none on the device. A formula is set by the math font's own advances and
+its MATH table whatever the style says, and is drawn from the edge of its box (D47): *measured*,
+no glyph of a formula carries a device key and its glyphs stand where they stood. A character its
+face lacks is set from another face measured the same way as the text it stands in, so a line on
+the device stays on whole pixels; it is still not one cell wide (`FaceHasGlyph`).
+
+**Decided: tables, exact line heights, marks, columns** need nothing: a cell's text is material
+like a paragraph's and takes the block's way of measuring (the widths a held table keeps are
+started afresh when the key of the block's font changes); `FixedLineHeight` is vertical; a mark's
+rectangles are layout's, which the glyphs now stand on; columns cut lines, which are laid out
+before. **Not measured for device text:** a table's cells, a mark's fill (the selection's fill
+is, and is the same rectangles), text in columns.
+
+**Decided: the two queries.** `GetFontMetrics` and `GetGlyphAdvance` answer the FONT's numbers,
+as before, whatever any style says, and their comments say so. New: `GetDeviceGlyphAdvance(face,
+codepoint, style, scale)` answers the advance layout uses for device text of that style on the
+display as it is now (the width of a cell of code), by the same path layout takes, so a host
+never has to reproduce the size arithmetic. It needs the ImGui context and bakes the glyph.
+
+**What it costs.** *Measured*, release, `bench/bench_code.cpp`, 5,000 lines of code (327 kB),
+one-minute load average 6 to 10 from other sessions on the machine, so these are not timings to
+quote: laid out whole 19 to 21 ms by either measure, and 20 to 24 ms at a size not met before; a
+steady frame of a window 51 to 59 us by either; the
+first frame after the display's density changed 0.27 ms as 250 blocks of twenty lines (the
+blocks in view and one pass over the rest) and 17 to 19 ms as ONE block of 5,000 lines (a block
+is laid out whole); by the font's advances a density change costs nothing. With the work
+counters (`tests/test_device_advances.cpp`): 2,000 blocks, a density change with no call but the
+draw goes over every block once without breaking a line and lays out exactly the blocks the
+window shows; an appended line lays out its one block; a size change costs the same as a density
+change; a document measured by its fonts does nothing at all. Glyphs are baked at layout time
+for device text: every character laid out, not only those drawn.
+
+**The sidecar.** The library now reads `ImFontGlyph::AdvanceX` at layout time. It has a fact row
+and a probe row (`ImFontGlyph.AdvanceX`: the wheel's own accessor against the compiled offset,
+for three glyphs), 26 rows in all; `tools/bundle_route/mutate_gate.py` moves the offset three
+ways and each is caught. `tools/bundle_route/check_device_advances.py` is new: in both wheels'
+environments (imgui-bundle 1.92.900 and 1.92.801, stand-in headers) the device's advance is the
+wheel's own entry's, whole, at densities 1 and 2, 70 checks each.
+
+**Not decided here, and the lead's or the owner's:** the version. The two host-filled structs
+grew by a field and a default changed, which by `docs/versioning.md` is a minor version;
+`IMTYPESET_VERSION` was left at 0.3.0 and the changelog entry is under "Unreleased".
+
+**Not measured:** a Retina display (D72's list stands); FreeType's light and mono hinting modes
+and `ImGuiFreeTypeLoaderFlags_NoHinting` (whichever of them leaves an advance fractional is
+rounded in `src/device.cpp` as stb_truetype's is, so the first three requirements do not depend
+on the mode; whether ImGui's own pens then agree was not run for any of the three);
+a host that changes the atlas's loader or its flags after text was laid out (the memo is then
+stale until the role's fonts are added again); pictures on any display but the software
+renderer's.
+
+## D78. Under the product's rules every glyph of a word is held within a pixel of its place in the word (task `device-advances`, request H35, 2026-10-12)
+
+Agent decision. D48 held a word's two ends and said a glyph in the middle of a long word is held
+by nothing. The hosts measured what that comes to in text of one advance: every gap rounds the
+same way, the earliest give, and the middle of a row is out by the row's length times what the
+rounding loses, 16.9 px in a row of 74 characters and 9.8 px in a number of 40 digits. The caret,
+the selection and the hit test answer from layout, so they stood that far from the glyph.
+
+**Decided: bound the glyph, not move the answers.** `DrawRules::word_glyphs_held`, on in
+`product()`: as each glyph of a word is placed, its distance from the word's first is compared
+with the laid-out one, and when it is more than a pixel out (`WORD_GLYPH_BOUND_PX`) one gap
+before it gives. The gap is the one rounded furthest that way among those into the glyphs,
+placed since a gap last gave, that have stood on that side of their places without a break (the
+earliest of equals); moving them a pixel leaves none more than a pixel beyond its place. At the
+word's end the same choice is made once more if the last glyph is more than half a pixel out,
+which is D48's bound on a word's width, kept. A step is still its laid-out size rounded down or
+up, and a word is still one picture wherever it stands. The other way, answering carets and
+rectangles from drawn positions, was not taken: those positions depend on the origin's fraction
+of a pixel and on what leads the word along the line, so every selection query would have needed
+a placement, and a layout's answers would no longer be the layout's.
+
+**The bound that is asserted for text measured by its font:** with a word's first glyph less
+than a pixel from its own place (D50), **every glyph is drawn less than two pixels from where
+layout has it**, however long the word (`tests/test_device_advances.cpp`, all 56 pages; the
+worst measured is 1.00 px, since a row there starts on a pixel).
+
+**Measured: what it costs the evenness of letters**, which is the axis the owner chose the
+`advance` rule on (`tests/test_word_gaps.cpp`, its tallies before and after, the bundled faces
+at 13 to 20 px as an em and as a font size, 150,624 pairs of neighbouring glyphs; files
+`.concerns/device-advances--builder--word-gaps-{before,after}.txt`):
+
+| pairs of glyphs off their laid-out distance by more than | before | after |
+|---|---|---|
+| 0.5 px | 13,348 (8.86 %) | 13,660 (9.07 %) |
+| 0.6 px | 3,632 | 3,834 |
+| 0.75 px | 118 | 146 |
+| the furthest a glyph of a word stands from its own place | 2.80 px | 1.91 px |
+
+Spaces between words are unchanged, to the digit: a word's last glyph is where D48 put it.
+
+**How it is done, and its cost a frame.** A first form kept the best gap of each run as every
+glyph was placed and cost the draw loop about a tenth on `bench_draw`'s full draw (two
+comparisons a glyph that do not predict). The form kept stores how far each glyph stands from
+its distance with its op (`DrawOp::y1`, unused for a glyph before) and looks backward for the gap
+only when a glyph passes the bound, no further than where a gap last gave, so the work over a
+word still grows with its length whatever its roundings (the test of a word of 20,000 glyphs,
+which now also asserts the bound on each of them). *Measured*, release, the best of six runs of
+each build taken in turn at a load average of 5 to 14: full draw of the sample 149.3 us before,
+150.6 after; a hundred times it 17.30 ms and 18.14. Inside the noise of this machine today; not
+a timing to quote.
+
+**Kept:** `word_width_held` alone still chooses the gaps of the whole word (`settle_word`), and
+the tests that state that rule state it under that rule.

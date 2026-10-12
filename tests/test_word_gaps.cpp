@@ -412,6 +412,13 @@ enum class Rule {
     // narrower than it was laid out, the gap that was rounded furthest in
     // that direction is rounded the other way.
     NEAREST_TIE,
+    // ADVANCE, and every glyph is held within a pixel of its laid-out
+    // distance from the word's first: when one passes that, the gap rounded
+    // furthest that way among those into the glyphs that have stood on that
+    // side of their places without a break is rounded the other way; and
+    // once more at the word's end if its last glyph is more than `bound` out.
+    // DrawRules::word_glyphs_held.
+    HELD_GLYPHS,
 };
 
 struct RuleSet {
@@ -510,6 +517,63 @@ std::vector<double> pens_under(const Drawn& drawn, const RuleSet& set)
         const Scaled anchor_x = drawn.glyphs[first].x;
         // As the draw loop keeps them: in single precision.
         std::vector<float> excess(span.end - first, 0.0f);
+        if (set.rule == Rule::HELD_GLYPHS) {
+            // The best gap of the run of glyphs at or right of their places
+            // that ends at the glyph placed last, and of the run at or left:
+            // which gap of the word, and how far it was rounded that way.
+            size_t up = 0, down = 0;
+            float up_most = 0.0f, down_most = 0.0f;
+            size_t placed = first;
+            const auto give = [&](size_t gap, double sign) {
+                excess[gap] -= static_cast<float>(sign);
+                for (size_t i = first + gap; i <= placed; ++i)
+                    pens[i] -= sign;
+            };
+            for (size_t i = first + 1; i < span.end; ++i) {
+                const size_t gap = i - first;
+                const double step = px_of(drawn.glyphs[i].x - drawn.glyphs[i - 1].x, density);
+                const double rounded = snap(step);
+                pens[i] = pens[i - 1] + rounded;
+                excess[gap] = static_cast<float>(rounded - step);
+                placed = i;
+                const float lean = excess[gap];
+                const double drift =
+                    pens[i] - anchor_pen - px_of(drawn.glyphs[i].x - anchor_x, density);
+                if (drift < 0.0) {
+                    up_most = 0.0f;
+                } else if (lean > up_most) {
+                    up_most = lean;
+                    up = gap;
+                }
+                if (drift > 0.0) {
+                    down_most = 0.0f;
+                } else if (-lean > down_most) {
+                    down_most = -lean;
+                    down = gap;
+                }
+                if (drift > WORD_GLYPH_BOUND_PX && up_most > 0.0f) {
+                    const bool own = up == gap;
+                    give(up, 1.0);
+                    down_most = 0.0f;
+                    up_most = !own && lean > 0.0f ? lean : 0.0f;
+                    up = gap;
+                } else if (drift < -WORD_GLYPH_BOUND_PX && down_most > 0.0f) {
+                    const bool own = down == gap;
+                    give(down, -1.0);
+                    up_most = 0.0f;
+                    down_most = !own && lean < 0.0f ? -lean : 0.0f;
+                    down = gap;
+                }
+            }
+            const size_t last = span.end - 1;
+            const double drift =
+                pens[last] - anchor_pen - px_of(drawn.glyphs[last].x - anchor_x, density);
+            if (drift > set.bound && up_most > 0.0f)
+                give(up, 1.0);
+            else if (drift < -set.bound && down_most > 0.0f)
+                give(down, -1.0);
+            continue;
+        }
         for (size_t i = first + 1; i < span.end; ++i) {
             const double step = px_of(drawn.glyphs[i].x - drawn.glyphs[i - 1].x, density);
             const double exact = px_of(drawn.glyphs[i].x - anchor_x, density);
@@ -727,6 +791,7 @@ const RuleSet CANDIDATES[] = {
     {"tie 0.5+follow", Rule::NEAREST_TIE, 0.5, true, false},
     {"tie 0.75+follow", Rule::NEAREST_TIE, 0.75, true, false},
     {"tie 1.0+follow", Rule::NEAREST_TIE, 1.0, true, false},
+    {"held 0.5+follow", Rule::HELD_GLYPHS, 0.5, true, false},
 };
 constexpr size_t CANDIDATE_COUNT = sizeof(CANDIDATES) / sizeof(CANDIDATES[0]);
 
@@ -779,7 +844,7 @@ bool draw_case(Stage& stage, ImTypesetParagraph* p, const Case& c, float size, b
 }
 
 // What DrawRules::product() is, in the terms of `pens_under`.
-const RuleSet PRODUCT = {"product", Rule::NEAREST_TIE, WORD_WIDTH_BOUND_PX, true, true};
+const RuleSet PRODUCT = {"product", Rule::HELD_GLYPHS, WORD_WIDTH_BOUND_PX, true, true};
 
 long pens_that_differ(const Drawn& drawn, const RuleSet& set)
 {
@@ -1411,41 +1476,57 @@ TEST(a_list_with_an_index_repeated_and_half_its_glyphs_missing_is_held_like_any_
     // Not what ship-out makes: every command carries one index and every
     // other glyph is missing. The hold works from the glyphs that were
     // placed and nothing else: a hundred of them 2.98 px apart, each gap
-    // rounded up to 3, are 1.98 px too wide together, and the first two gaps
-    // give.
+    // rounded up to 3, are 1.98 px too wide together, and two gaps give.
     const FontKey key = font_key(Face::PROSE, 20 * UNITY);
     const Scaled y = 20 * UNITY;
     std::vector<DrawCmd> commands;
     for (uint32_t i = 0; i < 200; ++i)
         commands.push_back(DrawCmd::glyph(key, i % 2 == 0 ? 'a' : 'M', hundredths(149) * i, y, 7));
     DrawStats stats;
+    // With the word's two ends alone held: the first two.
+    const std::vector<float> ends = pens_of(commands, only_held(), 0.0f, &stats);
+    REQUIRE_EQ(ends.size(), size_t(100));
+    CHECK_EQ(stats.missing, 100);
+    CHECK_EQ(ends[1], 2.0f);
+    CHECK_EQ(ends[2], 4.0f);
+    for (size_t i = 3; i < ends.size(); ++i)
+        CHECK_EQ(ends[i], static_cast<float>(3 * i - 2));
+    // With every glyph held: the fiftieth glyph after the first is the first
+    // to stand more than a pixel right of its place (fifty gaps each rounded
+    // up by 0.02002: a hundredth here is 655 scaled points and not 655.36),
+    // and the first gap gives, the earliest of fifty alike. From there the
+    // last glyph gathers 0.98 px more, which is past the half a word's end
+    // is held to, and the earliest gap of its run gives: the fiftieth, the
+    // one into the glyph the first give brought back.
+    stats = DrawStats();
     const std::vector<float> pens = pens_of(commands, DrawRules::product(), 0.0f, &stats);
     REQUIRE_EQ(pens.size(), size_t(100));
     CHECK_EQ(stats.missing, 100);
-    CHECK_EQ(pens[1], 2.0f);
-    CHECK_EQ(pens[2], 4.0f);
-    for (size_t i = 3; i < pens.size(); ++i)
-        CHECK_EQ(pens[i], static_cast<float>(3 * i - 2));
+    for (size_t i = 1; i < pens.size(); ++i)
+        CHECK_EQ(pens[i], static_cast<float>(i < 50 ? 3 * i - 1 : 3 * i - 2));
 }
 
 TEST(a_word_of_twenty_thousand_glyphs_is_held_and_the_work_is_not_its_length_times_its_drift)
 {
     // Every gap is 1.45 px and rounds to 1: the word is some nine thousand
-    // pixels narrower than it was laid out, and that many gaps give. They are
-    // all rounded alike, so they are the first that many. Placing it a
-    // hundred times takes no time worth measuring when each is one pass over
-    // the word, and minutes when each is a pass a pixel.
+    // pixels narrower than it was laid out, and that many gaps give. Placing
+    // it a hundred times takes no time worth measuring when each is one pass
+    // over the word, and minutes when each is a pass a pixel.
     const FontKey key = font_key(Face::PROSE, 20 * UNITY);
     const Scaled y = 20 * UNITY;
     const uint32_t glyphs = 20000;
     std::vector<DrawCmd> commands;
     for (uint32_t i = 0; i < glyphs; ++i)
         commands.push_back(DrawCmd::glyph(key, 'a', hundredths(145) * i, y, i));
+    const double laid_out = px_from_sp(commands.back().x, PT_PER_INCH);
+    const size_t wanted = static_cast<size_t>(std::ceil(laid_out - 19999.0 - WORD_WIDTH_BOUND_PX));
+
+    // The word's two ends alone held: the gaps are all rounded alike, so
+    // those that give are the first that many.
     std::vector<float> pens;
     for (int pass = 0; pass < 100; ++pass)
-        pens = pens_of(commands, DrawRules::product(), 0.0f);
+        pens = pens_of(commands, only_held(), 0.0f);
     REQUIRE_EQ(pens.size(), size_t(glyphs));
-    const double laid_out = px_from_sp(commands.back().x, PT_PER_INCH);
     CHECK(std::fabs(static_cast<double>(pens.back()) - laid_out) <= WORD_WIDTH_BOUND_PX);
     size_t wide = 0;
     bool in_order = true;
@@ -1459,7 +1540,29 @@ TEST(a_word_of_twenty_thousand_glyphs_is_held_and_the_work_is_not_its_length_tim
         }
     }
     CHECK(in_order);
-    CHECK_EQ(wide, static_cast<size_t>(std::ceil(laid_out - 19999.0 - WORD_WIDTH_BOUND_PX)));
+    CHECK_EQ(wide, wanted);
+
+    // Every glyph held: as many give, spread along the word, and no glyph is
+    // more than a pixel from its laid-out distance to the first. Under the
+    // rule above the middle of this word is four and a half thousand pixels
+    // from it.
+    for (int pass = 0; pass < 100; ++pass)
+        pens = pens_of(commands, DrawRules::product(), 0.0f);
+    REQUIRE_EQ(pens.size(), size_t(glyphs));
+    CHECK(std::fabs(static_cast<double>(pens.back()) - laid_out) <= WORD_WIDTH_BOUND_PX);
+    wide = 0;
+    bool steps = true;
+    double furthest = 0.0;
+    for (size_t i = 1; i < pens.size(); ++i) {
+        const float gap = pens[i] - pens[i - 1];
+        steps = steps && (gap == 1.0f || gap == 2.0f);
+        wide += gap == 2.0f ? 1 : 0;
+        furthest = std::max(furthest, std::fabs(static_cast<double>(pens[i]) -
+                                                px_from_sp(commands[i].x, PT_PER_INCH)));
+    }
+    CHECK(steps);
+    CHECK_EQ(wide, wanted);
+    CHECK(furthest <= WORD_GLYPH_BOUND_PX);
 }
 
 TEST(the_gaps_that_give_are_the_ones_rounded_furthest_whatever_their_roundings_are)

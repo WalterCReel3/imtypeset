@@ -195,6 +195,7 @@ IMTYPESET_BUNDLE_EXPORT int ImTypesetBundle_LayoutFacts(char* out, int out_size)
         FACT(ImFont, Sources),
         FACT(ImFontBaked, Size),
         FACT(ImFontBaked, Ascent),
+        FACT(ImFontGlyph, AdvanceX),
         FACT(ImDrawList, VtxBuffer),
         FACT(ImDrawList, IdxBuffer),
         FACT(ImDrawList, _VtxCurrentIdx),

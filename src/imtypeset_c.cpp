@@ -95,6 +95,7 @@ IMTYPESET_C_FIELD(ImTypeset_Style, ImTypesetStyle, LineBreak);
 IMTYPESET_C_FIELD(ImTypeset_Style, ImTypesetStyle, PixelsPerInch);
 IMTYPESET_C_FIELD(ImTypeset_Style, ImTypesetStyle, Color);
 IMTYPESET_C_FIELD(ImTypeset_Style, ImTypesetStyle, SelectionColor);
+IMTYPESET_C_FIELD(ImTypeset_Style, ImTypesetStyle, Advances);
 
 IMTYPESET_C_MIRROR(ImTypeset_Run, ImTypesetRun);
 IMTYPESET_C_FIELD(ImTypeset_Run, ImTypesetRun, Start);
@@ -186,6 +187,9 @@ IMTYPESET_C_ENUM(Spacing, TeX);
 IMTYPESET_C_ENUM(LineBreak, Auto);
 IMTYPESET_C_ENUM(LineBreak, FirstFit);
 IMTYPESET_C_ENUM(LineBreak, TotalFit);
+IMTYPESET_C_ENUM(Advances, Default);
+IMTYPESET_C_ENUM(Advances, Font);
+IMTYPESET_C_ENUM(Advances, Device);
 IMTYPESET_C_ENUM(Granularity, Character);
 IMTYPESET_C_ENUM(Granularity, Word);
 IMTYPESET_C_ENUM(Granularity, Line);
@@ -232,6 +236,7 @@ IMTYPESET_C_FIELD(ImTypeset_BlockStyle, ImTypesetBlockStyle, Color);
 IMTYPESET_C_FIELD(ImTypeset_BlockStyle, ImTypesetBlockStyle, MarkerFace);
 IMTYPESET_C_FIELD(ImTypeset_BlockStyle, ImTypesetBlockStyle, MarkerColor);
 IMTYPESET_C_FIELD(ImTypeset_BlockStyle, ImTypesetBlockStyle, MarkerGap);
+IMTYPESET_C_FIELD(ImTypeset_BlockStyle, ImTypesetBlockStyle, Advances);
 IMTYPESET_C_MIRROR(ImTypeset_Container, ImTypesetContainer);
 IMTYPESET_C_FIELD(ImTypeset_Container, ImTypesetContainer, Kind);
 IMTYPESET_C_FIELD(ImTypeset_Container, ImTypesetContainer, Parent);
@@ -835,6 +840,17 @@ int ImTypeset_GetFontMetrics(ImTypeset_Face face, float em_size, ImTypeset_FontM
 float ImTypeset_GetGlyphAdvance(ImTypeset_Face face, float em_size, unsigned int codepoint)
 {
     return guarded(0.0f, [&]() { return ImTypeset::GetGlyphAdvance(face, em_size, codepoint); });
+}
+
+float ImTypeset_GetDeviceGlyphAdvance(ImTypeset_Face face, unsigned int codepoint,
+                                      const ImTypeset_Style* style, float scale)
+{
+    return guarded(0.0f, [&]() {
+        if (style == nullptr)
+            return ImTypeset::GetDeviceGlyphAdvance(face, codepoint, nullptr, scale);
+        const ImTypesetStyle given = mirror<ImTypesetStyle>(*style);
+        return ImTypeset::GetDeviceGlyphAdvance(face, codepoint, &given, scale);
+    });
 }
 
 int ImTypeset_GetFontAtlasIndex(ImTypeset_Face face)

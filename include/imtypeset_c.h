@@ -172,6 +172,7 @@ typedef int ImTypeset_DocumentDrawFlags; /* ImTypeset_DocumentDrawFlags_ */
 typedef int ImTypeset_DemoSection;       /* ImTypeset_DemoSection_ */
 typedef int ImTypeset_CellFlags;         /* ImTypeset_CellFlags_ */
 typedef int ImTypeset_ColumnFlags;       /* ImTypeset_ColumnFlags_ */
+typedef int ImTypeset_Advances;          /* ImTypeset_Advances_ */
 
 /* Every value below is the value of the C++ enumerator of the same name. */
 
@@ -204,6 +205,12 @@ enum ImTypeset_LineBreak_ {
     ImTypeset_LineBreak_Auto = 0,
     ImTypeset_LineBreak_FirstFit = 1,
     ImTypeset_LineBreak_TotalFit = 2
+};
+
+enum ImTypeset_Advances_ {
+    ImTypeset_Advances_Default = 0,
+    ImTypeset_Advances_Font = 1,
+    ImTypeset_Advances_Device = 2
 };
 
 enum ImTypeset_Granularity_ {
@@ -335,6 +342,7 @@ typedef struct ImTypeset_Style { /* ImTypesetStyle */
     float PixelsPerInch;
     ImTypeset_U32 Color;
     ImTypeset_U32 SelectionColor;
+    ImTypeset_Advances Advances;
 } ImTypeset_Style;
 
 typedef struct ImTypeset_Run { /* ImTypesetRun */
@@ -427,6 +435,7 @@ typedef struct ImTypeset_BlockStyle { /* ImTypesetBlockStyle */
     ImTypeset_Face MarkerFace;
     ImTypeset_U32 MarkerColor;
     float MarkerGap;
+    ImTypeset_Advances Advances;
 } ImTypeset_BlockStyle;
 
 typedef struct ImTypeset_Container { /* ImTypesetContainer */
@@ -782,6 +791,11 @@ IMTYPESET_C_API int ImTypeset_GetFontMetrics(ImTypeset_Face face, float em_size,
  * pixels; 0 wherever ImTypeset_GetFontMetrics() fails. */
 IMTYPESET_C_API float ImTypeset_GetGlyphAdvance(ImTypeset_Face face, float em_size,
                                                 unsigned int codepoint);
+/* The advance of one character of the role's font as text that `style` sets
+ * and measures on the device has it, in pixels; `style` may be null (the
+ * context's) and a `scale` of 0 is 1. 0 on failure, with the reason. */
+IMTYPESET_C_API float ImTypeset_GetDeviceGlyphAdvance(ImTypeset_Face face, unsigned int codepoint,
+                                                      const ImTypeset_Style* style, float scale);
 
 /* --- Widgets ---------------------------------------------------------------------- */
 

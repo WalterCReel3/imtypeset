@@ -1415,6 +1415,55 @@ class Requests(unittest.TestCase):
             ts.font_metrics(99, 16.0)
         self.assertEqual(raised.exception.code, ts.ErrorCode.InvalidArgument)
 
+    def test_code_is_measured_on_the_device_and_a_style_can_say_otherwise(self):
+        rows = "0123456789\nabcdefghij"
+        base = dict(FontSize=16.0, Align=ts.Align.Left)
+        cell = ts.device_glyph_advance(ts.Face.Code, "0", ts.Style(**base))
+        # The window is at density 1: a whole pixel, for every character.
+        self.assertGreater(cell, 0.0)
+        self.assertAlmostEqual(cell, round(cell), places=3)
+        self.assertEqual(ts.device_glyph_advance(ts.Face.Code, ord("i"), ts.Style(**base)), cell)
+        # The font's own advance at that size is not whole: Inconsolata is
+        # half an em wide and the em of a 16 px line of Roboto is 13.65 px.
+        em = 16.0 * 2048 / 2400
+        font_cell = ts.glyph_advance(ts.Face.Code, em, "0")
+        self.assertAlmostEqual(font_cell, em / 2, places=4)
+        self.assertNotAlmostEqual(cell, font_cell, places=1)
+
+        def width(advances, block_advances=None):
+            styles = () if block_advances is None else [ts.BlockStyle(Advances=block_advances)]
+            document = ts.Document.from_blocks([ts.Block(ts.BlockKind.Code, rows)], styles)
+            self.addCleanup(document.close)
+            document.layout(600.0, ts.Style(Advances=advances, **base))
+            line = document.block_line(0, 1)
+            return line.max[0] - line.min[0]
+
+        # By default a block of code is on the device's advances, ten cells
+        # to ten characters; a style can put it on the font's, and a block
+        # style can say either whatever the document's says.
+        self.assertAlmostEqual(width(ts.Advances.Default), 10 * cell, places=3)
+        self.assertAlmostEqual(width(ts.Advances.Device), 10 * cell, places=3)
+        self.assertAlmostEqual(width(ts.Advances.Font), 10 * font_cell, places=3)
+        self.assertAlmostEqual(width(ts.Advances.Default, ts.Advances.Font), 10 * font_cell, places=3)
+        self.assertAlmostEqual(width(ts.Advances.Font, ts.Advances.Device), 10 * cell, places=3)
+        # A value that is not one is the default.
+        self.assertAlmostEqual(width(99), 10 * cell, places=3)
+        # A scale is a block style's or a run's.
+        self.assertEqual(
+            ts.device_glyph_advance(ts.Face.Code, "0", ts.Style(**base), 2.0),
+            ts.device_glyph_advance(ts.Face.Code, "0", ts.Style(FontSize=32.0)),
+        )
+        # The style's own Advances is not read: the device is what is asked.
+        self.assertEqual(
+            ts.device_glyph_advance(ts.Face.Code, "0", ts.Style(Advances=ts.Advances.Font, **base)), cell
+        )
+        with self.assertRaises(ts.Error) as raised:
+            ts.device_glyph_advance(ts.Face.Code, "\u4e2d")
+        self.assertEqual(raised.exception.code, ts.ErrorCode.InvalidArgument)
+        with self.assertRaises(ts.Error) as raised:
+            ts.device_glyph_advance(99, "a")
+        self.assertEqual(raised.exception.code, ts.ErrorCode.InvalidArgument)
+
     def test_face_has_glyph_answers_for_the_role_alone(self):
         self.assertTrue(ts.face_has_glyph(ts.Face.Code, "A"))
         self.assertTrue(ts.face_has_glyph(ts.Face.Code, ord("A")))
@@ -2319,6 +2368,28 @@ TABLE = [
     ("glyph_advance", "char=inf", O, lambda x: ts.glyph_advance(ts.Face.Regular, 16.0, INF)),
     ("glyph_advance", "char=-1, 2**40, a lone surrogate: the missing glyph's", OK,
      lambda x: [ts.glyph_advance(ts.Face.Regular, 16.0, c) for c in (-1, 2**40, LONE)]),
+    ("device_glyph_advance", "face=None", T, lambda x: ts.device_glyph_advance(None, "a")),
+    ("device_glyph_advance", "face=99", E, lambda x: ts.device_glyph_advance(99, "a")),
+    ("device_glyph_advance", "char=''", T, lambda x: ts.device_glyph_advance(ts.Face.Regular, "")),
+    ("device_glyph_advance", "char='ab'", T, lambda x: ts.device_glyph_advance(ts.Face.Regular, "ab")),
+    ("device_glyph_advance", "char=None", T, lambda x: ts.device_glyph_advance(ts.Face.Regular, None)),
+    ("device_glyph_advance", "char=nan", V, lambda x: ts.device_glyph_advance(ts.Face.Regular, NAN)),
+    ("device_glyph_advance", "char=inf", O, lambda x: ts.device_glyph_advance(ts.Face.Regular, INF)),
+    ("device_glyph_advance", "char=-1: no character", E,
+     lambda x: ts.device_glyph_advance(ts.Face.Regular, -1)),
+    ("device_glyph_advance", "char=2**40: no character", E,
+     lambda x: ts.device_glyph_advance(ts.Face.Regular, 2**40)),
+    ("device_glyph_advance", "a lone surrogate: the font has no such character", E,
+     lambda x: ts.device_glyph_advance(ts.Face.Regular, LONE)),
+    ("device_glyph_advance", "a character the role's font lacks", E,
+     lambda x: ts.device_glyph_advance(ts.Face.Code, "\u4e2d")),
+    ("device_glyph_advance", "style=1", T, lambda x: ts.device_glyph_advance(ts.Face.Regular, "a", 1)),
+    ("device_glyph_advance", "scale=None", T,
+     lambda x: ts.device_glyph_advance(ts.Face.Regular, "a", None, None)),
+    ("device_glyph_advance", "scale=10**400", O,
+     lambda x: ts.device_glyph_advance(ts.Face.Regular, "a", None, HUGE)),
+    ("device_glyph_advance", "scale=nan, inf, 0, -1: taken as 1", OK,
+     lambda x: [ts.device_glyph_advance(ts.Face.Regular, "a", None, s) for s in (NAN, INF, 0, -1.0)]),
     ("text", "text=None", T, lambda x: F(lambda: ts.text(None))),
     ("text", "text=bytes", T, lambda x: F(lambda: ts.text(b"abc"))),
     ("text", "a lone surrogate", U, lambda x: F(lambda: ts.text("a" + LONE))),
@@ -2751,7 +2822,7 @@ TABLE = [
     ("Style", "FontSize=10**400", O, lambda x: ts.Style(FontSize=HUGE)),
     ("Style", "a name that is no field, an int past a C int", OK, lambda x: ts.Style(Fontsize=3.0, Face=2**40)),
     ("BlockStyle", "Scale=None", T, lambda x: ts.BlockStyle(Scale=None)),
-    ("BlockStyle", "one value too many", T, lambda x: ts.BlockStyle(*range(12))),
+    ("BlockStyle", "one value too many", T, lambda x: ts.BlockStyle(*range(13))),
     ("Container", "Kind='x'", T, lambda x: ts.Container(Kind="x")),
     ("DocumentOptions", "CodeOverflow=1.5", T, lambda x: ts.DocumentOptions(CodeOverflow=1.5)),
 ]

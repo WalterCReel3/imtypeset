@@ -650,3 +650,40 @@ results. A gate that has not run both is not the final gate.
 - **Scratch Python goes in a `mktemp -d` directory, never directly in `$TMPDIR`**, and the reference interpreter is run with `-P -B`: the shared temp directory holds stray `.py` files from other sessions, one named `bisect.py`, which a builder's scratch script imported and ran by accident. See CLAUDE.md.
 - **Oracles for the document layer are complete**: `tests/golden/blocks`, `tests/golden/tables`, `tests/golden/doc`, with `tests/golden/MANIFEST.sha256` and `PROVENANCE.md` (`tools/oracle/manifest.py --check`; the last gate regenerates them). Positions are (block, byte offset into the text the host handed in) — see `.concerns/api-document--lead--notes.md`.
 - **API revision done** (D36, `.concerns/api-revise--builder-23--result.md`): source-byte offsets everywhere, content-keyed widget cache, `IMTYPESET_CHECKVERSION()`, one error model, `TextUnformatted`/`TextWithID`/`SelectableText`/`CalcTextSize`, line and caret geometry. A steady widget call is 1.03x-1.44x slower than before (cause not isolated): `harden-2` item X4. `docs/bindings-notes.md` §5 and `bindings/imgui_bundle/*` describe the OLD header: `c-api`/`dist` update them.
+
+## Two ways to measure a character (task `device-advances`, D77 and D78)
+
+For whoever next touches layout, the draw loop or a binding.
+
+- **A font key can carry a device.** `FontSpec::device`, face id `0x4000 + 8 * device + face`.
+  `parse_font_key` returns it; code that makes a key for ANOTHER face at the same size
+  (`stand_in`) must pass the device on, and code that makes keys for a formula must not: math
+  is measured by its font. A key with a device and a key without are different keys of one
+  face at one size, with different advances.
+- **Make a `FontSpec` through `ResolvedStyle::font(face, size)`**, never by filling face and
+  size: the style knows which faces it measures on the device, and a spec made by hand is
+  measured by the font whatever the style says. `resolve_spec` and `build_material_now` are
+  the two places that do it; a block with its own `Advances` takes `measured_style`.
+- **The device is part of the style as resolved, and the display's density is read when a
+  style is resolved.** Anything that keeps a layout must compare `ResolvedStyle::same_device`
+  as well as what it compared before, or it will keep a layout made for another display. A
+  document asks again in `ready`; nothing else does it for a paragraph, whose layout is
+  explicit.
+- **`face_bake` is the one place that says which atlas entry a face is drawn from.** The draw
+  loop and `src/device.cpp` both call it. A change to how a size is asked of ImGui made in one
+  of them and not there breaks the property the feature is: that the advance layout used is
+  the advance of the entry that is drawn.
+- **Nothing of ImGui's is read at layout time without `core::bound`, `backend_has_textures`
+  and `role_font_in_atlas`.** Layout can be asked for with the ImGui context gone. A
+  measurement that cannot be taken from the atlas is taken from the font file, and the memo
+  then holds a font advance under a device key until the fonts change; the styles that would
+  use it resolve to no device while the context is away, so it is not reached.
+- **`validate_fonts` must not be called from inside a measurement**: it can clear the memo
+  that is being written to. `resolve_device` calls it, before any key is made.
+- **The reference has none of this.** Under `TexRules::reference()` the default measures
+  every face by its font and the goldens replay as they did; `DrawRules::reference()` does
+  not hold glyphs. `Device` asked for outright works under either, and no golden asks.
+- **A test that compares pens with layout** compares to `EXACT_PX` (1/256 px), not to zero: a
+  pen is a whole pixel and a laid-out position is a sum of advances each rounded to a scaled
+  point. That is the unit's rounding and not a tolerance on a golden; no golden comparison
+  has one.

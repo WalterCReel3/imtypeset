@@ -156,23 +156,39 @@ void strip(const uint32_t* text, size_t& first, size_t& last)
 
 // --- Font keys ----------------------------------------------------------------------
 
+// A key with a device: this bit of its face id, the device's number above the
+// three bits of the Face's value.
+constexpr uint32_t DEVICE_KEY = 0x4000;
+
 FontKey FontSpec::key() const
 {
-    return font_key(face, size);
+    return font_key(face, size, device);
 }
 
-FontKey font_key(Face face, Scaled size)
+FontKey font_key(Face face, Scaled size, uint16_t device)
 {
-    return FontKey::make(static_cast<uint32_t>(face), size);
+    uint32_t id = static_cast<uint32_t>(face);
+    if (device != 0 && IMTYPESET_CONTRACT(device <= MAX_DEVICES, "font_key: no such device"))
+        id |= DEVICE_KEY | (static_cast<uint32_t>(device) << 3);
+    return FontKey::make(id, size);
 }
 
 bool parse_font_key(FontKey key, FontSpec* out)
 {
-    if (key.face() >= static_cast<uint32_t>(FACE_COUNT))
+    uint32_t id = key.face();
+    uint32_t device = 0;
+    if ((id & DEVICE_KEY) != 0) {
+        device = (id & ~DEVICE_KEY) >> 3;
+        id &= 7u;
+        if (device == 0)
+            return false;
+    }
+    if (id >= static_cast<uint32_t>(FACE_COUNT))
         return false;
     if (out != nullptr) {
-        out->face = static_cast<Face>(key.face());
+        out->face = static_cast<Face>(id);
         out->size = key.size();
+        out->device = static_cast<uint16_t>(device);
     }
     return true;
 }
@@ -485,7 +501,9 @@ StandIn stand_in(const Composition& composition, MetricsResolver resolve, FontKe
             seen = seen || order[j] == face;
         if (seen)
             continue;
-        const FontKey other = face == bound.face ? key : font_key(face, bound.size);
+        // Measured as the text it stands in is, so that a line set from the
+        // device's advances stays on them where a character is borrowed.
+        const FontKey other = face == bound.face ? key : font_key(face, bound.size, bound.device);
         const FontMetrics* metrics = resolve(other);
         if (metrics == nullptr)
             continue;

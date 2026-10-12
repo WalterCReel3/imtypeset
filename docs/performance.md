@@ -1035,6 +1035,57 @@ mark of this benchmark is Ink or Behind, so the window is not widened in it.
 alternately with this one, which is what would say what that pass costs; a
 draw with Under marks; a quiet machine.
 
+## Code measured on the device, and every glyph held (task `device-advances`, D77, D78)
+
+**Not results from a quiet machine.** 2026-10-12, a private directory configured as the
+`release` preset (`-O3 -DNDEBUG -ffp-contract=off -fno-exceptions -fno-rtti`, GCC 12.2.0,
+FreeType 2.12.1, AMD Ryzen 7 PRO 4750U), with the one-minute load average between 5 and 14
+from other sessions' work throughout. Read the ratios between rows.
+
+`bench/bench_code.cpp` (new): 5,000 lines of code, 327,301 bytes, as one block and as 250
+blocks of twenty lines, through a window of 768 px; load average 6.3 when it started.
+
+| | the device's advances (the default for code): min / median / p95 | the font's advances |
+|---|---|---|
+| one block, laid out whole at a size not met before (12 samples) | 21.96 / 23.78 / 24.99 ms | 20.22 / 21.63 / 25.38 ms |
+| one block, laid out whole, warm (12) | 19.71 / 20.59 / 20.95 ms | 20.15 / 20.69 / 21.26 ms |
+| one block, a steady frame of the window (2,000) | 50.9 / 54.7 / 58.7 us | 52.1 / 53.5 / 55.2 us |
+| one block, the first frame after the display's density changed (200) | 17.23 / 18.98 / 23.37 ms | 54.3 / 58.2 / 58.8 us |
+| 250 blocks, laid out whole at a size not met before | 19.72 / 20.64 / 22.87 ms | 20.31 / 21.24 / 22.00 ms |
+| 250 blocks, laid out whole, warm | 19.10 / 20.83 / 30.78 ms | 19.69 / 20.00 / 20.39 ms |
+| 250 blocks, a steady frame of the window | 57.6 / 59.3 / 63.3 us | 57.3 / 62.3 / 65.5 us |
+| 250 blocks, the first frame after the display's density changed | 271 / 277 / 290 us | 60.3 / 64.5 / 67.2 us |
+
+What the rows say: measuring on the device costs layout nothing that this machine can show,
+and a frame nothing; what it adds is the last row of each shape. A layout on the device is
+for one display, so a change of density lays out again what the window shows and goes over
+the other blocks once: a quarter of a millisecond for 250 blocks, and the whole 17 to 19 ms
+when the document is ONE block of 5,000 lines, because a block is laid out whole. A host
+that holds a long file as one block pays that once each time its window changes display.
+
+`bench/bench_draw.cpp`, this tree against the commit before it (`edbaddb`, built from
+`git archive`), each run six times in turn; the best minimum of each:
+
+| a draw | before | after |
+|---|---|---|
+| full draw of the sample (3,918 glyphs) | 149.3 us | 150.6 us |
+| the same ten times over | 1,743.9 us | 1,594.4 us |
+| the same a hundred times over | 17.30 ms | 18.14 ms |
+| culled, the host skips, scroll 0 | 65.7 us | 59.6 us |
+| a frame of widgets, scroll 0.25 | 82.5 us | 77.4 us |
+
+The rows disagree about the sign: what D78's hold adds to the draw loop (a multiplication
+and a comparison a glyph) is inside this machine's noise. A first form of the hold, which
+kept the best gap of a run as each glyph was placed, measured slower in both of the two
+rounds it was given (the full draw 213.6 to 229.8 us and 178.1 to 223.5; a hundred times
+over 24.5 to 28.3 ms and 24.1 to 28.7) and was replaced. The raw rows are in
+`.concerns/device-advances--builder--bench-draw-ab.txt` and
+`.concerns/device-advances--builder--bench-code.txt`.
+
+**Not measured:** any of this on a quiet machine; the stb_truetype build; the first bake of
+a face's glyphs alone (it is inside the first sample of the "size not met before" rows);
+`bench_reflow` and `bench_marks` before and after.
+
 ## Not measured
 
 - **stb_truetype.** Every number is the FreeType build. Layout does not depend

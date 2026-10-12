@@ -147,10 +147,12 @@ struct DocBlock {
         Scaled size = 0;
         Scaled padding = 0;
         uint32_t generation = 0;
+        // The key of the block's font, which says what measures it.
+        uint64_t key = 0;
         bool operator==(const HeldUnder& other) const
         {
             return face == other.face && size == other.size && padding == other.padding &&
-                   generation == other.generation;
+                   generation == other.generation && key == other.key;
         }
     } held_under;
     // From the layout whose serial is `seen`: the byte of `text` each index of
@@ -246,6 +248,13 @@ struct ImTypesetDocument {
     float width_px = 0.0f;
     ImTypeset::detail::Scaled width = 0;
     uint32_t generation = 0;
+    // The device (src/device.h) the context would draw on when the style was
+    // last taken, and the epoch of its numbers: when either has moved, text
+    // measured on the device is stale. And whether any block style states an
+    // ImTypesetAdvances_ of its own, which the document's style does not show.
+    uint16_t device_seen = 0;
+    uint32_t device_epoch_seen = 0;
+    bool own_advances = false;
     // Blocks were added, removed or described again since their specs were
     // last resolved against the style.
     bool specs_stale = true;

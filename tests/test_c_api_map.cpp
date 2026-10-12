@@ -71,6 +71,7 @@ const Row TABLE[] = {
     BOTH(FaceHasGlyph),
     BOTH(GetFontMetrics),
     BOTH(GetGlyphAdvance),
+    BOTH(GetDeviceGlyphAdvance),
     BOTH(TextUnformatted),
     BOTH(Text),
     BOTH(TextV),
@@ -531,9 +532,9 @@ TEST(every_struct_has_its_c_twin_with_the_same_fields)
     // constructor in it.
     for (const StructDecl& decl : cpp)
         if (decl.name == "ImTypesetStyle") {
-            CHECK_EQ(decl.fields.size(), 12u);
+            CHECK_EQ(decl.fields.size(), 13u);
             CHECK_EQ(decl.fields.front(), std::string("Face"));
-            CHECK_EQ(decl.fields.back(), std::string("SelectionColor"));
+            CHECK_EQ(decl.fields.back(), std::string("Advances"));
         }
     std::printf("test_c_api_map: %zu structs, %zu fields\n", cpp.size(), fields);
 }
@@ -554,7 +555,7 @@ TEST(every_enum_type_has_its_c_typedef)
         ++found;
         at = semi;
     }
-    CHECK_EQ(found, 19);
+    CHECK_EQ(found, 20);
 }
 
 TEST(the_two_headers_are_one_version)

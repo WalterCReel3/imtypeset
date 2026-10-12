@@ -466,6 +466,22 @@ def _probe(lib, facts: dict) -> list:
                 repr(glyphs),
             )
 
+            # The advance, which layout reads for text measured on the device
+            # (src/device.cpp): at its compiled offset in the wheel's own glyph
+            # against the wheel's accessor, for three glyphs whose advances
+            # differ from each other and from their boxes' edges.
+            advances = []
+            for codepoint in (ord("A"), ord("g"), ord(" ")):
+                witness = baked.find_glyph(codepoint)
+                advances.append(
+                    near(
+                        mem.read(find(baked_p, codepoint), "ImFontGlyph.AdvanceX", "<f"),
+                        witness.advance_x,
+                    )
+                    and witness.advance_x > 0.0
+                )
+            record("ImFontGlyph.AdvanceX", all(advances), repr(advances))
+
             # The three bit-fields, which no font here sets every way: each bit
             # of the word that holds them is flipped in the wheel's own glyph (in
             # this throwaway context), the wheel's accessors and the library's

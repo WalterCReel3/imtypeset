@@ -63,6 +63,7 @@ from . import _capi
 from ._capi import BlockStyle, Container, DocumentOptions, Style
 
 __all__ = [
+    "Advances",
     "Align",
     "Block",
     "BlockFlags",
@@ -117,6 +118,7 @@ __all__ = [
     "create_context",
     "current_context",
     "destroy_context",
+    "device_glyph_advance",
     "face_has_glyph",
     "font_metrics",
     "glyph_advance",
@@ -169,6 +171,25 @@ class LineBreak(_enum.IntEnum):
     Auto = 0
     FirstFit = 1
     TotalFit = 2
+
+
+class Advances(_enum.IntEnum):
+    """What a character is measured by: `Style.Advances`, `BlockStyle.Advances`.
+
+    `Font`: the advance in the font file, scaled and not rounded, with the
+    file's pair kerns; the same on every display; drawn within two pixels of
+    where it was laid out. `Device`: the advance of the glyph in the entry of
+    Dear ImGui's font atlas it is drawn from, at the size and display density
+    it is drawn at, a whole number of framebuffer pixels, with no kerns; drawn
+    exactly where it was laid out, on the pens of Dear ImGui's own text in the
+    same font at the same size. `Default`: the two Code faces by the device
+    and every other face by its font; in a `BlockStyle`, what the document's
+    `Style` says. A layout measured on the device is for one display: it is
+    made again when the display's density changes."""
+
+    Default = 0
+    Font = 1
+    Device = 2
 
 
 class Granularity(_enum.IntEnum):
@@ -1166,6 +1187,42 @@ def glyph_advance(face: int, em_size: float, char: Union[str, int]) -> float:
         info = last_error()
         if info.code != ErrorCode.None_:
             raise Error(info, "glyph_advance")
+    return advance
+
+
+def device_glyph_advance(
+    face: int, char: Union[str, int], style: Optional[Style] = None, scale: float = 1.0
+) -> float:
+    """How far the pen moves after one character of a role's font in text that
+    `style` (None: the context's) sets and measures on the device, in pixels:
+    the width of one cell of a grid of code. `char` is one character or a
+    codepoint; `scale` is a `BlockStyle`'s or a `Run`'s (0 is 1).
+
+    It is what layout uses for text measured on the device (`Advances`; the
+    Code faces by default), on the display as Dear ImGui has it now: a whole
+    number of framebuffer pixels, so at a display density of 2 it can be a
+    number of pixels and a half. `style.Advances` is not read. `glyph_advance`
+    answers the font file's number instead, which is what every other face is
+    set with by default.
+
+    Needs the Dear ImGui context the current context was made in and a
+    renderer backend that updates textures; asking loads the glyph into the
+    atlas. Raises `Error` wherever `glyph_advance` does, for a character the
+    role's font lacks (`ErrorCode.InvalidArgument`: ask `face_has_glyph`), and
+    where the atlas cannot be asked (`ErrorCode.NoContext`,
+    `ErrorCode.BackendUnsupported`)."""
+    codepoint = ord(char) if isinstance(char, str) else int(char)
+    if not 0 <= codepoint <= 0xFFFFFFFF:
+        codepoint = 0xFFFFFFFF  # No character: refused as one the font lacks.
+    advance = _lib.ImTypeset_GetDeviceGlyphAdvance(
+        _index(face), codepoint, _style_arg(style), _real(scale)
+    )
+    if advance == 0.0:
+        # Zero is also the answer for a character that does not move the pen:
+        # the last error says which this was.
+        info = last_error()
+        if info.code != ErrorCode.None_:
+            raise Error(info, "device_glyph_advance")
     return advance
 
 

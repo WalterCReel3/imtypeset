@@ -16,9 +16,9 @@ What this file says is held by `HostileInput` in
 `tests/python/test_binding.py`: a table of rows, each provoked and compared
 with the exact class, and the test fails if a public name is missing from its
 table or from this file. `font_metrics`, `glyph_advance` and
-`Document.append_table_cells` were added after the sweep: their rows are in the
-test's table and were written by hand from the same list of values, not by the
-sweep.
+`Document.append_table_cells` were added after the sweep, and
+`device_glyph_advance` after those: their rows are in the test's table and were
+written by hand from the same list of values, not by the sweep.
 
 ## The rule
 
@@ -99,6 +99,7 @@ closed handle, except `Paragraph.close`, `Paragraph.closed`, `Document.close`,
 | `face_has_glyph` | index, one character or an int | `""`, `"ab"`: `TypeError`; an int that is no codepoint: `False` |
 | `font_metrics` (answers a `FontMetrics`) | index, length (`em_size`) | a role that is not there or has no font, a size that is not a finite number above zero and at most 1,000,000 (`nan`, `inf`, `0`, `1e300`): `Error` |
 | `glyph_advance` | index, length (`em_size`), one character or an int | as `font_metrics`; `""`, `"ab"`: `TypeError`; an int that is no codepoint: the missing glyph's advance |
+| `device_glyph_advance` | index, one character or an int, `style` (a `Style` or `None`), length (`scale`) | a role that is not there or has no font, no Dear ImGui context or another one than the context's, a backend that does not update textures, a character the role's font lacks, an int that is no codepoint: `Error`; `""`, `"ab"`: `TypeError`; a `style` that is not a `Style`: `TypeError`; a `scale` of `nan`, `inf`, `0` or below: taken as 1 |
 | `set_text_cache_limits` | index ×2 | |
 | `set_style` | struct | |
 | `set_current_context`, `destroy_context` | address | |
@@ -151,7 +152,7 @@ checked when it is handed to a call above.
   `CellPosition`, `Columns`, `ColumnGeometry`, `DocumentStats`, `BuildInfo`,
   `ErrorInfo`: `TypeError` for a value too many, a required one missing or a
   keyword that is no field. Any value is taken for any field.
-- The enums `Face`, `Align`, `Spacing`, `LineBreak`, `Granularity`,
+- The enums `Face`, `Align`, `Spacing`, `LineBreak`, `Advances`, `Granularity`,
   `ErrorCode`, `BlockKind`, `ContainerKind`, `CodeOverflow`, `MarkPlace`,
   `demo.DemoSection`: `ValueError` for a value with no member (`Face(99)`,
   `Face("x")`). The flags `TextFlags`, `RunFlags`, `BlockFlags`,

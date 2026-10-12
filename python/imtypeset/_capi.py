@@ -44,6 +44,7 @@ class Style(C.Structure):
         ("PixelsPerInch", C.c_float),
         ("Color", C.c_uint),
         ("SelectionColor", C.c_uint),
+        ("Advances", C.c_int),
     ]
 
 
@@ -146,6 +147,7 @@ class BlockStyle(C.Structure):
         ("MarkerFace", C.c_int),
         ("MarkerColor", C.c_uint),
         ("MarkerGap", C.c_float),
+        ("Advances", C.c_int),
     ]
 
 
@@ -463,6 +465,7 @@ PROTOTYPES = {
     "ImTypeset_FaceHasGlyph": (_INT, [_INT, C.c_uint]),
     "ImTypeset_GetFontMetrics": (_INT, [_INT, _F, _ptr(FontMetrics), C.c_size_t]),
     "ImTypeset_GetGlyphAdvance": (_F, [_INT, _F, C.c_uint]),
+    "ImTypeset_GetDeviceGlyphAdvance": (_F, [_INT, C.c_uint, _ptr(Style), _F]),
     "ImTypeset_TextUnformatted": (_INT, [_TEXT, _END, _INT, _F, _ptr(Style)]),
     "ImTypeset_TextWithID": (_INT, [_TEXT, _END, _TEXT, _END, _INT, _F, _ptr(Style)]),
     "ImTypeset_SelectableText": (

@@ -187,7 +187,8 @@ Align align_of(ImTypesetAlign align)
 
 bool same_material_style(const ResolvedStyle& a, const ResolvedStyle& b)
 {
-    return a.face == b.face && a.em == b.em && a.spacing == b.spacing && a.align == b.align;
+    return a.face == b.face && a.em == b.em && a.spacing == b.spacing && a.align == b.align &&
+           a.same_device(b);
 }
 
 bool same_layout_style(const ResolvedStyle& a, const ResolvedStyle& b)
@@ -364,10 +365,10 @@ bool build_formula(ImTypesetContext& ctx, std::string_view source, bool display,
 // The face a refused formula's source is set in: the code face, as the
 // reference does, at the size of the text around it; the text's own face when
 // nothing has been added for code.
-FontSpec refused_font(ImTypesetContext& ctx, FontSpec font)
+FontSpec refused_font(ImTypesetContext& ctx, const ResolvedStyle& style, FontSpec font)
 {
     if (usable(ctx, static_cast<int>(Face::CODE)))
-        font.face = Face::CODE;
+        return style.font(Face::CODE, font.size);
     return font;
 }
 
@@ -488,9 +489,7 @@ bool display_block(ImTypesetContext& ctx, ImTypesetParagraph& p, const ResolvedS
 
     p.display_block = true;
     Run& run = p.block.run;
-    FontSpec font;
-    font.face = style.face;
-    font.size = style.em;
+    const FontSpec font = style.font(style.face, style.em);
     FormulaRecord record;
     record.begin = offs[begin];
     record.end = map.back();
@@ -534,7 +533,8 @@ bool display_block(ImTypesetContext& ctx, ImTypesetParagraph& p, const ResolvedS
     composition.rules = ctx.tex_rules;
     const size_t first_offset = p.source_offsets.size();
     run.source_base = 0;
-    append_text(run, shown, refused_font(ctx, font), true, composition, ctx.resolve, &ctx.reason);
+    append_text(run, shown, refused_font(ctx, style, font), true, composition, ctx.resolve,
+                &ctx.reason);
     clamp_nodes(run.nodes, 0);
     for (size_t at = first_offset; at < p.source_offsets.size(); ++at)
         p.source_offsets[at] = map[std::min<size_t>(p.source_offsets[at], shown.size())];
@@ -576,7 +576,7 @@ void build_material_now(ImTypesetContext& ctx, ImTypesetParagraph& p, const Reso
     // Metrics the registry has aged out are freed here, where no build is
     // under way: the two caches that keep pointers to them go first.
     if (ctx.library.metrics_expired() != 0) {
-        ctx.cache.clear();
+        forget_measurements(ctx);
         ctx.math_fonts.clear();
         ctx.library.release_expired_metrics();
     }
@@ -727,6 +727,8 @@ void build_material_now(ImTypesetContext& ctx, ImTypesetParagraph& p, const Reso
             breakable = styled->breakable;
             colour = styled->colour;
         }
+        // Measured as the style measures the face the piece came to.
+        font = style.font(font.face, font.size);
 
         while (formula < found.size() && found[formula].end <= offs[i])
             ++formula;
@@ -778,8 +780,8 @@ void build_material_now(ImTypesetContext& ctx, ImTypesetParagraph& p, const Reso
                                          record.codepoint_pos);
                 run.source_base = span.begin;
                 why.clear();
-                append_text(run, source, refused_font(ctx, font), false, composition, ctx.resolve,
-                            &why);
+                append_text(run, source, refused_font(ctx, style, font), false, composition,
+                            ctx.resolve, &why);
                 clamp_nodes(run.nodes, first);
             }
             p.formulas.push_back(std::move(record));
@@ -1287,7 +1289,7 @@ void refresh_fonts(ImTypesetContext& ctx)
     // Measurements memoised from a file that is no longer the role's are not
     // repaired by the registry; every paragraph rebuilds on the generation
     // change.
-    ctx.cache.clear();
+    forget_measurements(ctx);
 }
 
 // Whether the ImGui context this one was created in is the current one.
@@ -1295,6 +1297,19 @@ void refresh_fonts(ImTypesetContext& ctx)
 bool bound(const ImTypesetContext& ctx)
 {
     return ImGui::GetCurrentContext() != nullptr && ImGui::GetCurrentContext() == ctx.imgui;
+}
+
+bool still_the_roles(const ImFontAtlas* atlas, ImFont* font, ImGuiID id, ImU64 mark);
+
+bool role_font_in_atlas(const ImTypesetContext& ctx, int role)
+{
+    if (role < 0 || role >= FACE_COUNT)
+        return false;
+    const int backing = static_cast<int>(ctx.library.backing_face(static_cast<Face>(role)));
+    ImFont* const font = ctx.fonts.faces[role].font;
+    return font != nullptr && font == ctx.added[backing] &&
+           still_the_roles(ImGui::GetIO().Fonts, font, ctx.added_id[backing],
+                           ctx.added_mark[backing]);
 }
 
 bool not_bound()
@@ -2207,7 +2222,41 @@ ResolvedStyle resolve_style(ImTypesetContext& ctx, const ImTypesetStyle& style)
     out.baselineskip =
         clamped_sp(round_to_scaled(static_cast<double>(out.em) * ratio), 1, MAX_DIMEN);
     out.lineskip = clamped_sp(round_to_scaled(static_cast<double>(out.em) * 0.1), 0, MAX_DIMEN);
+    resolve_device(ctx, out,
+                   style.Advances == ImTypesetAdvances_Font ||
+                           style.Advances == ImTypesetAdvances_Device
+                       ? style.Advances
+                       : ImTypesetAdvances_Default);
     return out;
+}
+
+void resolve_device(ImTypesetContext& ctx, ResolvedStyle& style, int advances)
+{
+    style.advances = advances;
+    style.device = 0;
+    style.device_faces = 0;
+    style.device_epoch = 0;
+    if (advances == ImTypesetAdvances_Font ||
+        (advances == ImTypesetAdvances_Default && !ctx.tex_rules.code_on_device))
+        return;
+    const uint16_t device = device_number(ctx, style.px_per_inch);
+    if (device == 0)
+        return;
+    // A role whose font the host has taken out of the atlas is found empty
+    // here, before any of its glyphs is asked for.
+    validate_fonts(ctx);
+    style.device_faces = device_faces(ctx, advances, device);
+    if (style.device_faces == 0)
+        return;
+    style.device = device;
+    style.device_epoch = ctx.devices.epoch;
+}
+
+bool device_current(ImTypesetContext& ctx, const ResolvedStyle& style)
+{
+    ResolvedStyle now = style;
+    resolve_device(ctx, now, style.advances);
+    return now.same_device(style);
 }
 
 Scaled resolve_width(float width, const ResolvedStyle& style)
@@ -2312,7 +2361,7 @@ ImTypesetTextRange text_range_of(const ImTypesetParagraph& paragraph, Selection 
 } // namespace ImTypeset::detail
 
 ImTypesetContext::ImTypesetContext()
-    : resolve(fontlib_metrics(library))
+    : resolve(context_metrics(*this))
     , cache(resolve)
 {
 }
@@ -2628,6 +2677,68 @@ float GetGlyphAdvance(ImTypesetFace face, float em_size, unsigned int codepoint)
     const double scale = static_cast<double>(em_size) / data->units_per_em();
     succeed();
     return static_cast<float>(data->font().advance(data->glyph(codepoint)) * scale);
+}
+
+float GetDeviceGlyphAdvance(ImTypesetFace face, unsigned int codepoint, const ImTypesetStyle* style,
+                            float scale)
+{
+    ImTypesetContext* const ctx = g_context;
+    if (ctx == nullptr) {
+        no_context();
+        return 0.0f;
+    }
+    const int role = face == ImTypesetFace_Default ? 0 : role_of(face);
+    if (role < 0) {
+        fail(ImTypesetError_InvalidArgument, "not a face: " + std::to_string(face));
+        return 0.0f;
+    }
+    if (!bound(*ctx)) {
+        not_bound();
+        return 0.0f;
+    }
+    if (!backend_has_textures()) {
+        no_textures();
+        return 0.0f;
+    }
+    validate_fonts(*ctx);
+    const FaceData* const data = ctx->library.face_data(static_cast<Face>(role));
+    if (data == nullptr || ctx->fonts.faces[role].font == nullptr) {
+        fail(ImTypesetError_NoFont, std::string("no font has been added for ") + public_face(role));
+        return 0.0f;
+    }
+    char named[16];
+    std::snprintf(named, sizeof named, "U+%04X", codepoint);
+    if (!data->has(codepoint)) {
+        fail(ImTypesetError_InvalidArgument,
+             std::string("the font added for ") + public_face(role) + " has no glyph for " + named);
+        return 0.0f;
+    }
+    ImTypesetStyle given = style != nullptr ? *style : ctx->style;
+    given.Advances = ImTypesetAdvances_Device;
+    const ResolvedStyle resolved = resolve_style(*ctx, given);
+    // A block's size and a run's: the style's em times the scale, rounded once.
+    Scaled size = resolved.em;
+    if (is_finite(static_cast<double>(scale)) && scale > 0.0f && scale != 1.0f)
+        size = clamped_sp(
+            round_to_scaled(static_cast<double>(resolved.em) *
+                            clamped(decimal_of(scale), MIN_RUN_SCALE, MAX_RUN_SCALE, 1.0)),
+            1, MAX_EM);
+    const FontSpec spec = resolved.font(static_cast<Face>(role), size);
+    const FontMetrics* const font = ctx->library.metrics(spec.face, static_cast<double>(spec.size));
+    double pixels = 0.0;
+    if (spec.device == 0 || font == nullptr ||
+        !device_advance_px(*ctx, *font, spec.size, ctx->devices.table[spec.device - 1u], codepoint,
+                           &pixels)) {
+        fail(ImTypesetError_InvalidArgument, std::string("the font atlas has no glyph for ") +
+                                                 named + " in " + public_face(role) +
+                                                 " at this size");
+        return 0.0f;
+    }
+    // What layout holds for it: the memo's width, which is that number of
+    // framebuffer pixels as a whole number of scaled points.
+    const CharDimens dimens = ctx->cache(spec.key(), codepoint);
+    succeed();
+    return static_cast<float>(px_from_sp(dimens.width, resolved.px_per_inch));
 }
 
 bool TextUnformatted(const char* text, const char* text_end, ImTypesetTextFlags flags,

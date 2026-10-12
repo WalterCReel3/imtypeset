@@ -1,0 +1,72 @@
+=== now 1
+| full draw, x1 | 3000 | 201.478 | 211.818 | 334.679 | us | 3918 glyphs, 54.1 ns/glyph |
+| culled, host skips, x1, scroll 0.00 | 2000 | 79.290 | 83.096 | 120.407 | us | 1715 glyphs, 48.5 ns/glyph |
+| widget frame, x1, scroll 0.25 | 2000 | 102.703 | 106.240 | 149.111 | us | 1865 glyphs, 57.0 ns/glyph; 21 of 34 calls clipped |
+| full draw, x10 | 500 | 2044.784 | 2225.304 | 2586.233 | us | 39180 glyphs, 56.8 ns/glyph |
+| full draw, x100 | 60 | 21.129 | 22.191 | 28.522 | ms | 391800 glyphs, 56.6 ns/glyph |
+=== head 1
+| full draw, x1 | 3000 | 165.571 | 178.365 | 195.217 | us | 3918 glyphs, 45.5 ns/glyph |
+| culled, host skips, x1, scroll 0.00 | 2000 | 66.875 | 70.893 | 78.468 | us | 1715 glyphs, 41.3 ns/glyph |
+| widget frame, x1, scroll 0.25 | 2000 | 85.741 | 89.037 | 101.131 | us | 1865 glyphs, 47.7 ns/glyph; 21 of 34 calls clipped |
+| full draw, x10 | 500 | 1899.201 | 2027.723 | 2203.663 | us | 39180 glyphs, 51.8 ns/glyph |
+| full draw, x100 | 60 | 19.212 | 20.345 | 21.772 | ms | 391800 glyphs, 51.9 ns/glyph |
+=== now 2
+| full draw, x1 | 3000 | 176.602 | 184.707 | 195.487 | us | 3918 glyphs, 47.1 ns/glyph |
+| culled, host skips, x1, scroll 0.00 | 2000 | 71.855 | 74.019 | 79.630 | us | 1715 glyphs, 43.2 ns/glyph |
+| widget frame, x1, scroll 0.25 | 2000 | 88.166 | 91.432 | 95.440 | us | 1865 glyphs, 49.0 ns/glyph; 21 of 34 calls clipped |
+| full draw, x10 | 500 | 1843.746 | 1888.471 | 2026.249 | us | 39180 glyphs, 48.2 ns/glyph |
+| full draw, x100 | 60 | 18.650 | 20.169 | 20.992 | ms | 391800 glyphs, 51.5 ns/glyph |
+=== head 2
+| full draw, x1 | 3000 | 154.050 | 175.310 | 206.599 | us | 3918 glyphs, 44.7 ns/glyph |
+| culled, host skips, x1, scroll 0.00 | 2000 | 72.637 | 76.113 | 90.390 | us | 1715 glyphs, 44.4 ns/glyph |
+| widget frame, x1, scroll 0.25 | 2000 | 88.346 | 94.708 | 111.971 | us | 1865 glyphs, 50.8 ns/glyph; 21 of 34 calls clipped |
+| full draw, x10 | 500 | 1907.355 | 2015.539 | 2194.586 | us | 39180 glyphs, 51.4 ns/glyph |
+| full draw, x100 | 60 | 19.894 | 20.541 | 21.322 | ms | 391800 glyphs, 52.4 ns/glyph |
+=== now 3
+| full draw, x1 | 3000 | 168.086 | 183.726 | 199.505 | us | 3918 glyphs, 46.9 ns/glyph |
+| culled, host skips, x1, scroll 0.00 | 2000 | 70.212 | 107.873 | 130.766 | us | 1715 glyphs, 62.9 ns/glyph |
+| widget frame, x1, scroll 0.25 | 2000 | 92.864 | 95.830 | 115.537 | us | 1865 glyphs, 51.4 ns/glyph; 21 of 34 calls clipped |
+| full draw, x10 | 500 | 1858.293 | 2074.991 | 3525.508 | us | 39180 glyphs, 53.0 ns/glyph |
+| full draw, x100 | 60 | 18.890 | 19.518 | 21.307 | ms | 391800 glyphs, 49.8 ns/glyph |
+=== head 3
+| full draw, x1 | 3000 | 174.829 | 182.352 | 245.602 | us | 3918 glyphs, 46.5 ns/glyph |
+| culled, host skips, x1, scroll 0.00 | 2000 | 71.144 | 74.660 | 127.750 | us | 1715 glyphs, 43.5 ns/glyph |
+| widget frame, x1, scroll 0.25 | 2000 | 83.878 | 91.622 | 95.830 | us | 1865 glyphs, 49.1 ns/glyph; 21 of 34 calls clipped |
+| full draw, x10 | 500 | 1962.910 | 2025.308 | 2140.885 | us | 39180 glyphs, 51.7 ns/glyph |
+| full draw, x100 | 60 | 17.302 | 18.824 | 19.626 | ms | 391800 glyphs, 48.0 ns/glyph |
+=== now 4
+| full draw, x1 | 3000 | 152.968 | 165.551 | 178.456 | us | 3918 glyphs, 42.3 ns/glyph |
+| culled, host skips, x1, scroll 0.00 | 2000 | 59.572 | 62.407 | 66.314 | us | 1715 glyphs, 36.4 ns/glyph |
+| widget frame, x1, scroll 0.25 | 2000 | 77.435 | 81.643 | 86.573 | us | 1865 glyphs, 43.8 ns/glyph; 21 of 34 calls clipped |
+| full draw, x10 | 500 | 1594.417 | 1972.338 | 2133.341 | us | 39180 glyphs, 50.3 ns/glyph |
+| full draw, x100 | 60 | 18.483 | 20.487 | 22.882 | ms | 391800 glyphs, 52.3 ns/glyph |
+=== head 4
+| full draw, x1 | 3000 | 149.300 | 170.080 | 204.464 | us | 3918 glyphs, 43.4 ns/glyph |
+| culled, host skips, x1, scroll 0.00 | 2000 | 70.282 | 71.644 | 75.041 | us | 1715 glyphs, 41.8 ns/glyph |
+| widget frame, x1, scroll 0.25 | 2000 | 174.107 | 211.738 | 229.391 | us | 1865 glyphs, 113.5 ns/glyph; 21 of 34 calls clipped |
+| full draw, x10 | 500 | 1945.237 | 3874.113 | 4375.486 | us | 39180 glyphs, 98.9 ns/glyph |
+| full draw, x100 | 60 | 17.341 | 18.834 | 20.730 | ms | 391800 glyphs, 48.1 ns/glyph |
+=== now 5
+| full draw, x1 | 3000 | 150.643 | 164.309 | 174.488 | us | 3918 glyphs, 41.9 ns/glyph |
+| culled, host skips, x1, scroll 0.00 | 2000 | 62.097 | 63.790 | 65.513 | us | 1715 glyphs, 37.2 ns/glyph |
+| widget frame, x1, scroll 0.25 | 2000 | 81.934 | 86.052 | 133.040 | us | 1865 glyphs, 46.1 ns/glyph; 21 of 34 calls clipped |
+| full draw, x10 | 500 | 1692.181 | 1847.844 | 1950.828 | us | 39180 glyphs, 47.2 ns/glyph |
+| full draw, x100 | 60 | 18.178 | 18.794 | 19.812 | ms | 391800 glyphs, 48.0 ns/glyph |
+=== head 5
+| full draw, x1 | 3000 | 164.509 | 167.946 | 177.664 | us | 3918 glyphs, 42.9 ns/glyph |
+| culled, host skips, x1, scroll 0.00 | 2000 | 65.673 | 66.686 | 75.412 | us | 1715 glyphs, 38.9 ns/glyph |
+| widget frame, x1, scroll 0.25 | 2000 | 82.455 | 84.679 | 90.440 | us | 1865 glyphs, 45.4 ns/glyph; 21 of 34 calls clipped |
+| full draw, x10 | 500 | 1743.888 | 1887.789 | 2025.388 | us | 39180 glyphs, 48.2 ns/glyph |
+| full draw, x100 | 60 | 18.650 | 19.138 | 20.379 | ms | 391800 glyphs, 48.8 ns/glyph |
+=== now 6
+| full draw, x1 | 3000 | 157.296 | 171.752 | 266.130 | us | 3918 glyphs, 43.8 ns/glyph |
+| culled, host skips, x1, scroll 0.00 | 2000 | 66.094 | 68.458 | 80.722 | us | 1715 glyphs, 39.9 ns/glyph |
+| widget frame, x1, scroll 0.25 | 2000 | 81.042 | 86.112 | 98.576 | us | 1865 glyphs, 46.2 ns/glyph; 21 of 34 calls clipped |
+| full draw, x10 | 500 | 1719.533 | 1854.497 | 2024.346 | us | 39180 glyphs, 47.3 ns/glyph |
+| full draw, x100 | 60 | 18.137 | 19.178 | 21.565 | ms | 391800 glyphs, 48.9 ns/glyph |
+=== head 6
+| full draw, x1 | 3000 | 175.570 | 183.765 | 198.684 | us | 3918 glyphs, 46.9 ns/glyph |
+| culled, host skips, x1, scroll 0.00 | 2000 | 70.493 | 71.354 | 74.600 | us | 1715 glyphs, 41.6 ns/glyph |
+| widget frame, x1, scroll 0.25 | 2000 | 90.060 | 92.133 | 114.695 | us | 1865 glyphs, 49.4 ns/glyph; 21 of 34 calls clipped |
+| full draw, x10 | 500 | 1917.394 | 2047.519 | 2964.163 | us | 39180 glyphs, 52.3 ns/glyph |
+| full draw, x100 | 60 | 19.569 | 21.219 | 23.848 | ms | 391800 glyphs, 54.2 ns/glyph |

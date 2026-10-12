@@ -52,6 +52,48 @@
 // runner passes on as ImGui's style.FontScaleDpi), a host that wants typeset
 // text to follow says so in the style, as a larger size or as PixelsPerInch.
 //
+// ADVANCES: WHAT A CHARACTER IS MEASURED BY. There are two widths a character
+// can be given, and a style says which (ImTypesetStyle::Advances,
+// ImTypesetAdvances_).
+//   - The FONT's: its advance in the font file, scaled to the size and not
+//     rounded, with the file's pair kerns. A fraction of a pixel. It is the
+//     width the type's designer drew, and the same on every display. Drawing
+//     then puts each glyph on a whole pixel by rounding the gap from the
+//     glyph before it, so ink is within a pixel or two of layout (see
+//     ImTypesetLine) and a step between two glyphs of one advance is
+//     sometimes the smaller whole number and sometimes the larger.
+//   - The DEVICE's: the advance of the glyph in the entry of ImGui's font
+//     atlas it will be drawn from, at the size and the display density it
+//     will be drawn at, rounded to a whole pixel of the framebuffer. Under
+//     FreeType with hinting, which is how ImGui rasterises when it is built
+//     with FreeType, the entry's advance is that whole pixel already; under
+//     stb_truetype, or FreeType told not to hint, it is the font's own and
+//     the rounding is the library's (what ImFontConfig::PixelSnapH does).
+//     No kerns. This is how ImGui's own text is measured.
+// TEXT MEASURED ON THE DEVICE IS DRAWN WHERE IT WAS LAID OUT. Within a word,
+// and along a whole line of a Code block (whose spaces are characters), every
+// glyph is drawn at exactly its laid-out distance from the first, every step
+// is the advance layout used, N characters of a monospace face take N times
+// one whole number of framebuffer pixels on every row, and a selection's
+// edge, a caret and a hit test are on the glyphs. The first glyph of a line
+// or a word is on the pixel nearest its own place, so all of it is exact
+// where the text starts on a pixel: `pos` and the block's indent whole.
+// Where ImGui's own advances for the face are whole framebuffer pixels (any
+// hinting FreeType mode; a font added with PixelSnapH at density 1) the pens
+// are also ImGui's own for the same string in the same ImFont at the same
+// size: GetFont(), ImGui::PushFont(font, size), ImGui::TextUnformatted().
+// BY DEFAULT the two Code faces are measured on the device, because columns
+// are what code is set for, and every other face by its font.
+// WHAT IT COSTS. Such a layout is for one size on one display: at another
+// density the same text has other advances, and is laid out again when that
+// is seen (LayoutDocument, LayoutParagraph and the widgets see it; a document
+// also looks whenever it is drawn or asked a question). Its lines can break
+// elsewhere on another display. A character's width is no longer what the
+// designer drew: at 16 px a face whose advance is 7.6 px is set at 8.
+// GetFontMetrics() and GetGlyphAdvance() answer the font's numbers whatever
+// the style; GetDeviceGlyphAdvance() answers the device's. A formula is set
+// by its font's advances always.
+//
 // POSITIONS IN TEXT are byte offsets into the UTF-8 text the host gave,
 // everywhere: style runs, hit tests, ranges, lines, formulas, error places. A
 // range is [Start, End). An offset keeps its meaning when the paragraph is
@@ -200,6 +242,7 @@ typedef int ImTypesetDocumentDrawFlags; // -> enum ImTypesetDocumentDrawFlags_
 typedef int ImTypesetDemoSection;       // -> enum ImTypesetDemoSection_
 typedef int ImTypesetCellFlags;         // -> enum ImTypesetCellFlags_
 typedef int ImTypesetColumnFlags;       // -> enum ImTypesetColumnFlags_
+typedef int ImTypesetAdvances;          // -> enum ImTypesetAdvances_
 
 // A typographic role. A host says which file plays each; text names roles.
 enum ImTypesetFace_ {
@@ -241,6 +284,20 @@ enum ImTypesetLineBreak_ {
     // work budget (some tens of milliseconds) the paragraph is broken by first
     // fit instead and says ImTypesetStatusFlags_FirstFitFallback.
     ImTypesetLineBreak_TotalFit = 2
+};
+
+// What a character is measured by: see ADVANCES at the top.
+enum ImTypesetAdvances_ {
+    // The Code and CodeBold faces by the device, every other face by its
+    // font. In an ImTypesetBlockStyle: the document style's.
+    ImTypesetAdvances_Default = 0,
+    // Every face by its font file: what every face was measured by before
+    // this enum, and what a layout that must be the same on every display is
+    // set with.
+    ImTypesetAdvances_Font = 1,
+    // Every face of text by the device: prose set as ImGui's own text is
+    // spaced, without kerns. A formula is still set by its font.
+    ImTypesetAdvances_Device = 2
 };
 
 enum ImTypesetGranularity_ {
@@ -403,6 +460,10 @@ struct ImTypesetStyle {
     // style.Alpha when drawn, so ImGui::BeginDisabled() dims it.
     ImU32 Color;
     ImU32 SelectionColor; // Behind selected text. 0 uses ImGuiCol_TextSelectedBg.
+    // What a character is measured by. Default: the Code faces by the device
+    // and the rest by their fonts. See ADVANCES at the top. A value that is
+    // not one is Default.
+    ImTypesetAdvances Advances;
 
     ImTypesetStyle()
         : Face(0)
@@ -417,6 +478,7 @@ struct ImTypesetStyle {
         , PixelsPerInch(0.0f)
         , Color(0)
         , SelectionColor(0)
+        , Advances(0)
     {
     }
 };
@@ -471,7 +533,19 @@ struct ImTypesetTextRange {
 // One line of a paragraph as it was last laid out. Coordinates are relative
 // to the paragraph's top-left corner and are layout's own: drawing then snaps
 // each baseline and each word to whole pixels of the framebuffer (DISPLAY
-// DENSITY above), so ink sits within a pixel of them.
+// DENSITY above). HOW FAR INK IS FROM LAYOUT, in framebuffer pixels, which is
+// also how far a glyph can stand from the caret, the selection's edge and
+// the hit test that answer for it:
+//   - text measured on the device (ADVANCES above): the first glyph of a
+//     word, or of a line of a Code block, less than a pixel from its place
+//     (half a pixel, where nothing before it on the line moved it), and
+//     every other glyph at exactly its laid-out distance from that one;
+//   - text measured by its font: the first glyph of a word less than a
+//     pixel from its place, every glyph of the word within a pixel of its
+//     laid-out distance from the first, and the last within half; so every
+//     glyph LESS THAN TWO PIXELS from where layout has it, however long the
+//     word.
+// Both hold at any `pos`.
 struct ImTypesetLine {
     // The line's box: horizontally from where its content starts to where
     // it ends (not the full width of a ragged line), vertically its own
@@ -674,6 +748,9 @@ struct ImTypesetBlockStyle {
     ImTypesetFace MarkerFace; // Default: Face.
     ImU32 MarkerColor;        // 0 is Color.
     float MarkerGap;          // Pixels between a marker and the text. 0 is half an em.
+    // What the block's characters are measured by, its marker's included.
+    // Default (0): as the document style says. See ADVANCES at the top.
+    ImTypesetAdvances Advances;
 
     ImTypesetBlockStyle()
         : Face(0)
@@ -687,6 +764,7 @@ struct ImTypesetBlockStyle {
         , MarkerFace(0)
         , MarkerColor(0)
         , MarkerGap(0.0f)
+        , Advances(0)
     {
     }
 };
@@ -1472,6 +1550,16 @@ IMTYPESET_API void SetTextCacheLimits(int max_paragraphs, int max_bytes);
 //     bytes of `font_cfg->Name`, or of the file's name when that is empty.
 //     Do not write over the mark; a font without it is no longer the role's.
 //
+// TO SET A LINE OF ImGui's OWN BESIDE TYPESET TEXT IN ONE FACE, draw it with
+// the ImFont returned here at the PIXEL HEIGHT the typeset text has
+// (GetFontMetrics().FontSize of its em, which is ImTypesetStyle::FontSize for
+// the Regular face when the style states one), through ImGui::PushFont(font,
+// size). ImGui rounds a size it is pushed to a whole number and draws that
+// entry of the atlas; the library asks for the same entry. Text given a size
+// that is not whole through ImDrawList::AddText(font, size, ...) is that
+// whole-size entry SCALED, on fractional pens, and stands on no column of
+// anything.
+//
 // ONE COPY OF A FACE, NOT TWO. The font added here is a copy of the file made
 // for typesetting (its character map rewritten so that every codepoint layout
 // can name has a glyph), so a font the host added from the same file cannot
@@ -1534,8 +1622,26 @@ IMTYPESET_API bool GetFontMetrics(ImTypesetFace face, float em_size, ImTypesetFo
 // set from another face: ask FaceHasGlyph first). Zero wherever
 // GetFontMetrics is false. Layout rounds each advance to a scaled point (a
 // 65,536th of a point), and kerns pairs: the width of a text is a paragraph's
-// line (GetParagraphLine), not a sum of these. [E]
+// line (GetParagraphLine), not a sum of these. This is the FONT's advance,
+// whatever any style says: text measured on the device (ADVANCES at the top;
+// the Code faces by default) is set with GetDeviceGlyphAdvance()'s. [E]
 IMTYPESET_API float GetGlyphAdvance(ImTypesetFace face, float em_size, unsigned int codepoint);
+// How far the pen moves after one character of a role's font in text that
+// `style` (null: GetStyle()) sets and measures on the device, in pixels: the
+// width of one cell of a grid of code. It is what layout uses, to the
+// rounding of one scaled point, for the style's size times `scale` (an
+// ImTypesetBlockStyle's or a run's; 0 is 1) on the display as ImGui has it
+// now: a whole number of framebuffer pixels, so at a display density of 2 it
+// can be a number of pixels and a half. The style's Advances is not read: this
+// answers for the device whichever way the style measures the face. Needs the
+// ImGui context the current context was made in, and a renderer backend with
+// ImGuiBackendFlags_RendererHasTextures; asking loads the glyph into the
+// atlas. Zero, with the reason, wherever GetGlyphAdvance is zero, for a
+// character the role's font lacks (ImTypesetError_InvalidArgument: text
+// holding it is set from another face, see FaceHasGlyph), and where the atlas
+// cannot be asked (ImTypesetError_NoContext, ImTypesetError_BackendUnsupported). [E]
+IMTYPESET_API float GetDeviceGlyphAdvance(ImTypesetFace face, unsigned int codepoint,
+                                          const ImTypesetStyle* style = NULL, float scale = 1.0f);
 
 // --- Widgets -------------------------------------------------------------------------
 //

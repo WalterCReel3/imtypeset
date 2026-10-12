@@ -275,6 +275,23 @@ double baked_size_px(double size_px, double ascent, double descent, double em)
     return size_px * (ascent + descent) / em;
 }
 
+ImFontBaked* face_bake(ImFont* font, const FontMetrics* ours, Scaled size, double px_per_inch,
+                       double density)
+{
+    if (font == nullptr)
+        return nullptr;
+    const double nominal = px_from_sp(size, px_per_inch * density);
+    double requested = nominal;
+    if (ours != nullptr)
+        requested = baked_size_px(nominal, ours->ascent(), ours->descent(), ours->em());
+    if (!(requested >= 0.5 && requested <= static_cast<double>(Drawer::MAX_BAKED_SIZE_PX)))
+        return nullptr;
+    // A font's own density is whatever the display's was when it was last
+    // the current font, so above density 1 it is not left to the font.
+    return density == 1.0 ? font->GetFontBaked(static_cast<float>(requested))
+                          : font->GetFontBaked(static_cast<float>(requested), 1.0f);
+}
+
 float device_coordinate(float origin, Scaled length, double px_per_inch)
 {
     return static_cast<float>(static_cast<double>(origin) + px_from_sp(length, px_per_inch));
@@ -474,29 +491,17 @@ public:
         }
         // Our em size in the pixels placement is done in, corrected to the
         // pixel height ImGui scales by, then rounded by ImGui itself.
-        const double nominal = px_from_sp(state.spec.size, _px_per_inch * _density);
-        double requested = nominal;
-        if (const FontMetrics* ours = _metrics(key))
-            requested = baked_size_px(nominal, ours->ascent(), ours->descent(), ours->em());
-        if (!(requested >= 0.5 && requested <= static_cast<double>(MAX_BAKED_SIZE_PX)))
+        state.baked = face_bake(state.font, _metrics(key), state.spec.size, _px_per_inch, _density);
+        if (state.baked == nullptr)
             return false;
         if (_density == 1.0) {
-            state.baked = state.font->GetFontBaked(static_cast<float>(requested));
-            if (state.baked == nullptr)
-                return false;
             // The baked size and not the one asked for: the same raster,
             // drawn one texel to one pixel.
             state.size = state.baked->Size;
             state.scale = 1.0f;
         } else {
-            // The size is already in framebuffer pixels, so the bake is at
-            // ImGui's density 1, said outright: a font's own density is
-            // whatever the display's was when it was last the current font.
-            // A texel is then a framebuffer pixel, and one over the density
-            // of a unit.
-            state.baked = state.font->GetFontBaked(static_cast<float>(requested), 1.0f);
-            if (state.baked == nullptr)
-                return false;
+            // A texel is a framebuffer pixel, and one over the density of a
+            // unit.
             state.scale = static_cast<float>(1.0 / _density);
             state.size = state.baked->Size * state.scale;
         }
@@ -613,6 +618,10 @@ struct Drawer::Span {
     size_t word_op = 0;
     Scaled word_x = 0;
     double word_pen = 0.0;
+    // DrawRules::word_glyphs_held: the op of the word's glyph at which a gap
+    // last gave, and of its first glyph until one has. A run is looked for
+    // no further back.
+    size_t floor_op = 0;
 };
 
 Drawer::Drawer()
@@ -818,6 +827,52 @@ double Drawer::settle_word(size_t word_op, double drift)
     return -sign * static_cast<double>(count);
 }
 
+// Under DrawRules::word_glyphs_held, rounds one gap of the word the other way
+// for its last glyph, which stands too far right of its laid-out distance
+// from the word's first (`right`) or too far left, and answers how far that
+// glyph was moved: a pixel, or nothing if no gap can give. The word's ops are
+// those from `word_op` to the last in `_ops`, each with the rounding of the
+// gap before it in `x1` and how far its glyph stands from that distance in
+// `y1`.
+//
+// The gap is looked for among those into the glyphs of the RUN the last
+// glyph is in: the glyphs back from it, no further than the one at which a
+// gap last gave (`floor_op`), that each stand on its side of their places or
+// on them. It is the one rounded furthest that way, the earliest of equals.
+// The glyphs from it on move a pixel towards their places or past them, and
+// none ends more than a pixel beyond: each was on or past its place the
+// other way. A gap that gave before lies before the run or leans the other
+// way, and is not taken again.
+//
+// The run ends where this one's last glyph is, so the glyphs a later call
+// looks at are glyphs this one did not: the work over a word grows with its
+// length, whatever its roundings are.
+double Drawer::give_in_run(size_t word_op, size_t& floor_op, bool right)
+{
+    const float sign = right ? 1.0f : -1.0f;
+    const size_t last = _ops.size() - 1;
+    size_t best = 0;
+    float most = 0.0f;
+    for (size_t k = last; k > word_op && k >= floor_op; --k) {
+        if (sign * _ops[k].y1 < 0.0f)
+            break;
+        const float rounded = sign * _ops[k].x1;
+        if (rounded > 0.0f && rounded >= most) {
+            most = rounded;
+            best = k;
+        }
+    }
+    floor_op = last;
+    if (best == 0)
+        return 0.0;
+    _ops[best].x1 -= sign;
+    for (size_t k = best; k <= last; ++k) {
+        _ops[k].x0 -= sign;
+        _ops[k].y1 -= sign;
+    }
+    return -static_cast<double>(sign);
+}
+
 void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const DrawArgs& args,
                             FontBinder& binder, DrawStats& stats)
 {
@@ -854,7 +909,9 @@ void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const 
     Scaled formula_x = 0;
     Scaled formula_width = 0;
     double formula_pen = 0.0;
-    const bool hold_words = args.rules.word_width_held;
+    const bool hold_glyphs = args.rules.word_glyphs_held;
+    // The rounding of each gap is kept with its op under either rule.
+    const bool hold_words = args.rules.word_width_held || hold_glyphs;
     const bool lead_words = args.rules.word_spaces_led;
     // The leader (DrawRules::word_spaces_led): what the next word or formula
     // on the line is placed from, as it is in the commands and where it
@@ -887,8 +944,17 @@ void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const 
                 if (hold_words) {
                     const double drift =
                         span.prev_pen - span.word_pen - px(wrap_sub(span.prev_x, span.word_x));
-                    if (std::fabs(drift) > WORD_WIDTH_BOUND_PX)
+                    if (!(std::fabs(drift) > WORD_WIDTH_BOUND_PX)) {
+                        // As wide as it was laid out, to the bound.
+                    } else if (!hold_glyphs) {
                         span.prev_pen += settle_word(span.word_op, drift);
+                    } else {
+                        // Out by a pixel at the most, every glyph being
+                        // held: one gap gives, and it is one of the run the
+                        // last glyph is in, so that no glyph is moved more
+                        // than a pixel past its place.
+                        span.prev_pen += give_in_run(span.word_op, span.floor_op, drift > 0.0);
+                    }
                 }
                 leads = lead_words;
                 lead_x = span.prev_x;
@@ -1031,6 +1097,23 @@ void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const 
                 op.x1 = static_cast<float>(gap - step);
             _ops.push_back(op);
             ++stats.glyphs;
+            if (hold_glyphs && span.word) {
+                const size_t placed = _ops.size() - 1;
+                if (placed == span.word_op) {
+                    // The word's first glyph: nothing is before it to give.
+                    span.floor_op = placed;
+                    break;
+                }
+                // How far this glyph stands from its laid-out distance to the
+                // word's first, kept with its op. When that passes the bound
+                // a gap of its run gives, and the glyph is back inside it:
+                // by more than nothing and at most half a pixel on the side
+                // it was out on.
+                const double drift = pen_x - span.word_pen - px(wrap_sub(cmd.x, span.word_x));
+                _ops[placed].y1 = static_cast<float>(drift);
+                if (drift > WORD_GLYPH_BOUND_PX || drift < -WORD_GLYPH_BOUND_PX)
+                    span.prev_pen += give_in_run(span.word_op, span.floor_op, drift > 0.0);
+            }
             break;
         }
         case CmdType::RULE_RECT:

@@ -123,7 +123,20 @@ bool same_style(const ResolvedStyle& a, const ResolvedStyle& b)
     return a.face == b.face && a.em == b.em && a.spacing == b.spacing && a.align == b.align &&
            a.left_indent == b.left_indent && a.first_line_indent == b.first_line_indent &&
            a.baselineskip == b.baselineskip && a.lineskip == b.lineskip &&
-           a.line_break == b.line_break && a.px_per_inch == b.px_per_inch;
+           a.line_break == b.line_break && a.px_per_inch == b.px_per_inch && a.same_device(b);
+}
+
+// The document's style as one block measures its characters: by the block
+// style's own ImTypesetAdvances_ where it states one.
+ResolvedStyle measured_style(ImTypesetDocument& d, const DocBlock& b)
+{
+    ResolvedStyle style = d.style;
+    if (b.style < 0 || static_cast<size_t>(b.style) >= d.styles.size())
+        return style;
+    const ImTypesetAdvances own = d.styles[static_cast<size_t>(b.style)].Advances;
+    if ((own == ImTypesetAdvances_Font || own == ImTypesetAdvances_Device) && own != style.advances)
+        resolve_device(*d.ctx, style, own);
+    return style;
 }
 
 // How long a block's text is, for positions in it. A code block ends at its
@@ -478,11 +491,11 @@ BlockSpec resolve_spec(ImTypesetDocument& d, const DocBlock& b)
             round_to_scaled(static_cast<double>(base.em) *
                             clamped(decimal_of(own->Scale), MIN_RUN_SCALE, MAX_RUN_SCALE, 1.0)),
             1, MAX_EM);
-    spec.font.face = face;
-    spec.font.size = em;
+    const ResolvedStyle measured = measured_style(d, b);
+    spec.font = measured.font(face, em);
     spec.marker_font = spec.font;
     if (own != nullptr && role_of(own->MarkerFace) >= 0 && usable(ctx, role_of(own->MarkerFace)))
-        spec.marker_font.face = static_cast<Face>(role_of(own->MarkerFace));
+        spec.marker_font = measured.font(static_cast<Face>(role_of(own->MarkerFace)), em);
 
     Scaled baselineskip = base.baselineskip;
     Scaled lineskip = base.lineskip;
@@ -715,7 +728,7 @@ void build_cells(ImTypesetDocument& d, DocBlock& b, Block& block)
         b.last_cell_boxes = 0;
         b.last_cell_display = 0;
     }
-    ResolvedStyle style = d.style;
+    ResolvedStyle style = measured_style(d, b);
     style.face = b.font.face;
     style.em = b.font.size;
     style.align = Align::LEFT;
@@ -794,7 +807,8 @@ void build_cells(ImTypesetDocument& d, DocBlock& b, Block& block)
     // does. They already hold every cell built before this call, so only the
     // cells built by it are added: a row that arrives costs its own cells.
     if (table.held) {
-        const DocBlock::HeldUnder under{b.font.face, b.font.size, table.cell_padding, d.generation};
+        const DocBlock::HeldUnder under{b.font.face, b.font.size, table.cell_padding, d.generation,
+                                        b.font.key().bits};
         size_t from = built_before;
         if (!(b.held_under == under) || b.held.size() != b.columns) {
             b.held.assign(b.columns, 0);
@@ -904,7 +918,7 @@ void materialize(void* user, size_t number, Block& block)
     w.flags = text_flags(b);
     w.material_arena = &d.doc.arena();
     ++w.text_version;
-    ResolvedStyle style = d.style;
+    ResolvedStyle style = measured_style(d, b);
     style.face = b.font.face;
     style.em = b.font.size;
     style.align = b.align;
@@ -963,11 +977,19 @@ void take_style(ImTypesetDocument& d, const ImTypesetStyle& given, float width)
 {
     ImTypesetContext& ctx = *d.ctx;
     const ResolvedStyle resolved = resolve_style(ctx, given);
-    const bool changed =
-        !d.has_style || !same_style(resolved, d.style) || d.generation != ctx.library.generation();
+    // A block that states its own ImTypesetAdvances_ can be measured on the
+    // device where the document's style is not, and the style then does not
+    // show that the device has moved.
+    const uint16_t device = device_number(ctx, resolved.px_per_inch);
+    const bool moved =
+        d.own_advances && (device != d.device_seen || ctx.devices.epoch != d.device_epoch_seen);
+    const bool changed = !d.has_style || !same_style(resolved, d.style) ||
+                         d.generation != ctx.library.generation() || moved;
     const bool rescaled = d.has_style && resolved.px_per_inch != d.style.px_per_inch;
     d.given_style = given;
     d.has_style = true;
+    d.device_seen = device;
+    d.device_epoch_seen = ctx.devices.epoch;
     if (changed) {
         d.style = resolved;
         d.generation = ctx.library.generation();
@@ -1042,7 +1064,13 @@ void ready(ImTypesetDocument& d)
 {
     ImTypesetContext& ctx = *d.ctx;
     ++d.tick;
-    if (!d.has_style || d.generation != ctx.library.generation())
+    // The style is taken again when the fonts have changed under it, and
+    // when the device has: a layout measured on one display is not one for
+    // another (src/device.h), and a host need not have called LayoutDocument
+    // since its window moved.
+    if (!d.has_style || d.generation != ctx.library.generation() ||
+        device_number(ctx, d.style.px_per_inch) != d.device_seen ||
+        ctx.devices.epoch != d.device_epoch_seen)
         take_style(d, d.has_style ? d.given_style : ctx.style, d.width_px);
     d.composer.measure = ctx.measure();
     d.composer.materialize = &materialize;
@@ -3043,8 +3071,13 @@ bool ReplaceDocumentBlocks(ImTypesetDocument* document, int first, int count,
 
     ErrorState trouble;
     const size_t containers_before = d->containers.size();
-    if (given.Styles != nullptr && given.StyleCount > 0)
+    if (given.Styles != nullptr && given.StyleCount > 0) {
         d->styles.insert(d->styles.end(), given.Styles, given.Styles + given.StyleCount);
+        for (int i = 0; i < given.StyleCount; ++i)
+            d->own_advances = d->own_advances ||
+                              given.Styles[i].Advances == ImTypesetAdvances_Font ||
+                              given.Styles[i].Advances == ImTypesetAdvances_Device;
+    }
     if (given.Containers != nullptr && given.ContainerCount > 0) {
         d->containers.insert(d->containers.end(), given.Containers,
                              given.Containers + given.ContainerCount);
@@ -3080,6 +3113,7 @@ bool SetDocumentBlocks(ImTypesetDocument* document, const ImTypesetDocumentConte
     d->doc.clear();
     d->blocks.clear();
     d->styles.clear();
+    d->own_advances = false;
     d->containers.clear();
     d->container_quote.clear();
     d->container_list.clear();

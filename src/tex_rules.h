@@ -98,6 +98,18 @@ struct TexRules {
     // the unrounded quad over eighteen, rounded half to even.
     bool mu_truncates = false;
 
+    // --- What a character is measured by (src/device.*) ---------------------
+
+    // No section: tex.web measures a character by its font's metric file and
+    // knows no device. Text set in the code faces under
+    // ImTypesetAdvances_Default is measured by the advances the rasteriser
+    // bakes for the device it will be drawn on, so that rows of code stand on
+    // one grid of whole pixels and on the columns of Dear ImGui's own text in
+    // the same face. Off, Default measures every face from its font file, as
+    // the reference does; a style that asks for ImTypesetAdvances_Device
+    // outright is measured on the device either way.
+    bool code_on_device = false;
+
     static constexpr TexRules reference() { return TexRules(); }
     static constexpr TexRules product()
     {
@@ -111,6 +123,7 @@ struct TexRules {
         rules.underline_clearance = true;
         rules.sublist_nucleus_packed = true;
         rules.mu_truncates = true;
+        rules.code_on_device = true;
         return rules;
     }
 };

@@ -6,6 +6,48 @@ added), **changed** (a name means something else, or text is set
 differently), **fixed** (a defect, with what it did), **removed**. The release
 notes on GitHub are the section, copied by `tools/ci/wheel_release.sh`.
 
+## Unreleased
+
+After 0.3.0. By `docs/versioning.md` this is a minor version (two host-filled structs grew, a
+default changed, text is set differently): the number was not moved by the task that made the
+changes and is whoever cuts the release's to move.
+
+### What a character is measured by (task `device-advances`, requests H34 and H35)
+
+- **new**: `ImTypesetAdvances_` (`Default`, `Font`, `Device`; C `ImTypeset_Advances_*`; Python
+  `imtypeset.Advances`), `ImTypesetStyle::Advances` and `ImTypesetBlockStyle::Advances`, each
+  the LAST field of its struct (C `ImTypeset_Style`, `ImTypeset_BlockStyle`; Python
+  `Style(Advances=...)`, `BlockStyle(Advances=...)`). `Font` measures a face by its font file,
+  as every face was measured before. `Device` measures it by the advance of the glyph in the
+  entry of Dear ImGui's atlas it is drawn from, at the size and display density it is drawn at,
+  rounded to a whole framebuffer pixel, with no kerns: such text is drawn exactly where it was
+  laid out, in steps of one size, and on the pens of Dear ImGui's own text in the same ImFont
+  at the same size wherever ImGui's advances are whole pixels (D77).
+- **changed (text is set differently)**: with a style that says nothing (`Default`), text in
+  the **Code and CodeBold faces is measured on the device**: a Code block, a Code-face run in
+  prose, a paragraph whose face is Code. At a size where the font's advance is not a whole
+  pixel a row of code is a different width than before (Inconsolata at a 16 px pixel height:
+  8 px a character where it was 7.63), lines of code can break elsewhere, and the layout is
+  for one display: it is made again when the display's density changes. Every other face is
+  measured by its font as before. A host that wants the old layout of code says
+  `ImTypesetAdvances_Font` in the style.
+- **changed (where glyphs are drawn)**: text measured by its font has every glyph of a word
+  within a pixel of its laid-out distance from the word's first glyph, so less than two pixels
+  from where layout has it, however long the word (D78). Before, the middle of a long word or
+  of a row of code could stand many pixels from the caret and the selection that answered for
+  it (16.9 px in a row of 74 characters). Which gaps of a long word are a pixel wider or
+  narrower changes; a word's width and the spaces between words do not.
+- **new**: `GetDeviceGlyphAdvance(face, codepoint, style, scale)` (C
+  `ImTypeset_GetDeviceGlyphAdvance`; Python `device_glyph_advance(face, char, style=None,
+  scale=1.0)`): the advance layout uses for text of a style measured on the device, on the
+  display as it is now. `GetGlyphAdvance` and `GetFontMetrics` answer the font's numbers, as
+  before, whatever a style says.
+- **changed**: the sidecar's field probe has a 26th row, `ImFontGlyph.AdvanceX`, which layout
+  now reads. A package from this tree refuses a library from before it, and the other way
+  about (the two structs' sizes differ as well).
+- **new**: `tools/bundle_route/check_device_advances.py`, `bench/bench_code.cpp`, and a ruler
+  set three ways in the demo's Known limits.
+
 ## 0.3.0
 
 Not tagged yet. The first tag. It gathers everything since commit `5654eee`,

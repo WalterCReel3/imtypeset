@@ -26,7 +26,7 @@ and 12). Three words are kept apart throughout:
 | the wheel exports the Dear ImGui symbols the library needs | RAN: 117 needed, 117 exported, wheels 1.92.900 and 1.92.801 | not known | no wheel |
 | a library builds | RAN, stand-in headers, GCC 12.2 | never built | no wheel |
 | it loads and binds | RAN, bound by `link` (section 2) | never loaded | no wheel |
-| import gate, `import imtypeset`, headless checks | RAN: accepted by the field probe (24 rows then; 25 since D72, run again 2026-10-12, section 12), 23 + 18 checks pass, both wheels | never run | no wheel |
+| import gate, `import imtypeset`, headless checks | RAN: accepted by the field probe (24 rows then; 25 since D72, run again 2026-10-12, section 12; 26 since D77, `ImFontGlyph.AdvanceX`, which layout reads for text measured on the device: both development sidecars rebuilt and accepted with it, the wheels not rebuilt), 23 + 18 checks pass, both wheels | never run | no wheel |
 | built against the wheel's own headers | **never**: the fetch needs the network and no session here has had it | never | no wheel |
 | Dear ImGui's own layout check passes | never (it refuses stand-in headers, as it should: `sizeof(ImGuiStyle)` 1368 against the wheel's 1372) | never | no wheel |
 

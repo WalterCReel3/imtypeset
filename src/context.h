@@ -14,7 +14,8 @@
 // WHAT A PARAGRAPH CACHES, and what invalidates each stage:
 //
 //   material   the text as nodes       text, runs, flags; face, em, spacing,
-//                                      alignment; the font registry
+//                                      alignment; the font registry; the
+//                                      device and the faces measured on it
 //   layout     lines, shipped commands the material; width, indents, leading,
 //              the line index          layout flags, pixels per inch
 //   selection  the SelectionModel      the layout; built at the first query
@@ -49,6 +50,7 @@
 
 #include "imtypeset.h"
 
+#include "device.h"
 #include "draw.h"
 #include "fontlib.h"
 #include "math_mlist.h"
@@ -99,6 +101,32 @@ struct ResolvedStyle {
     // ImTypesetLineBreak_, validated.
     int line_break = 0;
     double px_per_inch = DEFAULT_PX_PER_INCH;
+    // ImTypesetAdvances_, validated: what was asked for.
+    int advances = ImTypesetAdvances_Default;
+    // What came of it (src/device.h): the device the style was resolved for,
+    // which is this number only while the context's table is at
+    // `device_epoch`, and the faces measured on it, a bit a Face. A style
+    // that measures no face on a device has none, and is the same style on
+    // every display.
+    uint16_t device = 0;
+    uint8_t device_faces = 0;
+    uint32_t device_epoch = 0;
+
+    // A face of this style at a size, measured as the style says.
+    FontSpec font(Face of, Scaled size) const
+    {
+        FontSpec spec;
+        spec.face = of;
+        spec.size = size;
+        spec.device = ((device_faces >> static_cast<unsigned>(of)) & 1u) != 0 ? device : 0;
+        return spec;
+    }
+    // Whether two styles measure their characters alike.
+    bool same_device(const ResolvedStyle& other) const
+    {
+        return device == other.device && device_faces == other.device_faces &&
+               device_epoch == other.device_epoch;
+    }
 };
 
 // Inline formulas, for the layer that has a math typesetter.
@@ -312,8 +340,11 @@ struct ImTypesetContext {
     ImTypesetStats stats = {};
 
     ImTypeset::detail::FontLibrary library;
+    // A key's metrics: the font file's, or for a key with a device the
+    // atlas's (src/device.h).
     ImTypeset::detail::MetricsResolver resolve;
     ImTypeset::detail::CharMeasureCache cache;
+    ImTypeset::detail::DeviceState devices;
     ImTypeset::detail::FaceFonts fonts;
     // The ImFont added for each role that has a file of its own, with the
     // atlas's identifier for it and the mark it was given (font_mark in
@@ -493,6 +524,10 @@ uint32_t index_at_byte(const ImTypesetParagraph& p, int byte_offset);
 int byte_at_index(const ImTypesetParagraph& p, uint32_t index);
 std::vector<LineBox>::const_iterator line_of_index(const ImTypesetParagraph& p, uint32_t index);
 bool bound(const ImTypesetContext& ctx);
+// Whether the font drawing a role is in the current atlas still, as the
+// context added it. Reads nothing of a font the atlas does not hold. Call
+// with the context bound.
+bool role_font_in_atlas(const ImTypesetContext& ctx, int role);
 bool not_bound();
 bool backend_has_textures();
 bool no_textures();
@@ -511,8 +546,16 @@ namespace ImTypeset::detail
 {
 
 // The validating entry. `ctx` supplies the font registry (for the em of a
-// pixel height) and ImGui's current font size.
+// pixel height), ImGui's current font size, and the device the style's text
+// is measured on if it measures any there.
 ResolvedStyle resolve_style(ImTypesetContext& ctx, const ImTypesetStyle& style);
+// A resolved style's device, taken again for another ImTypesetAdvances_:
+// what a block that states its own comes to.
+void resolve_device(ImTypesetContext& ctx, ResolvedStyle& style, int advances);
+// Whether a style resolved earlier would be resolved to the same device now:
+// false once the display's density has changed under it, or the fonts its
+// faces are measured from.
+bool device_current(ImTypesetContext& ctx, const ResolvedStyle& style);
 Scaled resolve_width(float width, const ResolvedStyle& style);
 
 // Installs, or with a default-constructed value removes, a formula layer that
