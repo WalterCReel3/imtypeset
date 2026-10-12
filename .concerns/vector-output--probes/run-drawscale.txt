@@ -1,0 +1,26 @@
+## draw-scale probe (scratch, patched private copy)
+
+- compiler: GNU 12.2.0, build type Release, flags "-O3 -DNDEBUG" plus -ffp-contract=off -fno-exceptions -fno-rtti
+- machine: AMD Ryzen 7 PRO 4750U with Radeon Graphics; load average 7.30 8.77 6.33 5/2718 7
+- imtypeset 0.2.0, Dear ImGui 1.92.9, rasteriser FreeType (2.12.1; 2.12.1), ImWchar 32 bits, ImDrawIdx 16 bits
+- text: bench/data/sample.txt, the prose of the reference's demo/sample.md as plain paragraphs (the port has no markdown: headings are set as paragraphs, code blocks and tables are left out)
+- warm-up: 8.0 s of untimed arithmetic on this thread before the first row (IMTYPESET_BENCH_WARMUP_S sets the seconds, 0 for none)
+
+| z | paragraphs | vertices | vertices that differ in position | worst difference px | in uv or colour |
+|---|---|---|---|---|---|
+| 0.5 | 35 | 16656 | 0 | 0.0000 | 0 |
+| 0.75 | 35 | 16656 | 0 | 0.0000 | 0 |
+| 1.1 | 35 | 16656 | 0 | 0.0000 | 0 |
+| 1.25 | 35 | 16656 | 0 | 0.0000 | 0 |
+| 1.5 | 35 | 16656 | 0 | 0.0000 | 0 |
+| 1.73205 | 35 | 16656 | 0 | 0.0000 | 0 |
+| 2 | 35 | 16656 | 0 | 0.0000 | 0 |
+| 3 | 35 | 16656 | 0 | 0.0000 | 0 |
+| 4 | 35 | 16656 | 0 | 0.0000 | 0 |
+
+### one zoom step over 35 paragraphs (the sample's 34 and one with a formula), first draw at the new z into buffers
+
+| what | n | min | median | p95 | unit | note |
+|---|---|---|---|---|---|---|
+| lay out at z, then draw (what the public API does today) | 40 | 727.508 | 1089.869 | 1771.380 | us |  |
+| keep the z = 1 layout, draw at z (the patched copy) | 40 | 186.511 | 564.451 | 968.570 | us |  |

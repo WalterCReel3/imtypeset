@@ -1,0 +1,20 @@
+## zoom probe (scratch, build/vector-output)
+
+- compiler: GNU 12.2.0, build type Release, flags "-O3 -DNDEBUG" plus -ffp-contract=off -fno-exceptions -fno-rtti
+- machine: AMD Ryzen 7 PRO 4750U with Radeon Graphics; load average 7.58 8.85 6.35 4/2706 5
+- imtypeset 0.2.0, Dear ImGui 1.92.9, rasteriser FreeType (2.12.1; 2.12.1), ImWchar 32 bits, ImDrawIdx 16 bits
+- text: bench/data/sample.txt, the prose of the reference's demo/sample.md as plain paragraphs (the port has no markdown: headings are set as paragraphs, code blocks and tables are left out)
+- warm-up: 4.0 s of untimed arithmetic on this thread before the first row (IMTYPESET_BENCH_WARMUP_S sets the seconds, 0 for none)
+- atlas at start: 512 x 128 texels (0.2 MiB as RGBA8), 1 texture(s) listed
+
+### 5. A deep zoom of one paragraph (5 lines, 246 quads at z = 1)
+
+| z | em px | LayoutParagraph | first draw ms | third draw us | drew | atlas texels after | MiB as RGBA8 |
+|---|---|---|---|---|---|---|---|
+| 1 | 16 | ok | 1.43 | 17 | yes | 512 x 128 | 0.2 |
+| 2 | 32 | ok | 1.41 | 17 | yes | 512 x 128 | 0.2 |
+| 4 | 64 | ok | 1.69 | 18 | yes | 512 x 256 | 0.5 |
+| 8 | 128 | ok | 1.82 | 20 | yes | 512 x 512 | 1.0 |
+| 16 | 256 | ok | 6.21 | 24 | yes | 1024 x 1024 | 4.0 |
+| 24 | 384 | ok | 13.27 | 19 | yes | 2048 x 2048 | 16.0 |
+- atlas at end: 2048 x 2048 texels (16.0 MiB as RGBA8), 1 texture(s) listed

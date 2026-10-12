@@ -51,7 +51,7 @@ how; a finding from reading is labelled.
 | H11 | one glyph quad at a clip edge | **in progress** (task `handoff-core`) |
 | H12 | which package calls can raise on host input | **in progress** (task `handoff-core`) |
 | H13 | the text size a demo section is designed for | **in progress** (task `handoff-core`) |
-| H14 | output that is not ImGui | **in progress**: reassessed with the user's words ("Zoomable vector image may be important if we ever decide to render mermaid diagrams inline") in task `vector-output`; an assessment, nothing built |
+| H14 | output that is not ImGui | **needs the user**: reassessed in `docs/vector-output.md` with the user's words; nothing built; not a choice between A and B. An agent's assessment (task `vector-output`), measured in release on a loaded machine: nothing public has to be undone to keep vector output possible (one layout at 309 zoom factors: all 2,185 lines break at the same bytes, positions within 0.0002 px of z times their 1x place); zoom inside ImGui and labels for an application-drawn diagram work through the public API today (2 to 4 ms per zoom step for the view at 1,000 blocks; the host describes its blocks again each step; ImGui bakes type at whole-pixel sizes, so a slow zoom moves in jumps); export to a file is the one part needing new surface. Exercised on prose and one formula only — tables, code, lists, quotes and columns were not zoomed. Four questions for the user are at the top of that document. For advtext meanwhile: no call of yours changes; keeping or dropping the SVG litmus chain is not decided by this |
 
 ### Requests of advtext (`T1`…)
 

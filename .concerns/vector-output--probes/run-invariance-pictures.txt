@@ -1,0 +1,84 @@
+## zoom probe (scratch, build/vector-output)
+
+- compiler: GNU 12.2.0, build type Release, flags "-O3 -DNDEBUG" plus -ffp-contract=off -fno-exceptions -fno-rtti
+- machine: AMD Ryzen 7 PRO 4750U with Radeon Graphics; load average 12.56 6.79 4.58 9/2706 5
+- imtypeset 0.2.0, Dear ImGui 1.92.9, rasteriser FreeType (2.12.1; 2.12.1), ImWchar 32 bits, ImDrawIdx 16 bits
+- text: bench/data/sample.txt, the prose of the reference's demo/sample.md as plain paragraphs (the port has no markdown: headings are set as paragraphs, code blocks and tables are left out)
+- warm-up: 0.0 s of untimed arithmetic on this thread before the first row (IMTYPESET_BENCH_WARMUP_S sets the seconds, 0 for none)
+- atlas at start: 512 x 128 texels (0.2 MiB as RGBA8), 1 texture(s) listed
+
+### 1. Picture zoom: is the layout at z the layout at 1, times z?
+
+1000 blocks, 557.908 px measure and a 16 px em at z = 1; at z every pixel length and PixelsPerInch are multiplied by z (as floats). Compared with z = 1: the byte at which every line ends, and each line's right edge and baseline and each block's top against z times the value at 1.
+
+z = 1: 2185 lines, height 55988 px
+
+| z | blocks whose lines end elsewhere | max right-edge error px | max baseline error px | max block-top error px | block-top error as a fraction of z |
+|---|---|---|---|---|---|
+| 0.5 | 0 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+| 0.75 | 0 | 0.0000 | 0.0000 | 0.0029 | 0.0039 |
+| 1.1 | 0 | 0.0000 | 0.0000 | 0.0043 | 0.0039 |
+| 1.25 | 0 | 0.0000 | 0.0000 | 0.0049 | 0.0039 |
+| 1.5 | 0 | 0.0001 | 0.0000 | 0.0059 | 0.0039 |
+| 1.732051 | 0 | 0.0001 | 0.0000 | 0.0093 | 0.0054 |
+| 2 | 0 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+| 3 | 0 | 0.0001 | 0.0000 | 0.0117 | 0.0039 |
+| 4 | 0 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+
+sweep of 300 values of z from 0.5117 to 4.01 in steps of 0.0117: 0 had any block whose lines end elsewhere; worst right-edge error 0.0002 px, baseline 0.0001 px, block top 0.0073 px per unit of z (over a 55988 px column at z = 1)
+
+### 4. One paragraph: laid out and drawn at z, against the z = 1 drawing enlarged
+
+| picture | pixels | inked pixels | of them at least 90 % ink | 10 to 90 % |
+|---|---|---|---|---|
+| para-z1.png | 436 x 129 | 10935 | 28.2 % | 65.6 % |
+| para-z2-enlarged-from-z1.png | 872 x 258 | 53667 | 2.1 % | 87.5 % |
+| para-z1.5-enlarged-from-z1.png | 654 x 194 | 30011 | 2.9 % | 85.1 % |
+| para-z4-enlarged-from-z1.png | 1744 x 516 | 213640 | 4.5 % | 83.6 % |
+| para-z2-set-at-z.png | 856 x 241 | 35038 | 51.4 % | 42.7 % |
+| para-z1.5-set-at-z.png | 646 x 185 | 20899 | 40.9 % | 54.3 % |
+| para-z4-set-at-z.png | 1696 x 466 | 122581 | 72.6 % | 24.3 % |
+
+Where each quad stands when set at z, against z times where it stands at z = 1 (the left edge of its quad, in pixels of the z picture; a quad's left edge is its pen plus the bitmap's own bearing, which is a whole pixel at each size, so up to about a pixel of this is the bitmap's and not the pen's):
+
+| z | lines (z = 1: 5) | quads (z = 1: 246) | mean abs px | max px | over 1 px | over 2 px | gap between neighbours on a line: mean abs px | max px |
+|---|---|---|---|---|---|---|---|---|
+| 1.25 | 5 | 246 | 0.840 | 4.000 | 65 | 11 | 0.529 | 2.000 |
+| 1.5 | 5 | 246 | 1.108 | 4.500 | 89 | 25 | 0.954 | 2.500 |
+| 2 | 5 | 246 | 1.102 | 5.000 | 72 | 16 | 0.820 | 3.000 |
+| 3 | 5 | 246 | 1.923 | 7.000 | 128 | 70 | 1.418 | 4.000 |
+| 4 | 5 | 246 | 2.398 | 9.000 | 157 | 98 | 1.632 | 6.000 |
+
+A slow zoom, z from 1.00 to 1.25 in steps of 0.01. The layout's width follows z; the type is drawn at whichever whole-pixel size ImGui bakes. Sum of the widths of the first 40 glyph quads (a measure of the drawn type size), per z:
+
+| z | sum of quad widths px | the same over z |
+|---|---|---|
+| 1.00 | 302.0 | 302.00 |
+| 1.01 | 302.0 | 299.01 |
+| 1.02 | 302.0 | 296.08 |
+| 1.03 | 302.0 | 293.20 |
+| 1.04 | 302.0 | 290.38 |
+| 1.05 | 327.0 | 311.43 |
+| 1.06 | 327.0 | 308.49 |
+| 1.07 | 327.0 | 305.61 |
+| 1.08 | 327.0 | 302.78 |
+| 1.09 | 327.0 | 300.00 |
+| 1.10 | 340.0 | 309.09 |
+| 1.11 | 340.0 | 306.31 |
+| 1.12 | 340.0 | 303.57 |
+| 1.13 | 340.0 | 300.88 |
+| 1.14 | 340.0 | 298.25 |
+| 1.15 | 361.0 | 313.91 |
+| 1.16 | 361.0 | 311.21 |
+| 1.17 | 361.0 | 308.55 |
+| 1.18 | 361.0 | 305.93 |
+| 1.19 | 361.0 | 303.36 |
+| 1.20 | 361.0 | 300.83 |
+| 1.21 | 370.0 | 305.79 |
+| 1.22 | 370.0 | 303.28 |
+| 1.23 | 370.0 | 300.81 |
+| 1.24 | 370.0 | 298.39 |
+| 1.25 | 370.0 | 296.00 |
+
+5 distinct drawings of the type over the 26 values of z
+- atlas at end: 512 x 256 texels (0.5 MiB as RGBA8), 1 texture(s) listed

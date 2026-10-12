@@ -1,0 +1,11 @@
+| font | outlines | glyphs | with ink | walk all outlines once, ms | us per glyph with ink |
+|---|---|---|---|---|---|
+| Roboto-Regular.ttf | glyf | 1294 | 1275 | 1.65 | 1.30 |
+| Roboto-Bold.ttf | glyf | 1294 | 1275 | 1.66 | 1.30 |
+| Roboto-RegularItalic.ttf | glyf | 1294 | 1275 | 1.68 | 1.32 |
+| Roboto-BoldItalic.ttf | glyf | 1294 | 1275 | 1.39 | 1.09 |
+| Inconsolata-Medium.ttf | glyf | 962 | 952 | 0.52 | 0.55 |
+| DroidSans.ttf | glyf | 898 | 881 | 0.62 | 0.70 |
+| latinmodern-math.otf | CFF | 4802 | 4778 | 3.38 | 0.71 |
+
+best of 5; GNU 12.2.0 Release; load average 6.93 8.64 6.32 3/2709 9

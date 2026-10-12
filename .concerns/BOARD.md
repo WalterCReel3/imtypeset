@@ -463,3 +463,19 @@ docs/advtext-swap-status.md). QUEUED in this order (the board chained them by sh
 swap-fixes -> tables-fixes. Then a gate: eleven presets from clean, and a commit.
 NEEDS THE USER: item 8 (SVG litmus), the mathtext page, the product copy rules for tables
 (divergences D2/D3), sharp-s case folding in find, plus the earlier open decisions.
+
+## Level 1 handoff (lead, 2026-10-11 late) — the sidecar made shippable
+
+The swap is done on both sides; advtext draws through imtypeset only. Channel: advtext's requests
+H1-H14 are in `../imgui-adv-text/HANDOFF-imtypeset.md`; this project answers by number in
+`docs/advtext-swap-status.md` ("The handoff channel"), which ONLY THE LEAD edits — builders put row
+text in their result files. User direction (quoted in both files): Level 1 = the sidecar beside an
+unmodified imgui-bundle wheel, dependable; goal a Mac-supported install with automatic updates; both
+repos are public on GitHub and builds refer to each other by TAG.
+Environment limits that shape everything: Linux x86-64 only, no Mac, no network from Bash, nobody
+here pushes or runs GitHub Actions. H1 (macOS) is answered only by the first CI run after the user
+pushes — never from reading.
+Board (specs = board details): RUNNING mac-ci (H1, H2, H5), handoff-core (H7-H13), vector-output
+(H14, a document only). QUEUED py-dist (H3, H4, H6) after mac-ci and handoff-core. THEN a reviewer
+over all of it, a gate (eleven presets from clean + both sidecars + wheels), a commit, and a TAG
+(py-dist proposes the name; the lead creates it locally; "not pushed" until the user pushes).

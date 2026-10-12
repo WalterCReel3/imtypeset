@@ -1,0 +1,73 @@
+## zoom probe (scratch, build/vector-output)
+
+- compiler: GNU 12.2.0, build type Release, flags "-O3 -DNDEBUG" plus -ffp-contract=off -fno-exceptions -fno-rtti
+- machine: AMD Ryzen 7 PRO 4750U with Radeon Graphics; load average 9.06 9.23 6.17 5/2686 6
+- imtypeset 0.2.0, Dear ImGui 1.92.9, rasteriser FreeType (2.12.1; 2.12.1), ImWchar 32 bits, ImDrawIdx 16 bits
+- text: bench/data/sample.txt, the prose of the reference's demo/sample.md as plain paragraphs (the port has no markdown: headings are set as paragraphs, code blocks and tables are left out)
+- warm-up: 8.0 s of untimed arithmetic on this thread before the first row (IMTYPESET_BENCH_WARMUP_S sets the seconds, 0 for none)
+- atlas at start: 512 x 128 texels (0.2 MiB as RGBA8), 1 texture(s) listed
+
+### 2. What one zoom step costs today, 1000 blocks
+
+A step is a new z. The view is a clip rectangle 768 px tall a quarter of the way down the document. Each row is one sample per step. 'new sizes': 40 steps of z *= 1.03 from 0.6, so nearly every step asks the atlas for sizes it has not baked. 'sizes seen': the same 40 values of z again straight after (ImGui may have dropped some of them from the atlas in between).
+
+### picture zoom, new sizes
+
+| what | n | min | median | p95 | unit | note |
+|---|---|---|---|---|---|---|
+| describe the 1,000 blocks again (their spacing is in pixels) | 40 | 363.884 | 970.415 | 1589.468 | us |  |
+| LayoutDocument (says the width and style; lays nothing out) | 40 | 3.456 | 5.671 | 9.348 | us |  |
+| first DrawDocument of the view after the step | 40 | 443.454 | 889.833 | 1301.457 | us | 880 quads at the last step |
+| third DrawDocument of the same view | 40 | 60.564 | 91.823 | 162.596 | us |  |
+| the step as the user waits for it: describe + layout + first draw | 40 | 1375.877 | 2103.435 | 3340.100 | us |  |
+| then lay out everything not in view (exact scroll extent) | 40 | 28.863 | 33.961 | 41.961 | ms |  |
+- atlas picture zoom, new sizes: 512 x 128 texels (0.2 MiB as RGBA8), 1 texture(s) listed
+
+### picture zoom, sizes seen
+
+| what | n | min | median | p95 | unit | note |
+|---|---|---|---|---|---|---|
+| describe the 1,000 blocks again (their spacing is in pixels) | 40 | 1062.518 | 1374.354 | 2055.995 | us |  |
+| LayoutDocument (says the width and style; lays nothing out) | 40 | 6.693 | 10.069 | 15.990 | us |  |
+| first DrawDocument of the view after the step | 40 | 577.456 | 1165.331 | 1615.718 | us | 880 quads at the last step |
+| third DrawDocument of the same view | 40 | 57.929 | 122.710 | 279.696 | us |  |
+| the step as the user waits for it: describe + layout + first draw | 40 | 1904.951 | 2985.082 | 4106.160 | us |  |
+| then lay out everything not in view (exact scroll extent) | 40 | 36.588 | 42.925 | 46.260 | ms |  |
+- atlas picture zoom, sizes seen: 512 x 128 texels (0.2 MiB as RGBA8), 1 texture(s) listed
+
+### text zoom, new sizes
+
+| what | n | min | median | p95 | unit | note |
+|---|---|---|---|---|---|---|
+| LayoutDocument (says the width and style; lays nothing out) | 40 | 8.105 | 16.621 | 19.366 | us |  |
+| first DrawDocument of the view after the step | 40 | 603.244 | 1458.441 | 2756.833 | us | 537 quads at the last step |
+| third DrawDocument of the same view | 40 | 74.279 | 189.807 | 353.314 | us |  |
+| the step as the user waits for it: describe + layout + first draw | 40 | 1043.371 | 2032.191 | 6765.890 | us |  |
+| then lay out everything not in view (exact scroll extent) | 40 | 38.003 | 80.493 | 137.668 | ms |  |
+- atlas text zoom, new sizes: 512 x 128 texels (0.2 MiB as RGBA8), 1 texture(s) listed
+
+### text zoom, sizes seen
+
+| what | n | min | median | p95 | unit | note |
+|---|---|---|---|---|---|---|
+| LayoutDocument (says the width and style; lays nothing out) | 40 | 8.165 | 15.238 | 19.347 | us |  |
+| first DrawDocument of the view after the step | 40 | 535.838 | 1195.247 | 2935.408 | us | 537 quads at the last step |
+| third DrawDocument of the same view | 40 | 37.070 | 176.511 | 439.947 | us |  |
+| the step as the user waits for it: describe + layout + first draw | 40 | 970.515 | 1779.655 | 3589.038 | us |  |
+| then lay out everything not in view (exact scroll extent) | 40 | 34.940 | 56.688 | 68.601 | ms |  |
+- atlas text zoom, sizes seen: 512 x 128 texels (0.2 MiB as RGBA8), 1 texture(s) listed
+
+### 3. 500 labels as paragraphs of their own
+
+- create and set text, 500 labels: 235 us; measure each (a layout at 1e6 px for the natural width, then a layout at the box): 7544 us, once
+
+### 500 labels, picture zoom, 40 steps of z *= 1.03 from 0.6
+
+| what | n | min | median | p95 | unit | note |
+|---|---|---|---|---|---|---|
+| lay all 500 out again at the new z | 40 | 2242.266 | 2412.004 | 2889.693 | us |  |
+| first draw of all 500 at the new z | 40 | 1197.181 | 1897.127 | 3251.382 | us |  |
+| third draw of all 500 | 40 | 1173.266 | 1306.426 | 1721.436 | us |  |
+
+- over 40 steps x 500 labels: 0 had another number of lines than at z = 1; 0 were taller than z times their height at 1 by more than a line's rounding; worst |size - z * size at 1|: 2.63 px wide, 1.29 px tall (sizes are whole pixels rounded up, and the width given is the natural width rounded up plus one)
+- atlas at end: 512 x 128 texels (0.2 MiB as RGBA8), 1 texture(s) listed
