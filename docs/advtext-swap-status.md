@@ -44,13 +44,13 @@ how; a finding from reading is labelled.
 | H4 | releases by tag, a compatibility rule | **queued** (task `py-dist`) |
 | H5 | CI on GitHub | **in progress: written, never run** (committed here; the user pushes). `sidecar-probe.yml` (above; Linux x86-64 and macOS arm64, CPython 3.11 to 3.13, both pinned wheels) and `ci.yml` (presets `debug`, `release`, `asan`, `stb`, `wchar16`, `amalgamation` by GCC and Clang on Linux and Apple's Clang on macOS; `python-host` with `tests/python` on Linux; the scripts' own tests). The library has never been compiled by Clang; the first run is expected to be red and to say why. Publishing artefacts for a tag is not in it (task `py-dist`, H3) |
 | H6 | what an update is | **queued** (task `py-dist`) |
-| H7 | a role's font metrics | **in progress** (task `handoff-core`) |
-| H8 | the rule under a table's header takes a whole line | **in progress** (task `handoff-core`): to be re-measured at `c9f8902` against the pinned reference |
-| H9 | appending to a table row that arrives in pieces | **in progress** (task `handoff-core`) |
-| H10 | cull marks to the clip inside `DrawDocument` | **in progress** (task `handoff-core`) |
-| H11 | one glyph quad at a clip edge | **in progress** (task `handoff-core`) |
-| H12 | which package calls can raise on host input | **in progress** (task `handoff-core`) |
-| H13 | the text size a demo section is designed for | **in progress** (task `handoff-core`) |
+| H7 | a role's font metrics | **done** (in `74f5116`; task `handoff-core`, D66). `font_metrics(face, em_size)` -> `FontMetrics(em_size, font_size, ascent, descent, line_gap, x_height, space_advance)` and `glyph_advance(face, em_size, char)`, in pixels, from the role's own font by the library's reader, hhea ascent and descent. The em for an ImGui size `h` is `h * em_size / font_size` from the metrics at any size, which is `em_size_for_pixel_height`. *Measured here:* 42 (role, size) answers and 20,508 advances equal to `advtext.fontlib`'s at the pinned commit, as floats, exactly. Finding font FILES in `load_fonts` is not a metrics question and is not answered |
+| H8 | the rule under a table's header takes a whole line | **not a defect; both figures are right and are of different things.** *Measured here* on `demo/tables.md` at 684 px through the pinned reference: its own stacking (`ui._stacked`, and its views' units) gives 129.6 / 280.8 / 151.2 / 410.4 / 172.8 px, which are the heights you measured from the library; 108.96 / 260.16 / ... is the sum of the heights of `_table_boxes`' boxes (`compare_tables.py`: `height_old`), which the reference never draws: it gives the rule a `\baselineskip` like a line. 20.64 px is one leading less the rule. The library's height is the reference's to the scaled point under both sets of rules at this tree. Whether it SHOULD be a whole leading is the border question below, unchanged. If a test of yours expects 108.96, it expects a height the old view did not have |
+| H9 | appending to a table row that arrives in pieces | **answered: describe the unfinished row without padding**, and `Document.append_table_cells(cells)` is new for the second half (task `handoff-core`, D68). A row may have fewer cells than the table has columns. The cell being written is then the last: `append_text` grows it, `append_table_cells` adds the next cell of the row, `append_table_rows` the next row. *Measured here* by the library's counters, 200 rows, 7 bytes a piece: padded 944 replaces and 288,914 cells measured; unpadded 0 replaces and 1,513; the tables end equal. **Declined:** appending to a named (row, column) cell: a table's cells change only at their end between clears, which is what makes an append cost a row. Markup that closes late in the row being written is still a replace |
+| H10 | cull marks to the clip inside `DrawDocument` | **done** (task `handoff-core`, D69). Hand every mark over every frame, in any order: the draw works out the ones on the lines in view. No precondition; marks in document order skip a sort, which is otherwise made once per set of ranges. *Measured here* (release, a loaded machine, 600 lines, 1,881 Ink marks): 2,766 us a frame before, 83 after, 45 with no marks. Your own culling (the two hit tests, the hand-built `_Marks`) can go |
+| H11 | one glyph quad at a clip edge | **reproduced, explained, fixed** (task `handoff-core`, D69). The draw tested a glyph's font CELL against the clip before its quad, as `ImFont::RenderText` does; U+2502's bitmap starts a pixel above its cell, so with the clip ending on its row's top the quad was dropped with one row inside. The rule now: a glyph's quad is emitted exactly when part of it is inside the clip rectangle from top to bottom. *Looked at here:* that pixel row is now drawn |
+| H12 | which package calls can raise on host input | **done**: `docs/python-errors.md` (task `handoff-core`, D70). A public call raises `imtypeset.Error`, or one of `TypeError`, `ValueError` (with `UnicodeEncodeError`), `OverflowError`, and nothing else; the document says which input gives which, and what the package now clamps instead (an index past a C int used to WRAP). Three inputs that ended the process no longer do (`Document.view("")`, the demo outside a frame); the ones that still do are listed there |
+| H13 | the text size a demo section is designed for | **done**: the numbers are in `imtypeset.h` at `ShowDemoSection` (task `handoff-core`). Every section runs from 10 to 40 px and follows a size that changes between frames. In a page 1100 px wide all are whole to 24 px except Math's table of the subset, whose two columns of words want a page some 58 times the size wide (whole at 19 px); from 32 px a row of controls or a caption is cut at the right edge in four sections. Two things were fixed on the way: Math's formulas no longer run under each other at 24 px and above, and long lines of counters wrap. For "Math in text" larger: push up to 19 px in an 1100 px page, or give the page more width |
 | H14 | output that is not ImGui | **needs the user**: reassessed in `docs/vector-output.md` with the user's words; nothing built; not a choice between A and B. An agent's assessment (task `vector-output`), measured in release on a loaded machine: nothing public has to be undone to keep vector output possible (one layout at 309 zoom factors: all 2,185 lines break at the same bytes, positions within 0.0002 px of z times their 1x place); zoom inside ImGui and labels for an application-drawn diagram work through the public API today (2 to 4 ms per zoom step for the view at 1,000 blocks; the host describes its blocks again each step; ImGui bakes type at whole-pixel sizes, so a slow zoom moves in jumps); export to a file is the one part needing new surface. Exercised on prose and one formula only — tables, code, lists, quotes and columns were not zoomed. Four questions for the user are at the top of that document. For advtext meanwhile: no call of yours changes; keeping or dropping the SVG litmus chain is not decided by this |
 | H15 | an import gate that works in a packaged application (no child interpreter, keyed on content, writes nothing beside the library) | **queued** (task `py-dist`) |
 | H16 | a macOS link recipe, and the artefact's file name | **written, never run** (task `mac-ci`): `-undefined dynamic_lookup`, an exported-symbols list, no GNU-only flags; the file is `libimtypeset_bundle.dylib` on macOS and stays `libimtypeset_bundle.so` on Linux; `<out>/LIBRARY` holds the path, so a caller need not know the name. Part of H1's run |
@@ -58,6 +58,39 @@ how; a finding from reading is labelled.
 | H18 | what replaces `_same_module` where there is no `/proc`; code-signing | **queued** (task `py-dist`): the duplicate-module check by a route that exists on macOS; signing stated as what is known and what needs a Mac |
 | H19 | Retina: rasterising at the framebuffer's density; do the pixel rules assume one logical pixel is one device pixel | **queued** (task `hidpi`, after `handoff-core`): establish on Linux with a framebuffer scale of 2 what the library does today, by a run; what only a person at a Mac can confirm will be said as such |
 | H20 | the fonts a packaged application must carry | **queued** (task `py-dist`) |
+
+### In `74f5116` (task `handoff-core`): API changes and things to know
+
+A library and the package must come from one commit: the package declares
+`ImTypeset_GetFontMetrics` and `ImTypeset_GetGlyphAdvance` and refuses a library
+without them. No struct of the version check changed; the sidecar's probe rows
+are what they were (24). Not pushed until the user pushes.
+
+| what | C++ | C | Python | note |
+|---|---|---|---|---|
+| a role's font at a size | `GetFontMetrics(face, em_size, ImTypesetFontMetrics* out, size_t out_size = sizeof(ImTypesetFontMetrics))`; `ImTypesetFontMetrics {EmSize, FontSize, Ascent, Descent, LineGap, XHeight, SpaceAdvance}` | `ImTypeset_GetFontMetrics(face, em_size, out, sizeof *out)`, `ImTypeset_FontMetrics` | `imtypeset.font_metrics(face, em_size)` -> `FontMetrics(em_size, font_size, ascent, descent, line_gap, x_height, space_advance)`; raises `Error` | new. Pixels, floats, the role's own font, hhea. The em for an ImGui size `h`: `h * em_size / font_size` |
+| one character's advance | `GetGlyphAdvance(face, em_size, codepoint)` | `ImTypeset_GetGlyphAdvance` | `imtypeset.glyph_advance(face, em_size, char_or_codepoint)` | new. Kerning apart; a character the font lacks answers the missing glyph's (ask `face_has_glyph`) |
+| cells into the row a table ends in | `AppendDocumentTableCells` (unchanged) | unchanged | **`Document.append_table_cells(cells)`** | new in Python only |
+| which glyphs a clip rectangle gets | `DrawDocument`, `DrawParagraph`, the widgets, the `ToBuffers` forms | the same | `draw`, `draw_to_buffers`, `view` | **changed**: a quad is emitted exactly when part of it is inside the clip from top to bottom. A glyph taller than its font's cell is now drawn by the rows inside (it could be dropped with one or two rows inside). Vertex counts under a clip that cuts such a glyph go up |
+| marks | `ImTypesetDocumentDraw::Marks` | the same | `Document.draw(marks=...)`, `pack_marks` | **changed, same picture**: any order, all of them every frame; cost is the marks in view plus one comparison a mark. Marks on lines not shown no longer emit their rectangles |
+| `DocumentView` with an empty `str_id` | the view's own ID | the same | `Document.view("")` draws | was an ImGui assertion (process ends) |
+| the demo outside a frame | `ShowDemoWindow`, `ShowDemoSection` draw nothing | the same | `show_demo_window`, `demo.show_demo_section` | was an assertion or a segmentation fault |
+| what Python raises | | | every public call: `Error`, or `TypeError` / `ValueError` / `OverflowError` | **changed**: `struct.error`, `ctypes.ArgumentError`, `AttributeError`, `KeyError`, `IndexError`, `MemoryError` no longer leave a call; ints past a C int are clamped (they wrapped); `docs/python-errors.md` |
+| the demo's Math table and counters | `ShowDemoSection` / `ShowDemoWindow` | | `imtypeset.demo` | changed look: formula columns as wide as their widest formula; long counter lines wrap |
+
+Nothing was renamed or removed. No struct that `IMTYPESET_CHECKVERSION()` compares changed size;
+`ImTypeset_BuildInfo` is unchanged; the sidecar's probe rows are unchanged. A package from this
+tree refuses a library from before it (it declares two functions the old library lacks).
+
+**Things to know:**
+
+- **A draw under a clip that cuts a tall glyph emits more quads than before** (the glyph is now
+  in both slices, as the header always said of a glyph a cut goes through). A test that counts
+  vertices under such a clip changes; the probe `probe_overhang.py` is expected to report 2 of 2 at
+  "exactly at the row's top" (NOT RUN here: it needs your tree's views).
+- **Marks need not be culled or sorted by the host.** Rectangles of a mark on lines out of view
+  are no longer emitted at all.
+- **`Document.view("")` draws; an index past a C int no longer wraps to a small one.**
 
 ### Requests of advtext (`T1`…)
 
