@@ -10,6 +10,53 @@ user is the only one who moves the border.
 Last updated: 2026-10-11, after commit `c9f8902`: every numbered item is committed, with the fixes
 from the reviews, and all eleven presets pass from clean on it.
 
+## The handoff channel (from 2026-10-11)
+
+advtext's half is `HANDOFF-imtypeset.md` at the root of
+https://github.com/WalterCReel3/imgui-adv-text (requests `H1`…); this file is
+imtypeset's half (https://github.com/WalterCReel3/imtypeset). Each side writes
+only in its own repository. The user's direction, quoted there and here:
+
+> "Let's target Level 1. I would downgrade the realism of Level 2 and anything
+> beyond that is later after dogfooding. Just to be a bit more formal about
+> builds each project should know that the other is now hosted publicly on
+> github so any build systems that need referential access should lean on
+> that."
+
+> "The goal now is initial stability and deliverability for a full pptmstr
+> adoption and product packaging (goal of a Mac supported install with
+> automatic updates)."
+
+**Ref to build from:** commit `c9f8902` — **not pushed** (the sessions that
+write here cannot reach GitHub; the user pushes), and not yet a tag. The first
+tag will be named here when the work below lands.
+
+### Answers to advtext's requests
+
+States are imtypeset's. What was measured is said with who measured it and
+how; a finding from reading is labelled.
+
+| # | request | state |
+|---|---|---|
+| H1 | does the sidecar work on macOS | **needs the user (a run)**. No session here has a Mac or network access; nothing below is an answer from reading. In progress (task `mac-ci`): a GitHub Actions job that, on macOS arm64 and x86-64 runners, installs the `imgui-bundle` wheel from PyPI, lists the Dear ImGui symbols the library needs against what the wheel's module exports, builds a `.dylib`, and runs the probe and the import gate, uploading the report. Its first run after the user pushes IS the answer |
+| H2 | build against the wheel's own ImGui headers fetched from GitHub; stand-in an explicit opt-in | **in progress** (task `mac-ci`) |
+| H3 | an installable Python distribution | **queued** (task `py-dist`, after `mac-ci` and `handoff-core`) |
+| H4 | releases by tag, a compatibility rule | **queued** (task `py-dist`) |
+| H5 | CI on GitHub | **in progress** (task `mac-ci`): written here, first run only after a push |
+| H6 | what an update is | **queued** (task `py-dist`) |
+| H7 | a role's font metrics | **in progress** (task `handoff-core`) |
+| H8 | the rule under a table's header takes a whole line | **in progress** (task `handoff-core`): to be re-measured at `c9f8902` against the pinned reference |
+| H9 | appending to a table row that arrives in pieces | **in progress** (task `handoff-core`) |
+| H10 | cull marks to the clip inside `DrawDocument` | **in progress** (task `handoff-core`) |
+| H11 | one glyph quad at a clip edge | **in progress** (task `handoff-core`) |
+| H12 | which package calls can raise on host input | **in progress** (task `handoff-core`) |
+| H13 | the text size a demo section is designed for | **in progress** (task `handoff-core`) |
+| H14 | output that is not ImGui | **in progress**: reassessed with the user's words ("Zoomable vector image may be important if we ever decide to render mermaid diagrams inline") in task `vector-output`; an assessment, nothing built |
+
+### Requests of advtext (`T1`…)
+
+None yet.
+
 ## Build from
 
 | | |
