@@ -27,8 +27,8 @@ only in its own repository. The user's direction, quoted there and here:
 > adoption and product packaging (goal of a Mac supported install with
 > automatic updates)."
 
-**Ref to build from:** commit `c9f8902` — **not pushed** (the sessions that
-write here cannot reach GitHub; the user pushes), and not yet a tag. The first
+**Ref to build from:** commit `c9f8902` — on GitHub as far as this checkout's tracking ref shows (the sessions that
+write here cannot reach GitHub to confirm; the user pushes), and not yet a tag. The first
 tag will be named here when the work below lands.
 
 ### Answers to advtext's requests
