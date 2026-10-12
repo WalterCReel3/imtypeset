@@ -103,8 +103,8 @@
 #endif
 
 /* The same numbers as IMTYPESET_VERSION and IMTYPESET_VERSION_NUM. */
-#define IMTYPESET_C_VERSION     "0.3.0"
-#define IMTYPESET_C_VERSION_NUM 300
+#define IMTYPESET_C_VERSION     "0.4.0"
+#define IMTYPESET_C_VERSION_NUM 400
 /* The revision of THIS header's own shape: raised when a function of it
  * changes its parameters or a rule above changes. Adding a function does not
  * raise it. */
@@ -617,6 +617,7 @@ typedef struct ImTypeset_DocumentStats { /* ImTypesetDocumentStats */
     ImTypeset_U64 TableRowsSet;
     ImTypeset_U64 ColumnsCut;
     ImTypeset_U64 BalanceHeightsTried;
+    bool MeasuredWithoutDevice;
 } ImTypeset_DocumentStats;
 
 /* What the library was compiled as. Only `int` and `char`, so that it reads

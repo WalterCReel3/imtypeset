@@ -176,6 +176,18 @@ public:
     // This face as a math face, or null if it carries no MATH table. Stands in
     // for the reference's separate protocol, since there is no RTTI to ask.
     virtual const MathFontMetrics* as_math() const { return nullptr; }
+
+    // Not the reference's, which knows no grid. If text in this face is set
+    // on a grid of cells (src/device.h: a fixed-pitch face measured on a
+    // device, or a guest in such a face's text), the width of one cell in the
+    // unit of every other length here, and every advance this answers is a
+    // whole number of them. Zero if not.
+    virtual double cell() const { return 0.0; }
+    // The device (FontSpec::device) a character borrowed from another face
+    // for text in this one is measured on, given this face's own: the same
+    // one, unless this face is on a grid, when it is the one that sets a
+    // guest in this face's cells.
+    virtual uint16_t guest_device(uint16_t own) const { return own; }
 };
 
 // A face that also carries an OpenType MATH table.

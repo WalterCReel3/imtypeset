@@ -6,11 +6,39 @@ added), **changed** (a name means something else, or text is set
 differently), **fixed** (a defect, with what it did), **removed**. The release
 notes on GitHub are the section, copied by `tools/ci/wheel_release.sh`.
 
-## Unreleased
+## 0.4.0
 
-After 0.3.0. By `docs/versioning.md` this is a minor version (two host-filled structs grew, a
-default changed, text is set differently): the number was not moved by the task that made the
-changes and is whoever cuts the release's to move.
+Not tagged yet. A minor version by `docs/versioning.md`: two host-filled structs grew, a
+library-filled one grew, a default changed, and text is set differently. **A library and a
+package of 0.3.0 and of 0.4.0 refuse each other**, by version and by struct sizes.
+
+### The grid, and what keeps it true (task `device-finish`, D79 to D81)
+
+- **changed (text is set differently)**: text in a FIXED-PITCH face measured on the device
+  (which Code is by default) is on a grid of cells, whatever it holds. A character borrowed
+  from another face takes as many whole cells as hold it (an ideograph two) where it took its
+  own advance; a control, format character or combining mark the face has no ink for takes none
+  where it took the missing glyph's advance (and U+200B takes none even where the font gives it
+  one); U+FFFD for a character no face has is the code face's own and one cell; a tab in a Code
+  block counts cells; a wrapped code line hangs whole cells; the spaces of such text never
+  stretch; a paragraph whose own face is such a face is ragged right where its style says
+  Justify; a word of such text is drawn on the pixel nearest its place. Every advance on the
+  device is a whole framebuffer pixel, for any character (D79).
+- **fixed**: advances remembered from the atlas outlived the rasterisation they were read from
+  when a host changed loader flags, the loader or a source in place; the entry asked for
+  followed the density a font was last pushed at; a font with locked sizes answered another
+  size's advance. They are checked once a frame, asked for at their own density, and held to
+  their size (D80).
+- **changed**: `DrawParagraph` REFUSES a paragraph holding device text that was laid out for
+  another display density or atlas rasterisation (`InvalidArgument`: call `LayoutParagraph`
+  again); it drew the old geometry (D81).
+- **changed**: a document asked anything while its ImGui context is not current answers from
+  the layout it has; it was laid out again by its fonts. `LayoutParagraph` there keeps what it
+  measured. **new**: `ImTypesetDocumentStats::MeasuredWithoutDevice` (C
+  `ImTypeset_DocumentStats`; Python `DocumentStats.MeasuredWithoutDevice`), last field (D81).
+- **changed**: layout asks the atlas through `ImFontBaked::GetCharAdvance`; it no longer reads
+  `ImFontGlyph::AdvanceX`. The probe keeps its 26 rows.
+- **fixed**: two code cells of a table column laid out at one x could be drawn a pixel apart.
 
 ### What a character is measured by (task `device-advances`, requests H34 and H35)
 

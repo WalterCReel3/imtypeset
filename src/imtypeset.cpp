@@ -567,6 +567,14 @@ void build_material(ImTypesetContext& ctx, ImTypesetParagraph& p, const Resolved
 {
     Building building(p.has_material);
     build_material_now(ctx, p, style);
+    p.on_device = false;
+    for (const Node& node : p.block.run.nodes) {
+        FontSpec spec;
+        if (node.is(NodeType::CHAR) && parse_font_key(node.font(), &spec) && spec.device != 0) {
+            p.on_device = true;
+            break;
+        }
+    }
     building.finished = true;
 }
 
@@ -1012,9 +1020,11 @@ void layout_paragraph(ImTypesetContext& ctx, ImTypesetParagraph& p, const Resolv
     building.finished = true;
 }
 
-void layout_paragraph_now(ImTypesetContext& ctx, ImTypesetParagraph& p, const ResolvedStyle& style,
-                          Scaled width)
+void layout_paragraph_now(ImTypesetContext& ctx, ImTypesetParagraph& p,
+                          const ResolvedStyle& resolved, Scaled width)
 {
+    const ResolvedStyle style =
+        p.has_material ? keeping_device(ctx, resolved, p.material_style) : resolved;
     const bool rebuilt = !p.has_material || p.material_text_version != p.text_version ||
                          p.material_generation != ctx.library.generation() ||
                          !same_material_style(p.material_style, style);
@@ -1461,6 +1471,11 @@ bool can_draw(const ImTypesetParagraph* paragraph)
         return fail(ImTypesetError_InvalidArgument,
                     "the fonts have changed since the paragraph was laid out: call "
                     "LayoutParagraph again");
+    if (paragraph->on_device && !device_current(ctx, paragraph->material_style))
+        return fail(ImTypesetError_InvalidArgument,
+                    "the display's density or the font atlas's rasterisation has changed since "
+                    "the paragraph was laid out on the device's advances: call LayoutParagraph "
+                    "again");
     if (paragraph->fallback)
         return report(paragraph->material_error);
     return true;
@@ -2227,7 +2242,35 @@ ResolvedStyle resolve_style(ImTypesetContext& ctx, const ImTypesetStyle& style)
                            style.Advances == ImTypesetAdvances_Device
                        ? style.Advances
                        : ImTypesetAdvances_Default);
+    out.align = grid_align(ctx, out.align, out.font(out.face, out.em));
     return out;
+}
+
+bool device_askable(ImTypesetContext& ctx)
+{
+    return bound(ctx) && backend_has_textures();
+}
+
+ResolvedStyle keeping_device(ImTypesetContext& ctx, ResolvedStyle style, const ResolvedStyle& held)
+{
+    if (held.device == 0 || style.advances != held.advances || device_askable(ctx))
+        return style;
+    // The epoch is the table's now: a table emptied since is another table.
+    if (held.device_epoch != ctx.devices.epoch || style.px_per_inch != held.px_per_inch)
+        return style;
+    style.device = held.device;
+    style.device_faces = held.device_faces;
+    style.device_epoch = held.device_epoch;
+    style.align = grid_align(ctx, style.align, style.font(style.face, style.em));
+    return style;
+}
+
+Align grid_align(ImTypesetContext& ctx, Align align, const FontSpec& font)
+{
+    if (align != Align::JUSTIFY || font.device == 0)
+        return align;
+    const FontMetrics* const metrics = ctx.resolve(font.key());
+    return metrics != nullptr && metrics->cell() > 0.0 ? Align::LEFT : align;
 }
 
 void resolve_device(ImTypesetContext& ctx, ResolvedStyle& style, int advances)

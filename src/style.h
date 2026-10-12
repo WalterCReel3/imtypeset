@@ -276,13 +276,27 @@ struct Composition {
     Face code = Face::CODE;
 };
 
+// The characters that take no room of their own in a line: the general
+// categories Cc, Cf, Mn and Me (controls, format characters such as U+200B,
+// U+200D, U+FEFF and the variation selectors' neighbours, and combining
+// marks). `stand_in` never borrows one, and text measured on a device gives
+// one no advance where its face has no ink for it (src/device.h). From the
+// tables of src/unicode_tables.h.
+bool unspaced(uint32_t codepoint);
+
 // What to set for a character the face of `key` has no glyph for: the same
 // character from the first of the regular face, the math face and the code
 // face that has it, at the same size; failing that U+FFFD from the regular
-// face, or `?` if it lacks that too. White space and the general categories
-// Cc, Cf, Mn and Me are never stood in for, and are answered unchanged, as is
+// face, or `?` if it lacks that too. White space and the characters that are
+// `unspaced` are never stood in for, and are answered unchanged, as is
 // everything when no stand-in exists. A face the resolver does not know is
 // passed over.
+//
+// Two departures from the reference, which knows no grid, for a face that is
+// on one (FontMetrics::cell): the other face is measured on the device that
+// face names for its guests (FontMetrics::guest_device), so that what is
+// borrowed takes whole cells; and U+FFFD or `?` is taken from the face itself
+// when it has one, which is then one cell wide like its neighbours.
 struct StandIn {
     FontKey font;
     uint32_t codepoint = 0;

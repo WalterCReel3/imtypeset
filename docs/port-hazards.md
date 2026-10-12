@@ -687,3 +687,16 @@ For whoever next touches layout, the draw loop or a binding.
   pen is a whole pixel and a laid-out position is a sum of advances each rounded to a scaled
   point. That is the unit's rounding and not a tolerance on a golden; no golden comparison
   has one.
+- **A grid's guest is keyed on another device** (task `device-finish`, D79): a character
+  borrowed into a fixed-pitch face on a device carries its own face with a GRID device number
+  (`Device::cell`), not the host's. Anything that compares a key's device with a style's must
+  expect both; `FontMetrics::cell()` is what says "on a grid", for host and guest alike.
+- **`device_number` can forget every measurement** (D80): it is where remembered advances are
+  checked. Call it between layouts, never inside one; `grid_device`, which is called inside
+  one, only marks the table full.
+- **`ImFontGlyph*` does not survive a call into the library**: layout loads glyphs into the
+  entry (a face's ASCII, to find its cell) and ImGui moves the entry's glyphs when it does. A
+  test that held one across `GetDeviceGlyphAdvance` read freed memory.
+- **Under the reference's rules nothing here applies**: no face is on a device unless a style
+  says `Device` outright, so no golden replay meets a grid, rigid spaces or a ragged code
+  paragraph. `tests/test_specimen.cpp` says `Font` for that reason.

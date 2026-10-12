@@ -1,5 +1,5 @@
 // What measuring code on the device costs (ImTypesetAdvances_, src/device.h):
-// a document of 5,000 lines of code, as one block and as 250 blocks of twenty
+// a document of 5,000 and of 50,000 lines of code, as one block and as 250 blocks of twenty
 // lines, which is nearer a diff, measured by the device's advances (the
 // default for the Code faces) and by the font's.
 //
@@ -22,14 +22,16 @@
 namespace
 {
 
-constexpr int LINES = 5000;
 constexpr int BLOCK_LINES = 20;
 
-std::string make_text(std::vector<ImTypesetBlock>& one, std::vector<ImTypesetBlock>& many)
+// Every block has exact line heights, as a diff view's has
+// (ImTypesetBlockFlags_FixedLineHeight).
+std::string make_text(int lines, std::vector<ImTypesetBlock>& one,
+                      std::vector<ImTypesetBlock>& many)
 {
     std::string text;
     int block_start = 0;
-    for (int line = 0; line < LINES; ++line) {
+    for (int line = 0; line < lines; ++line) {
         char buffer[160];
         const int size =
             std::snprintf(buffer, sizeof buffer,
@@ -39,6 +41,7 @@ std::string make_text(std::vector<ImTypesetBlock>& one, std::vector<ImTypesetBlo
         if ((line + 1) % BLOCK_LINES == 0) {
             ImTypesetBlock block;
             block.Kind = ImTypesetBlockKind_Code;
+            block.Flags = ImTypesetBlockFlags_FixedLineHeight;
             block.TextStart = block_start;
             block.TextEnd = static_cast<int>(text.size());
             many.push_back(block);
@@ -47,6 +50,7 @@ std::string make_text(std::vector<ImTypesetBlock>& one, std::vector<ImTypesetBlo
     }
     ImTypesetBlock whole;
     whole.Kind = ImTypesetBlockKind_Code;
+    whole.Flags = ImTypesetBlockFlags_FixedLineHeight;
     whole.TextStart = 0;
     whole.TextEnd = static_cast<int>(text.size());
     one.push_back(whole);
@@ -73,7 +77,8 @@ void set_blocks(ImTypesetDocument* document, const std::string& text,
 }
 
 void bench_one(const char* shape, const std::string& text,
-               const std::vector<ImTypesetBlock>& blocks, ImTypesetAdvances advances, float* size)
+               const std::vector<ImTypesetBlock>& blocks, ImTypesetAdvances advances, float* size,
+               int samples)
 {
     const float width = 4.0f * bench::px_of_pt(bench::MEASURE_PT);
     const char* const measured =
@@ -83,7 +88,7 @@ void bench_one(const char* shape, const std::string& text,
 
     std::snprintf(what, sizeof what, "%s, %s: laid out whole, cold", shape, measured);
     bench::row(what,
-               bench::sample(12, 0,
+               bench::sample(samples, 0,
                              [&]() {
                                  *size += 0.01f;
                                  const ImTypesetStyle style = style_of(advances, *size);
@@ -95,7 +100,7 @@ void bench_one(const char* shape, const std::string& text,
 
     const ImTypesetStyle style = style_of(advances, bench::EM_PX);
     std::snprintf(what, sizeof what, "%s, %s: laid out whole, warm", shape, measured);
-    bench::row(what, bench::sample(12, 2, [&]() {
+    bench::row(what, bench::sample(samples, 2, [&]() {
                    set_blocks(document, text, blocks);
                    ImTypeset::LayoutDocument(document, width, &style);
                    ImTypeset::LayoutDocumentWindow(document, 0.0f, 1.0e9f);
@@ -115,7 +120,7 @@ void bench_one(const char* shape, const std::string& text,
     std::snprintf(what, sizeof what, "%s, %s: the first frame on another display", shape, measured);
     int flips = 0;
     bench::row(what,
-               bench::sample_frames(200, 4,
+               bench::sample_frames(samples * 10, 4,
                                     [&](ImDrawList* list) {
                                         const float density = (flips++ % 2) == 0 ? 2.0f : 1.0f;
                                         ImGui::GetIO().DisplayFramebufferScale =
@@ -145,20 +150,26 @@ int main()
     bench::reference_style();
     bench::header("bench_code");
 
-    std::vector<ImTypesetBlock> one, many;
-    const std::string text = make_text(one, many);
-    char title[160];
-    std::snprintf(title, sizeof title,
-                  "%d lines of code, %zu bytes, through a window of %.0f px: one block, and %zu "
-                  "blocks of %d lines",
-                  LINES, text.size(), static_cast<double>(bench::WINDOW_PX), many.size(),
-                  BLOCK_LINES);
-    bench::table_head(title);
     // Sizes no row has used: each cold sample takes the next hundredth.
     float size = 17.0f;
-    for (const ImTypesetAdvances advances : {ImTypesetAdvances_Default, ImTypesetAdvances_Font}) {
-        bench_one("one block", text, one, advances, &size);
-        bench_one("250 blocks", text, many, advances, &size);
+    for (const int lines : {5000, 50000}) {
+        std::vector<ImTypesetBlock> one, many;
+        const std::string text = make_text(lines, one, many);
+        char title[200];
+        std::snprintf(title, sizeof title,
+                      "%d lines of code, %zu bytes, exact line heights, through a window of %.0f "
+                      "px: one block, and %zu blocks of %d lines",
+                      lines, text.size(), static_cast<double>(bench::WINDOW_PX), many.size(),
+                      BLOCK_LINES);
+        bench::table_head(title);
+        char blocks[32];
+        std::snprintf(blocks, sizeof blocks, "%zu blocks", many.size());
+        const int samples = lines > 5000 ? 5 : 12;
+        for (const ImTypesetAdvances advances :
+             {ImTypesetAdvances_Default, ImTypesetAdvances_Font}) {
+            bench_one("one block", text, one, advances, &size, samples);
+            bench_one(blocks, text, many, advances, &size, samples);
+        }
     }
 
     ImTypeset::DestroyContext();

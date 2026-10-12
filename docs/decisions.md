@@ -4177,3 +4177,176 @@ a timing to quote.
 
 **Kept:** `word_width_held` alone still chooses the gaps of the whole word (`settle_word`), and
 the tests that state that rule state it under that rule.
+
+## D79. A fixed-pitch face on the device is on a grid, unconditionally (task `device-finish`, review-9 findings 1, 5 and the code paragraph, 2026-10-12)
+
+The lead's rulings 1, 5 and 7 for this task, taken without the owner, built as ruled except where
+said; the rest are this builder's (an agent's) decisions. The owner's words: "This is important to
+get the new diff interface working." A diff view is rows of monospace with marks over character
+ranges, and real files hold tabs, CJK, box-drawing, emoji, zero-width and control characters.
+
+**Reproduced by running before anything was changed** (`tests/test_device_grid.cpp` at `5077b22`,
+debug, FreeType 2.12.1, the usual faces, raw rows in `.concerns/device-finish--builder--repro-head.txt`).
+At a pixel height of 16 (cell 7 px): a row holding U+FEFF, U+200D, ESC or U+2003, which
+Inconsolata lacks, gave that character 0.9752 cells (the font file's missing-glyph advance) and
+every later glyph was drawn 0.17 px from where layout had it; a Cyrillic letter borrowed from the
+regular face took 1.857 cells and the columns after three of them were 3 px off the grid (5 px at
+density 2, 13 px); U+FFFD standing for an ideograph no face has took 2 cells (2.09 at density 2);
+a tab after a wide character stopped at a column that was no tab stop; a wrapped line's
+continuation hung 3.70 to 4.05 cells in; a paragraph in the Code face was justified, its
+characters up to 3 px (6.1 at density 2) from a whole cell. The reviewer's 0.3737 px was for
+every role the monospace file; the mechanism is the same and the size depends on the face table.
+What did not reproduce as written: Inconsolata HAS U+200B, with an advance of half an em and no
+ink, so `a<U+200B>bcd` was on the grid, one cell wider than a terminal has it.
+
+**Decided: fixed-pitch is the font's own advances, not its declaration.** A face is fixed-pitch
+if every character from U+0020 to U+007E its font maps has one advance in hmtx (at least two of
+them). `post.isFixedPitch` is not read: it is a declaration and fonts get it wrong both ways. The
+CELL on a device is the largest device advance among those characters, which is the advance of
+each of them under FreeType and stb_truetype at every size measured (13 to 24, densities 1 to 3).
+
+**Decided (ruling 1, built as ruled): every character takes a whole number of cells**
+(`src/device.{h,cpp}`, "THE GRID"). A character of the face: the cells its advance needs, none
+for a mark with no advance. An `unspaced` character (Cc, Cf, Mn, Me: ONE definition,
+`unspaced()` in `src/style`, which `stand_in` now uses too) that the face has no ink for: none,
+whether the font lacks it or maps it to an empty glyph with an advance, so U+200B is no cell in
+Inconsolata too. A character borrowed from another face: `ceil(its device advance / cell)`
+cells, at least one, glyph at the left. U+FFFD or `?` standing in: one cell, **and it is the
+face's own glyph where the face has one** (not ruled: the regular face's U+FFFD is an em wide and
+would have overprinted the next cell). A character that draws nothing and is not unspaced (a
+space the face lacks, such as U+2003): one cell.
+**How a guest gets the host's cell:** its key is its face on a GRID DEVICE, the host's device
+with the host's cell (`Device::cell`, `grid_device`), numbered like any device; `stand_in` asks
+the host's metrics which (`FontMetrics::guest_device`). The key format did not change.
+**Every advance on a device is a whole framebuffer pixel now**, grid or not: a character the
+atlas cannot be asked about is the font file's advance rounded, where it was the fraction.
+An advance in pixels becomes scaled points rounded UP (it was to nearest): positions along a line
+are then never a hair under a whole pixel, so a line starting at exactly half a pixel rounds all
+its words the same way.
+
+**Decided: tabs count cells** in a Code block on a grid (`set_code`, `CodeLines::cell`): a tab
+goes to the next multiple of `TAB_WIDTH` (4) cells whatever stands before it. Everywhere else a
+column is a character, as the reference's `str.expandtabs` has it; no golden is on a grid.
+
+**Decided (ruling 5, built as ruled): a wrapped line hangs whole cells**, the number nearest two
+ems, at least one.
+
+**Decided (ruling 7, built as ruled): a grid face's spaces are cells.** Interword glue in a face
+on a grid is its space's cell with no stretch and no shrink, whatever the space factor
+(`append_codepoints`); a justified line takes its slack from its other spaces. A paragraph or
+block whose OWN face is on a grid is set ragged right where its style says Justify
+(`grid_align`). There is no letter-spacing in this library to switch off.
+
+**Found by the untested combinations and decided here: a word on a grid is never led.** Two code
+cells of one table column, laid out at one x (319.45 px), were drawn at 320 and 319: under
+`DrawRules::word_spaces_led` a word is placed from the last glyph of the word before it, which in
+a table is the cell before it. Now a word whose key is on a grid goes on the pixel nearest its
+own place (`FontBinder::on_grid`), so equal laid-out columns are equal drawn columns in any two
+lines or rows. It moves the space BEFORE an inline code run in prose by up to a pixel against
+what leading gave; `tests/test_word_gaps.cpp` passes unchanged. Text not on a grid is led as
+before, tables included: two prose cells of a column can still differ by a pixel (not changed;
+for the owner if it matters).
+
+**Not on the grid, and said in the header:** a formula in a grid line and what follows it on
+that line; a first-line indent or a host indent that is not whole cells. A face that is not
+fixed-pitch on the device (prose under `Device`) is promised whole pixels and no grid.
+
+**Measured after** (`tests/test_device_grid.cpp`, 19 tests; debug and release; FreeType): on 192
+pages (densities 1, 1.5, 2, 3; pixel heights 13 to 24; the block's origin 0, 1/4, 1/2 and 3/4
+of a framebuffer pixel off) every laid-out character is a whole number of cells from its row's
+start, every glyph is on a whole framebuffer pixel, all glyphs of a block are the same distance
+from their places to under 1/128 px, that distance is at most half a pixel and nothing at a
+whole-pixel origin. The diff view's shape (one Code block of 5,000 lines, exact line heights,
+Behind, Under and Ink marks and a selection, scrolled to the middle, densities 1, 1.5, 2): fills'
+edges on the pens, hit tests in marked cells right, every glyph a whole number of cells from
+`pos`. Tables, columns, a Code-face paragraph, justified prose with a code run, an ideograph
+from a font read in place on this machine (IPA Gothic: advance 16 px, two cells of 8). Pictures,
+looked at: `.concerns/device-finish--builder--shot-*.png`.
+
+## D80. Remembered advances are checked against the atlas; an entry is asked for by its own density and held to its size (task `device-finish`, review-9 findings 2, 6 and 7, 2026-10-12)
+
+Agent decisions under the lead's rulings 2 and 6.
+
+**Reproduced.** A block laid out, every font's output destroyed and made again with a pixel of
+`GlyphExtraAdvanceX` (what Dear ImGui's Fonts debug window does with a loader flag: same ImFont,
+FontId, count), another block laid out: `aaaa` 40 px wide and `ZZZZ` 44 in one document, for as
+long as the context lived. **The reviewer's own flag does not reproduce:** `NoHinting` moves
+Inconsolata's cell at no pixel height from 13 to 24 (the library's rounding of the unhinted
+advance is the pixel hinting chose); FreeType's `Bold` flag does (28 to 32 at 16), and is what
+the test turns. With `ImFont::CurrentRasterizerDensity` left at 2 by a push on a dense viewport,
+at 15 px: cell 6, then 7 for the next character asked. With a font's sizes locked
+(`ImFontFlags_LockBakedSizes`) at 16 px, a line at 22 px was laid out with the 16 px entry's
+cell.
+
+**Decided: a witness, not a key on flags.** Each face on a device keeps what it read from its
+entry (`DeviceMetrics::_read`). Once a frame, at the first `device_number` (which every layout,
+and every question to a document, passes), each face used in that frame or the one before asks
+its first character's advance again, and all of them if that character's glyph has left its
+entry, which is what destroying a font's output does. A difference forgets every measurement
+and moves `DeviceState::epoch`, which makes every style resolved before stale exactly as a
+change of display does: documents lay out again, a retained paragraph is refused (D81), widgets
+set again. *Why not key on `ImFontAtlas::FontLoaderFlags` and each source's:* that reads new
+fields of ImGui's (probe rows in the sidecar) and still misses another loader, `PixelSnapH`,
+`GlyphExtraAdvanceX`, `RasterizerDensity`, `ExtraSizeScale`; the witness reads none and catches
+whatever moves an advance. *Cost, measured* (release, `bench_code`, load 4): a steady frame of a
+5,000-line block 43.6 us on the device and 43.6 by the font. A first form asked every face ever
+made and cost 17 us a frame after twelve sizes had been met; faces unused for a frame are now
+skipped. **What it does not catch:** a change within one frame is seen at the next frame's first
+layout or draw (measured: both blocks 28 px then both 32); a change that moves some character
+of a proportional face and not the first one read, with the entry NOT rebuilt (no route to that
+is known); `ImFontFlags_NoLoadGlyphs`, under which ImGui answers its fallback's advance.
+
+**Decided: `face_bake` says the rasteriser density, 1, at every density** (it left density 1 to
+the font's current one). **Decided (finding 7): an entry further than ImGui's own rounding from
+the size asked is refused** (`entry_of`); the face is then measured from its font file, marked,
+and measured again when the atlas can answer.
+
+**Ruling 6, NOT built as ruled, with the measurement.** ImGui has an advance-only route and it
+answers the same number: `ImFontBaked::GetCharAdvance` against `FindGlyph()->AdvanceX`, 1,280
+comparisons equal to the bit (FreeType; densities 1, 1.5, 2, 3; 13 to 24 px; a size at a density
+and the size in framebuffer pixels). But below 128 px it is advance-only only if
+`ImFontBaked::LoadNoRenderOnLayout` is set, and nothing sets that but the caller. *Built:* layout
+asks through `GetCharAdvance` (same number; ImGui's own code reads it, so the library no longer
+reads `ImFontGlyph::AdvanceX`; advance-only by ImGui's own rule at 128 px and above).
+*Not built:* setting the bit. It is a write into a bit-field of the host's `ImFontBaked`, which
+the stock wheel exposes no accessor for, so the sidecar's probe could not attest where the bit
+is under stand-in headers, and a wrong bit there is `WantDestroy`; and it changes how the host's
+own `CalcTextSize` loads that entry. *The cost of not doing it, measured:* every distinct
+character laid out on the device is rasterised once (704 glyphs packed by asking against 128
+with the bit, for the same 1,280 questions); a first layout of 5,000 lines of ASCII at a new
+size costs about 2 ms more than a warm one (task `device-advances`' rows). For the lead or the
+owner to overturn if a file of thousands of distinct ideographs in one block matters more.
+
+**The sidecar:** no new field of ImGui's is read. Three functions of ImGui's are newly called
+from layout (`ImFontBaked::GetCharAdvance`, `IsGlyphLoaded`, `ImFont::IsGlyphInFont` was already
+called by the draw); the probe's `ImFontGlyph.AdvanceX` row stays, as a check of that struct's
+layout, though layout no longer reads the field.
+
+## D81. A layout on a device away from its device: refused, or kept; version 0.4.0; a block is still laid out whole (task `device-finish`, review-9 findings 3, 4, 6 and rulings 8, 10, 2026-10-12)
+
+**Ruling 3, built as ruled.** A retained `ImTypesetParagraph` holding text measured on a device
+(`on_device`) is refused by `DrawParagraph` when its device is no longer the one a draw would be
+on, or the devices' epoch has moved: `ImTypesetError_InvalidArgument`, "call LayoutParagraph
+again", nothing drawn. That is what it does when the font generation moved; `device_current`
+is wired there. *Reproduced before:* laid out at density 1, drawn at density 2, it answered true
+and wrote 160 vertices of the old geometry. A paragraph with no device text is drawn as before.
+
+**Ruling 4, built as ruled, and extended to paragraphs.** With the ImGui context not current a
+document that has a style keeps it, device and all, and answers from the layout it has
+(*reproduced before:* the 40th character answered 266.24 px where the screen had 273, and a
+block was laid out for the question). One never laid out is set by its fonts and says so:
+`ImTypesetDocumentStats::MeasuredWithoutDevice` (new, last field). `LayoutParagraph` there keeps
+a paragraph's device material the same way (`keeping_device`); the test that asserted a
+paragraph was set again by its font there was rewritten and says why.
+
+**Ruling 8: the version is 0.4.0** in the header, the C header, the Python package and both
+vcpkg manifests (`tools/version.py --check`). A host struct of 0.3.0's size is refused in C++,
+C and Python, by test. The header says what a zero `Advances` means and that it changed.
+
+**Ruling 10, not built: a block is still laid out whole.** Making one Code block's layout lazy by
+line is not small: a block's material, its boxes, its ship-out, its selection model and its
+column cuts are all per block. *Measured* (release, `bench_code`, exact line heights, load 4,
+GCC 12.2, Ryzen 7 PRO 4750U): the first frame after a density change, ONE block: 15.7 / 16.0 /
+17.0 ms at 5,000 lines and 170 / 177 / 194 ms at 50,000 (min / median / p95); as blocks of
+twenty lines 0.23 ms and 0.66 to 0.76 ms. A host with a file in one block pays that once per
+change of display or size; hunks as blocks do not.

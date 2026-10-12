@@ -103,17 +103,26 @@ double baked_size_px(double size_px, double ascent, double descent, double em);
 // and `density` pixels of the grid placement is done on to the unit. The em
 // is turned into those pixels and corrected to the pixel height ImGui sizes a
 // font by (`baked_size_px`, from `ours`, the face's own metrics; uncorrected
-// if null), and ImGui rounds that to a whole size itself. At density 1 the
-// entry is the font's at whatever rasteriser density the font now has; above
-// it the size is in framebuffer pixels already and the entry is at ImGui's
-// rasteriser density 1, said outright. Null for a size below half a pixel or
-// above Drawer::MAX_BAKED_SIZE_PX, and if ImGui has no entry to give.
+// if null), and ImGui rounds that to a whole size itself. The size is in the
+// pixels of the grid already, so the entry is the one at ImGui's rasteriser
+// density 1, and that is said outright at every density: a font's own
+// (ImFont::CurrentRasterizerDensity) is whatever the display's was when a
+// host last made it the current font, and an entry that followed it would be
+// one entry when a line is measured and another when it is drawn. Null for a
+// size below half a pixel or above Drawer::MAX_BAKED_SIZE_PX, and if ImGui
+// has no entry to give.
 //
 // One function for the draw loop and for whoever measures a character as the
 // atlas has it (src/device), so that the two cannot name different entries.
-// Good for the frame it is asked in, as any ImFontBaked is.
+// Good for the frame it is asked in, as any ImFontBaked is. ImGui can answer
+// an entry of another size (a font whose sizes are locked answers the
+// nearest it has): `face_bake_size` is what to hold the entry's Size to.
 ImFontBaked* face_bake(ImFont* font, const FontMetrics* ours, Scaled size, double px_per_inch,
                        double density);
+
+// The size `face_bake` asks ImGui for, in pixels of the grid, before ImGui
+// rounds it to a whole one. Zero where `face_bake` asks for nothing.
+double face_bake_size(const FontMetrics* ours, Scaled size, double px_per_inch, double density);
 
 // One axis of a document coordinate as the screen position an ImVec2 holds:
 // origin + px_from_sp(length), summed in double and rounded to float32.
@@ -586,6 +595,18 @@ public:
     // glyph to draw. False if the key cannot be drawn at all, which makes its
     // glyphs missing.
     virtual bool bake(uint32_t key_slot, FontKey key, float* size, float* ascent) = 0;
+    // Whether the key's text is set on a grid of cells (FontMetrics::cell).
+    // A word of such text is never placed from the word before it
+    // (DrawRules::word_spaces_led): it goes on the pixel nearest its own
+    // place, so that what layout has at one column in two lines, or in two
+    // rows of a table, is drawn at one x in both. A binder that knows no
+    // metrics knows no grid.
+    virtual bool on_grid(uint32_t key_slot, FontKey key)
+    {
+        (void)key_slot;
+        (void)key;
+        return false;
+    }
 };
 
 // One call the reference would have made on the draw list.
@@ -696,6 +717,8 @@ public:
         // Whether bake() has been asked, and whether it answered.
         bool asked = false;
         bool drawable = false;
+        // FontBinder::on_grid.
+        bool grid = false;
         float size = 0.0f;
         float ascent = 0.0f;
     };

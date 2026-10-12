@@ -253,6 +253,11 @@ struct CodeLines {
     std::vector<Node> nodes;
     // One past the last node of each line.
     std::vector<uint32_t> ends;
+    // Not the reference's. The width of a cell if the lines' font is on a
+    // grid (FontMetrics::cell), or zero: every node is then a whole number
+    // of cells wide, tabs stop at multiples of TAB_WIDTH cells, and a
+    // wrapped line's continuation hangs a whole number of cells in.
+    Scaled cell = 0;
 
     size_t count() const { return ends.size(); }
     NodeView line(size_t i) const;
@@ -270,6 +275,12 @@ struct CodeLines {
 // src/style's `stand_in` gives for a character the face lacks; blank lines at
 // the end are dropped and others kept. False, with a reason and no lines, if
 // the resolver does not know the font's face.
+//
+// Where the font is on a grid (CodeLines::cell) a column is a cell and a
+// character is as many columns as it takes cells, so that what follows a tab
+// starts at a multiple of TAB_WIDTH cells whatever stands before the tab: a
+// character two cells wide, or one of none. The reference counts characters,
+// as Python's str.expandtabs does, and so does this everywhere else.
 //
 // `node_bytes`, if given, is set to one entry per node: the byte of `source`
 // its character starts at, as src/style's `decode_utf8` finds characters. The

@@ -254,6 +254,9 @@ struct ImTypesetDocument {
     // ImTypesetAdvances_ of its own, which the document's style does not show.
     uint16_t device_seen = 0;
     uint32_t device_epoch_seen = 0;
+    // The style was taken where no device could be asked though its text is
+    // measured on one: ImTypesetDocumentStats::MeasuredWithoutDevice.
+    bool without_device = false;
     bool own_advances = false;
     // Blocks were added, removed or described again since their specs were
     // last resolved against the style.

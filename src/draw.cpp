@@ -275,21 +275,26 @@ double baked_size_px(double size_px, double ascent, double descent, double em)
     return size_px * (ascent + descent) / em;
 }
 
-ImFontBaked* face_bake(ImFont* font, const FontMetrics* ours, Scaled size, double px_per_inch,
-                       double density)
+double face_bake_size(const FontMetrics* ours, Scaled size, double px_per_inch, double density)
 {
-    if (font == nullptr)
-        return nullptr;
     const double nominal = px_from_sp(size, px_per_inch * density);
     double requested = nominal;
     if (ours != nullptr)
         requested = baked_size_px(nominal, ours->ascent(), ours->descent(), ours->em());
     if (!(requested >= 0.5 && requested <= static_cast<double>(Drawer::MAX_BAKED_SIZE_PX)))
+        return 0.0;
+    return requested;
+}
+
+ImFontBaked* face_bake(ImFont* font, const FontMetrics* ours, Scaled size, double px_per_inch,
+                       double density)
+{
+    if (font == nullptr)
         return nullptr;
-    // A font's own density is whatever the display's was when it was last
-    // the current font, so above density 1 it is not left to the font.
-    return density == 1.0 ? font->GetFontBaked(static_cast<float>(requested))
-                          : font->GetFontBaked(static_cast<float>(requested), 1.0f);
+    const double requested = face_bake_size(ours, size, px_per_inch, density);
+    if (requested == 0.0)
+        return nullptr;
+    return font->GetFontBaked(static_cast<float>(requested), 1.0f);
 }
 
 float device_coordinate(float origin, Scaled length, double px_per_inch)
@@ -441,6 +446,16 @@ public:
         state.bound = bound.font != nullptr;
         state.data = bound.data;
         return state.bound ? Binding::BOUND : Binding::UNBOUND;
+    }
+
+    bool on_grid(uint32_t key_slot, FontKey key) override
+    {
+        // Only a key measured on a device can be on a grid (src/device.h),
+        // and nearly every key is not: the metrics are not looked up for it.
+        if (keys[key_slot].spec.device == 0)
+            return false;
+        const FontMetrics* const metrics = _metrics(key);
+        return metrics != nullptr && metrics->cell() > 0.0;
     }
 
     bool has_glyph(uint32_t glyph_slot, uint32_t key_slot, uint32_t codepoint) override
@@ -649,6 +664,7 @@ uint32_t Drawer::key_slot(FontKey key, FontBinder& binder)
     Key added;
     added.key = key;
     added.binding = binder.bind(slot, key);
+    added.grid = added.binding != FontBinder::Binding::UNKNOWN && binder.on_grid(slot, key);
     _keys.push_back(added);
     _latin.resize(_latin.size() + 256, 0);
     _last_key = slot;
@@ -1026,7 +1042,9 @@ void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const 
                 // which is placed below from the formula's edge. A word is
                 // placed from the leader if there is one.
                 span.word = !in_formula || cmd.index != formula_index;
-                span.prev_pen = span.word && leads ? led_to(cmd.x, x) : snap_px(x);
+                // A word is placed from the leader if there is one, unless it
+                // is on a grid (FontBinder::on_grid).
+                span.prev_pen = span.word && leads && !key.grid ? led_to(cmd.x, x) : snap_px(x);
                 span.prev_x = cmd.x;
                 span.word_op = _ops.size();
                 span.word_x = cmd.x;
@@ -1067,8 +1085,11 @@ void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const 
                         // rounded once; and, when words are led, is kept
                         // beside its own place as a led word is. The gap
                         // before it is not one of the word's.
-                        span.prev_pen = leads ? led_to(cmd.x, at(args.origin.x, cmd.x))
-                                              : lead_pen + snap_px(px(wrap_sub(cmd.x, lead_x)));
+                        if (key.grid)
+                            span.prev_pen = snap_px(at(args.origin.x, cmd.x));
+                        else
+                            span.prev_pen = leads ? led_to(cmd.x, at(args.origin.x, cmd.x))
+                                                  : lead_pen + snap_px(px(wrap_sub(cmd.x, lead_x)));
                         span.prev_x = cmd.x;
                         span.word = true;
                         span.word_op = _ops.size();

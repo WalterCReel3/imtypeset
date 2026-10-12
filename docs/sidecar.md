@@ -946,3 +946,12 @@ NEVER RUN:
   free); wheels that pass `check_wheel.py --release`; a publishing job with
   the index's trusted-publisher configuration, which is a setting on the
   index's side and a new permission (`id-token: write`) in one job.
+
+## 13. After task `device-finish` (2026-10-12)
+
+Layout no longer reads `ImFontGlyph::AdvanceX`: it asks `ImFontBaked::GetCharAdvance`, and
+`ImFontBaked::IsGlyphLoaded` to tell a rebuilt entry, both functions of the wheel's own Dear
+ImGui that the library resolves at load like the rest. No new field of ImGui's is read, so the
+probe has the 26 rows it had; the `ImFontGlyph.AdvanceX` row stays as a check of that struct's
+layout, which the draw loop reads eight other fields of. What was run in the wheels'
+environments for this is in `.concerns/device-finish--builder--result.md`.

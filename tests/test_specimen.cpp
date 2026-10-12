@@ -114,6 +114,13 @@ bool set_line(Host& host, const Set& set, double px_per_inch, Scaled* width)
     style.PixelsPerInch = static_cast<float>(px_per_inch);
     style.Align = ImTypesetAlign_Left;
     style.FirstLineIndent = 0.0f;
+    // The golden is the reference's, which measures every face by its font.
+    // The product's default measures the Code faces on the device and sets
+    // their spaces as cells that do not stretch (docs/decisions.md, D77 and
+    // D79): the specimen's code row has the font's widths there only because
+    // its em is a whole number of pixels, and its glue is not the
+    // reference's at all.
+    style.Advances = ImTypesetAdvances_Font;
     ImTypesetParagraph* const p = host.paragraph;
     if (!ImTypeset::SetParagraphText(p, set.text.c_str())) {
         FAIL("SetParagraphText: %s", ImTypeset::GetLastError()->Message);

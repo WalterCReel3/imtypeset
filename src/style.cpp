@@ -101,6 +101,7 @@ bool append_codepoints(Run& run, const uint32_t* text, const uint32_t* offsets, 
         return false;
     }
     const Scaled space_width = rounded_dimen(metrics->space_width());
+    const bool on_grid = metrics->cell() > 0.0;
     size_t index = 0;
     while (index < length) {
         const uint32_t codepoint = text[index];
@@ -114,9 +115,13 @@ bool append_codepoints(Run& run, const uint32_t* text, const uint32_t* offsets, 
                 continue;
             if (!breakable)
                 push(run, penalty(INF_PENALTY), offset);
+            // Not the reference's: in a face set on a grid a space is a cell,
+            // whatever the space factor, and a justified line takes its slack
+            // from the spaces of its other faces.
             push(run,
-                 glue(interword_glue(space_width, run.space_factor, composition.spacing,
-                                     composition.rules)),
+                 glue(on_grid ? GlueSpec{space_width, 0, GlueOrder::NORMAL, 0, GlueOrder::NORMAL}
+                              : interword_glue(space_width, run.space_factor, composition.spacing,
+                                               composition.rules)),
                  offset);
             continue;
         }
@@ -478,17 +483,26 @@ void decode_utf8(std::string_view text, std::vector<uint32_t>& out, std::vector<
     }
 }
 
+bool unspaced(uint32_t codepoint)
+{
+    return unicode_in(UNICODE_CATEGORY_CC, codepoint) ||
+           unicode_in(UNICODE_CATEGORY_CF, codepoint) ||
+           unicode_in(UNICODE_CATEGORY_MN, codepoint) || unicode_in(UNICODE_CATEGORY_ME, codepoint);
+}
+
 StandIn stand_in(const Composition& composition, MetricsResolver resolve, FontKey key,
                  uint32_t codepoint)
 {
     const StandIn unchanged{key, codepoint};
-    if (py_isspace(codepoint) || unicode_in(UNICODE_CATEGORY_CC, codepoint) ||
-        unicode_in(UNICODE_CATEGORY_CF, codepoint) || unicode_in(UNICODE_CATEGORY_MN, codepoint) ||
-        unicode_in(UNICODE_CATEGORY_ME, codepoint))
+    if (py_isspace(codepoint) || unspaced(codepoint))
         return unchanged;
     FontSpec bound;
     if (!parse_font_key(key, &bound))
         return unchanged;
+    // Null for a key the resolver does not know, which the reference's
+    // `_stand_in` is never asked about: the key is then as it was written.
+    const FontMetrics* const own = bound.device != 0 ? resolve(key) : nullptr;
+    const uint16_t guest = own != nullptr ? own->guest_device(bound.device) : bound.device;
 
     // The regular face, then math, then code, each once.
     const Face order[3] = {composition.regular, Face::MATH, composition.code};
@@ -503,7 +517,7 @@ StandIn stand_in(const Composition& composition, MetricsResolver resolve, FontKe
             continue;
         // Measured as the text it stands in is, so that a line set from the
         // device's advances stays on them where a character is borrowed.
-        const FontKey other = face == bound.face ? key : font_key(face, bound.size, bound.device);
+        const FontKey other = face == bound.face ? key : font_key(face, bound.size, guest);
         const FontMetrics* metrics = resolve(other);
         if (metrics == nullptr)
             continue;
@@ -513,6 +527,12 @@ StandIn stand_in(const Composition& composition, MetricsResolver resolve, FontKe
         }
         if (face != bound.face && metrics->has(codepoint))
             return StandIn{other, codepoint};
+    }
+    if (own != nullptr && own->cell() > 0.0) {
+        for (const uint32_t stand : {REPLACEMENT_CHARACTER, uint32_t('?')}) {
+            if (own->has(stand))
+                return StandIn{key, stand};
+        }
     }
     if (prose != nullptr) {
         for (const uint32_t stand : {REPLACEMENT_CHARACTER, uint32_t('?')}) {

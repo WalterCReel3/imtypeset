@@ -1,0 +1,519 @@
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:505: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK_EQ(cell, round_half_up(cell))
+    left:  6.0000014305114746 (0x1.800006p+2)
+    right: 6 (0x1.8p+2)
+    in: density 1, pixel height 13
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:556: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(std::fabs(cells - expected) * cell < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "ascii"
+    in: character 5, U+007C
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:556: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(std::fabs(cells - expected) * cell < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "zero width space"
+    in: character 1, U+200B
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:556: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(std::fabs(cells - expected) * cell < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "zero width space"
+    in: character 5, U+007C
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:556: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(std::fabs(cells - expected) * cell < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "byte order mark"
+    in: character 0, U+FEFF
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:556: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(std::fabs(cells - expected) * cell < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "byte order mark"
+    in: character 4, U+007C
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:559: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(measured[r].worst_grid < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "byte order mark"
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:560: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(measured[r].worst_off < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "byte order mark"
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:556: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(std::fabs(cells - expected) * cell < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "combining acute"
+    in: character 3, U+007C
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:556: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(std::fabs(cells - expected) * cell < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "zero width joiner"
+    in: character 1, U+200D
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:556: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(std::fabs(cells - expected) * cell < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "zero width joiner"
+    in: character 3, U+007C
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:559: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(measured[r].worst_grid < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "zero width joiner"
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:560: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(measured[r].worst_off < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "zero width joiner"
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:556: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(std::fabs(cells - expected) * cell < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "cjk no face has"
+    in: character 0, U+4E2D
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:556: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(std::fabs(cells - expected) * cell < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "cjk no face has"
+    in: character 1, U+6587
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:556: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(std::fabs(cells - expected) * cell < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "cjk no face has"
+    in: character 3, U+007C
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:559: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(measured[r].worst_grid < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "cjk no face has"
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:556: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(std::fabs(cells - expected) * cell < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "box drawing"
+    in: character 5, U+007C
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:556: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(std::fabs(cells - expected) * cell < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "emoji"
+    in: character 0, U+1F600
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:556: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(std::fabs(cells - expected) * cell < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "emoji"
+    in: character 2, U+007C
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:559: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(measured[r].worst_grid < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "emoji"
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:556: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(std::fabs(cells - expected) * cell < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "escape"
+    in: character 1, U+001B
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:556: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(std::fabs(cells - expected) * cell < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "escape"
+    in: character 7, U+007C
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:559: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(measured[r].worst_grid < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "escape"
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:560: [every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them] CHECK(measured[r].worst_off < EXACT_PX)
+    in: density 1, pixel height 13
+    in: row "escape"
+    (further failures in this test are counted, not printed)
+    d1 px13 cell 6  ascii                              cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 5 drawn
+    d1 px13 cell 6  zero width space                   cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 5 drawn
+    d1 px13 cell 6  byte order mark                    cells 0.9244 1 1 1 -3.924 | glyph from layout 0.4533 px, layout from the grid 0.4533 px, 4 drawn
+    d1 px13 cell 6  combining acute                    cells 1 0 1 -2 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d1 px13 cell 6  zero width joiner                  cells 1 0.9244 1 -2.924 | glyph from layout 0.4533 px, layout from the grid 0.4533 px, 3 drawn
+    d1 px13 cell 6  cjk no face has                    cells 1.833 1.833 1 -4.667 | glyph from layout 0.0000 px, layout from the grid 2.0000 px, 4 drawn
+    d1 px13 cell 6  box drawing                        cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 6 drawn
+    d1 px13 cell 6  emoji                              cells 1.833 1 -2.833 | glyph from layout 0.0000 px, layout from the grid 1.0000 px, 3 drawn
+    d1 px13 cell 6  escape                             cells 1 0.9244 1 1 1 1 1 -6.924 | glyph from layout 0.4533 px, layout from the grid 0.4533 px, 7 drawn
+    d1 px13 cell 6  cyrillic from the regular face     cells 1.667 1 1.667 1.667 1 -7 | glyph from layout 0.0000 px, layout from the grid 2.0000 px, 6 drawn
+    d1 px13 cell 6  greek from the regular face        cells 1.167 1 -2.167 | glyph from layout 0.0000 px, layout from the grid 1.0000 px, 3 drawn
+    d1 px13 cell 6  math alphabet from the math face   cells 1.667 1 -2.667 | glyph from layout 0.0000 px, layout from the grid 2.0000 px, 3 drawn
+    d1 px13 cell 6  em space                           cells 1 0.9244 1 -2.924 | glyph from layout 0.4533 px, layout from the grid 0.4533 px, 3 drawn
+    d1 px13 cell 6  tab after ascii                    cells 1 1 2 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d1 px13 cell 6  tab after a wide character         cells 1.667 3 1 -5.667 | glyph from layout 0.0000 px, layout from the grid 2.0000 px, 3 drawn
+    d1 px13 cell 6  tab after a character of no width  cells 1 1 0.9244 1 1 -4.924 | glyph from layout 0.4533 px, layout from the grid 0.4533 px, 3 drawn
+    d1 px13 cell 6  tab after wide and narrow          cells 1 1.667 1.667 1.667 1 3 1 -11 | glyph from layout 0.0000 px, layout from the grid 2.0000 px, 7 drawn
+    d1 px13 cell 6  replacement character written      cells 1 1 1 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 3 drawn
+    d1 px16 cell 7  ascii                              cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 5 drawn
+    d1 px16 cell 7  zero width space                   cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 5 drawn
+    d1 px16 cell 7  byte order mark                    cells 0.9752 1 1 1 -3.975 | glyph from layout 0.1734 px, layout from the grid 0.1733 px, 4 drawn
+    d1 px16 cell 7  combining acute                    cells 1 0 1 -2 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d1 px16 cell 7  zero width joiner                  cells 1 0.9752 1 -2.975 | glyph from layout 0.1734 px, layout from the grid 0.1733 px, 3 drawn
+    d1 px16 cell 7  cjk no face has                    cells 2 2 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d1 px16 cell 7  box drawing                        cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 6 drawn
+    d1 px16 cell 7  emoji                              cells 2 1 -3 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 3 drawn
+    d1 px16 cell 7  escape                             cells 1 0.9752 1 1 1 1 1 -6.975 | glyph from layout 0.1734 px, layout from the grid 0.1733 px, 7 drawn
+    d1 px16 cell 7  cyrillic from the regular face     cells 1.857 1 1.857 1.857 1 -7.571 | glyph from layout 0.0000 px, layout from the grid 3.0000 px, 6 drawn
+    d1 px16 cell 7  greek from the regular face        cells 1.286 1 -2.286 | glyph from layout 0.0000 px, layout from the grid 2.0000 px, 3 drawn
+    d1 px16 cell 7  math alphabet from the math face   cells 1.714 1 -2.714 | glyph from layout 0.0000 px, layout from the grid 2.0000 px, 3 drawn
+    d1 px16 cell 7  em space                           cells 1 0.9752 1 -2.975 | glyph from layout 0.1734 px, layout from the grid 0.1733 px, 3 drawn
+    d1 px16 cell 7  tab after ascii                    cells 1 1 2 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d1 px16 cell 7  tab after a wide character         cells 1.857 3 1 -5.857 | glyph from layout 0.0000 px, layout from the grid 1.0000 px, 3 drawn
+    d1 px16 cell 7  tab after a character of no width  cells 1 1 0.9752 1 1 -4.975 | glyph from layout 0.1734 px, layout from the grid 0.1733 px, 3 drawn
+    d1 px16 cell 7  tab after wide and narrow          cells 1 1.857 1.857 1.857 1 3 1 -11.57 | glyph from layout 0.0000 px, layout from the grid 3.0000 px, 7 drawn
+    d1 px16 cell 7  replacement character written      cells 1 1 1 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 3 drawn
+    d1 px17 cell 7  ascii                              cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 5 drawn
+    d1 px17 cell 7  zero width space                   cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 5 drawn
+    d1 px17 cell 7  byte order mark                    cells 1.036 1 1 1 -4.036 | glyph from layout 0.2533 px, layout from the grid 0.2533 px, 4 drawn
+    d1 px17 cell 7  combining acute                    cells 1 0 1 -2 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d1 px17 cell 7  zero width joiner                  cells 1 1.036 1 -3.036 | glyph from layout 0.2533 px, layout from the grid 0.2533 px, 3 drawn
+    d1 px17 cell 7  cjk no face has                    cells 2.143 2.143 1 -5.286 | glyph from layout 0.0000 px, layout from the grid 2.0000 px, 4 drawn
+    d1 px17 cell 7  box drawing                        cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 6 drawn
+    d1 px17 cell 7  emoji                              cells 2.143 1 -3.143 | glyph from layout 0.0000 px, layout from the grid 1.0000 px, 3 drawn
+    d1 px17 cell 7  escape                             cells 1 1.036 1 1 1 1 1 -7.036 | glyph from layout 0.2533 px, layout from the grid 0.2533 px, 7 drawn
+    d1 px17 cell 7  cyrillic from the regular face     cells 2 1 2 2 1 -8 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 6 drawn
+    d1 px17 cell 7  greek from the regular face        cells 1.429 1 -2.429 | glyph from layout 0.0000 px, layout from the grid 3.0000 px, 3 drawn
+    d1 px17 cell 7  math alphabet from the math face   cells 1.857 1 -2.857 | glyph from layout 0.0000 px, layout from the grid 1.0000 px, 3 drawn
+    d1 px17 cell 7  em space                           cells 1 1.036 1 -3.036 | glyph from layout 0.2533 px, layout from the grid 0.2533 px, 3 drawn
+    d1 px17 cell 7  tab after ascii                    cells 1 1 2 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d1 px17 cell 7  tab after a wide character         cells 2 3 1 -6 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 3 drawn
+    d1 px17 cell 7  tab after a character of no width  cells 1 1 1.036 1 1 -5.036 | glyph from layout 0.2533 px, layout from the grid 0.2533 px, 3 drawn
+    d1 px17 cell 7  tab after wide and narrow          cells 1 2 2 2 1 3 1 -12 | glyph from layout 0.0001 px, layout from the grid 0.0000 px, 7 drawn
+    d1 px17 cell 7  replacement character written      cells 1 1 1 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 3 drawn
+    d1 px22 cell 10 ascii                              cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 5 drawn
+    d1 px22 cell 10 zero width space                   cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 5 drawn
+    d1 px22 cell 10 byte order mark                    cells 0.9387 1 1 1 -3.939 | glyph from layout 0.3867 px, layout from the grid 0.6133 px, 4 drawn
+    d1 px22 cell 10 combining acute                    cells 1 0 1 -2 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d1 px22 cell 10 zero width joiner                  cells 1 0.9387 1 -2.939 | glyph from layout 0.3867 px, layout from the grid 0.6133 px, 3 drawn
+    d1 px22 cell 10 cjk no face has                    cells 1.9 1.9 1 -4.8 | glyph from layout 0.0000 px, layout from the grid 2.0000 px, 4 drawn
+    d1 px22 cell 10 box drawing                        cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 6 drawn
+    d1 px22 cell 10 emoji                              cells 1.9 1 -2.9 | glyph from layout 0.0000 px, layout from the grid 1.0000 px, 3 drawn
+    d1 px22 cell 10 escape                             cells 1 0.9387 1 1 1 1 1 -6.939 | glyph from layout 0.3867 px, layout from the grid 0.6133 px, 7 drawn
+    d1 px22 cell 10 cyrillic from the regular face     cells 1.7 1 1.7 1.7 1 -7.1 | glyph from layout 0.0000 px, layout from the grid 4.0000 px, 6 drawn
+    d1 px22 cell 10 greek from the regular face        cells 1.3 1 -2.3 | glyph from layout 0.0000 px, layout from the grid 3.0000 px, 3 drawn
+    d1 px22 cell 10 math alphabet from the math face   cells 1.7 1 -2.7 | glyph from layout 0.0000 px, layout from the grid 3.0000 px, 3 drawn
+    d1 px22 cell 10 em space                           cells 1 0.9387 1 -2.939 | glyph from layout 0.3867 px, layout from the grid 0.6133 px, 3 drawn
+    d1 px22 cell 10 tab after ascii                    cells 1 1 2 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d1 px22 cell 10 tab after a wide character         cells 1.7 3 1 -5.7 | glyph from layout 0.0000 px, layout from the grid 3.0000 px, 3 drawn
+    d1 px22 cell 10 tab after a character of no width  cells 1 1 0.9387 1 1 -4.939 | glyph from layout 0.3867 px, layout from the grid 0.6133 px, 3 drawn
+    d1 px22 cell 10 tab after wide and narrow          cells 1 1.7 1.7 1.7 1 3 1 -11.1 | glyph from layout 0.0001 px, layout from the grid 4.0000 px, 7 drawn
+    d1 px22 cell 10 replacement character written      cells 1 1 1 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 3 drawn
+    d2 px13 cell 11 ascii                              cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 5 drawn
+    d2 px13 cell 11 zero width space                   cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 5 drawn
+    d2 px13 cell 11 byte order mark                    cells 1.008 1 1 1 -4.008 | glyph from layout 0.0934 px, layout from the grid 0.0933 px, 4 drawn
+    d2 px13 cell 11 combining acute                    cells 1 0 1 -2 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d2 px13 cell 11 zero width joiner                  cells 1 1.008 1 -3.008 | glyph from layout 0.0933 px, layout from the grid 0.0933 px, 3 drawn
+    d2 px13 cell 11 cjk no face has                    cells 2.091 2.091 1 -5.182 | glyph from layout 0.0000 px, layout from the grid 2.0000 px, 4 drawn
+    d2 px13 cell 11 box drawing                        cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 6 drawn
+    d2 px13 cell 11 emoji                              cells 2.091 1 -3.091 | glyph from layout 0.0000 px, layout from the grid 1.0000 px, 3 drawn
+    d2 px13 cell 11 escape                             cells 1 1.008 1 1 1 1 1 -7.008 | glyph from layout 0.0934 px, layout from the grid 0.0933 px, 7 drawn
+    d2 px13 cell 11 cyrillic from the regular face     cells 1.818 1 1.818 1.818 1 -7.455 | glyph from layout 0.0000 px, layout from the grid 4.9999 px, 6 drawn
+    d2 px13 cell 11 greek from the regular face        cells 1.364 1 -2.364 | glyph from layout 0.0000 px, layout from the grid 4.0000 px, 3 drawn
+    d2 px13 cell 11 math alphabet from the math face   cells 1.727 1 -2.727 | glyph from layout 0.0000 px, layout from the grid 3.0000 px, 3 drawn
+    d2 px13 cell 11 em space                           cells 1 1.008 1 -3.008 | glyph from layout 0.0933 px, layout from the grid 0.0933 px, 3 drawn
+    d2 px13 cell 11 tab after ascii                    cells 1 1 2 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d2 px13 cell 11 tab after a wide character         cells 1.818 3 1 -5.818 | glyph from layout 0.0000 px, layout from the grid 2.0000 px, 3 drawn
+    d2 px13 cell 11 tab after a character of no width  cells 1 1 1.008 1 1 -5.008 | glyph from layout 0.0934 px, layout from the grid 0.0933 px, 3 drawn
+    d2 px13 cell 11 tab after wide and narrow          cells 1 1.818 1.818 1.818 1 3 1 -11.45 | glyph from layout 0.0000 px, layout from the grid 4.9999 px, 7 drawn
+    d2 px13 cell 11 replacement character written      cells 1 1 1 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 3 drawn
+    d2 px16 cell 14 ascii                              cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 5 drawn
+    d2 px16 cell 14 zero width space                   cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 5 drawn
+    d2 px16 cell 14 byte order mark                    cells 0.9752 1 1 1 -3.975 | glyph from layout 0.3467 px, layout from the grid 0.3467 px, 4 drawn
+    d2 px16 cell 14 combining acute                    cells 1 0 1 -2 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d2 px16 cell 14 zero width joiner                  cells 1 0.9752 1 -2.975 | glyph from layout 0.3467 px, layout from the grid 0.3467 px, 3 drawn
+    d2 px16 cell 14 cjk no face has                    cells 2 2 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d2 px16 cell 14 box drawing                        cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 6 drawn
+    d2 px16 cell 14 emoji                              cells 2 1 -3 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 3 drawn
+    d2 px16 cell 14 escape                             cells 1 0.9752 1 1 1 1 1 -6.975 | glyph from layout 0.3467 px, layout from the grid 0.3467 px, 7 drawn
+    d2 px16 cell 14 cyrillic from the regular face     cells 1.786 1 1.786 1.786 1 -7.357 | glyph from layout 0.0000 px, layout from the grid 6.0000 px, 6 drawn
+    d2 px16 cell 14 greek from the regular face        cells 1.286 1 -2.286 | glyph from layout 0.0000 px, layout from the grid 4.0000 px, 3 drawn
+    d2 px16 cell 14 math alphabet from the math face   cells 1.643 1 -2.643 | glyph from layout 0.0000 px, layout from the grid 5.0000 px, 3 drawn
+    d2 px16 cell 14 em space                           cells 1 0.9752 1 -2.975 | glyph from layout 0.3467 px, layout from the grid 0.3467 px, 3 drawn
+    d2 px16 cell 14 tab after ascii                    cells 1 1 2 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d2 px16 cell 14 tab after a wide character         cells 1.786 3 1 -5.786 | glyph from layout 0.0000 px, layout from the grid 3.0000 px, 3 drawn
+    d2 px16 cell 14 tab after a character of no width  cells 1 1 0.9752 1 1 -4.975 | glyph from layout 0.3467 px, layout from the grid 0.3467 px, 3 drawn
+    d2 px16 cell 14 tab after wide and narrow          cells 1 1.786 1.786 1.786 1 3 1 -11.36 | glyph from layout 0.0001 px, layout from the grid 6.0000 px, 7 drawn
+    d2 px16 cell 14 replacement character written      cells 1 1 1 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 3 drawn
+    d2 px17 cell 15 ascii                              cells 1 1 1 1 1 -5 | glyph from layout 0.0001 px, layout from the grid 0.0000 px, 5 drawn
+    d2 px17 cell 15 zero width space                   cells 1 1 1 1 1 -5 | glyph from layout 0.0001 px, layout from the grid 0.0000 px, 5 drawn
+    d2 px17 cell 15 byte order mark                    cells 0.9671 1 1 1 -3.967 | glyph from layout 0.4934 px, layout from the grid 0.4933 px, 4 drawn
+    d2 px17 cell 15 combining acute                    cells 1 0 1 -2 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d2 px17 cell 15 zero width joiner                  cells 1 0.9671 1 -2.967 | glyph from layout 0.4934 px, layout from the grid 0.4933 px, 3 drawn
+    d2 px17 cell 15 cjk no face has                    cells 2 2 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0001 px, 4 drawn
+    d2 px17 cell 15 box drawing                        cells 1 1 1 1 1 -5 | glyph from layout 0.0001 px, layout from the grid 0.0000 px, 6 drawn
+    d2 px17 cell 15 emoji                              cells 2 1 -3 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 3 drawn
+    d2 px17 cell 15 escape                             cells 1 0.9671 1 1 1 1 1 -6.967 | glyph from layout 0.4934 px, layout from the grid 0.4933 px, 7 drawn
+    d2 px17 cell 15 cyrillic from the regular face     cells 1.733 1 1.733 1.733 1 -7.2 | glyph from layout 0.0001 px, layout from the grid 7.0000 px, 6 drawn
+    d2 px17 cell 15 greek from the regular face        cells 1.267 1 -2.267 | glyph from layout 0.0000 px, layout from the grid 4.0000 px, 3 drawn
+    d2 px17 cell 15 math alphabet from the math face   cells 1.667 1 -2.667 | glyph from layout 0.0000 px, layout from the grid 5.0000 px, 3 drawn
+    d2 px17 cell 15 em space                           cells 1 0.9671 1 -2.967 | glyph from layout 0.4934 px, layout from the grid 0.4933 px, 3 drawn
+    d2 px17 cell 15 tab after ascii                    cells 1 1 2 1 -5 | glyph from layout 0.0001 px, layout from the grid 0.0000 px, 4 drawn
+    d2 px17 cell 15 tab after a wide character         cells 1.733 3 1 -5.733 | glyph from layout 0.0001 px, layout from the grid 4.0000 px, 3 drawn
+    d2 px17 cell 15 tab after a character of no width  cells 1 1 0.9671 1 1 -4.967 | glyph from layout 0.4934 px, layout from the grid 0.4933 px, 3 drawn
+    d2 px17 cell 15 tab after wide and narrow          cells 1 1.733 1.733 1.733 1 3 1 -11.2 | glyph from layout 0.0001 px, layout from the grid 7.0000 px, 7 drawn
+    d2 px17 cell 15 replacement character written      cells 1 1 1 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 3 drawn
+    d2 px22 cell 19 ascii                              cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 5 drawn
+    d2 px22 cell 19 zero width space                   cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 5 drawn
+    d2 px22 cell 19 byte order mark                    cells 0.9881 1 1 1 -3.988 | glyph from layout 0.2267 px, layout from the grid 0.2266 px, 4 drawn
+    d2 px22 cell 19 combining acute                    cells 1 0 1 -2 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d2 px22 cell 19 zero width joiner                  cells 1 0.9881 1 -2.988 | glyph from layout 0.2267 px, layout from the grid 0.2266 px, 3 drawn
+    d2 px22 cell 19 cjk no face has                    cells 2.053 2.053 1 -5.105 | glyph from layout 0.0000 px, layout from the grid 2.0000 px, 4 drawn
+    d2 px22 cell 19 box drawing                        cells 1 1 1 1 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 6 drawn
+    d2 px22 cell 19 emoji                              cells 2.053 1 -3.053 | glyph from layout 0.0000 px, layout from the grid 1.0000 px, 3 drawn
+    d2 px22 cell 19 escape                             cells 1 0.9881 1 1 1 1 1 -6.988 | glyph from layout 0.2267 px, layout from the grid 0.2267 px, 7 drawn
+    d2 px22 cell 19 cyrillic from the regular face     cells 1.842 1 1.842 1.842 1 -7.526 | glyph from layout 0.0000 px, layout from the grid 8.9999 px, 6 drawn
+    d2 px22 cell 19 greek from the regular face        cells 1.316 1 -2.316 | glyph from layout 0.0000 px, layout from the grid 6.0000 px, 3 drawn
+    d2 px22 cell 19 math alphabet from the math face   cells 1.737 1 -2.737 | glyph from layout 0.0000 px, layout from the grid 5.0000 px, 3 drawn
+    d2 px22 cel[FAIL ] every_character_of_a_code_row_takes_a_whole_number_of_cells_and_is_drawn_in_them (/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:491): 455 failed check(s)
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:653: [advances_remembered_do_not_outlive_the_rasterisation_they_were_read_from] CHECK(before != first_after)
+    in: NoHinting ticked in the atlas's loader flags, a frame between
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:653: [advances_remembered_do_not_outlive_the_rasterisation_they_were_read_from] CHECK(before != first_after)
+    in: NoHinting ticked in the atlas's loader flags, within one frame
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:653: [advances_remembered_do_not_outlive_the_rasterisation_they_were_read_from] CHECK(before != first_after)
+    in: every source given a pixel of extra advance, a frame between
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:654: [advances_remembered_do_not_outlive_the_rasterisation_they_were_read_from] CHECK_EQ(first_after, second_after)
+    left:  39.999984741210938 (0x1.3ffff8p+5)
+    right: 44.000038146972656 (0x1.600014p+5)
+    in: every source given a pixel of extra advance, a frame between
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:655: [advances_remembered_do_not_outlive_the_rasterisation_they_were_read_from] CHECK(std::fabs(first_after - 4.0 * cell) < EXACT_PX)
+    in: every source given a pixel of extra advance, a frame between
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:653: [advances_remembered_do_not_outlive_the_rasterisation_they_were_read_from] CHECK(before != first_after)
+    in: every source given a pixel of extra advance, within one frame
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:654: [advances_remembered_do_not_outlive_the_rasterisation_they_were_read_from] CHECK_EQ(first_after, second_after)
+    left:  39.999984741210938 (0x1.3ffff8p+5)
+    right: 44.000038146972656 (0x1.600014p+5)
+    in: every source given a pixel of extra advance, within one frame
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:655: [advances_remembered_do_not_outlive_the_rasterisation_they_were_read_from] CHECK(std::fabs(first_after - 4.0 * cell) < EXACT_PX)
+    in: every source given a pixel of extra advance, within one frame
+[FAIL ] advances_remembered_do_not_outlive_the_rasterisation_they_were_read_from (/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:595): 8 failed check(s)
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:681: [the_entry_asked_for_does_not_follow_the_density_a_font_was_last_pushed_at] CHECK_EQ(pushed, plain)
+    left:  6.999995231628418 (0x1.bfffecp+2)
+    right: 6.0000014305114746 (0x1.800006p+2)
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:682: [the_entry_asked_for_does_not_follow_the_density_a_font_was_last_pushed_at] CHECK_EQ(four_wide(document), 4.0 * static_cast<double>(plain))
+    left:  27.999980926513672 (0x1.bfffecp+4)
+    right: 24.000005722045898 (0x1.800006p+4)
+[FAIL ] the_entry_asked_for_does_not_follow_the_density_a_font_was_last_pushed_at (/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:662): 2 failed check(s)
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:712: [an_advance_is_never_taken_from_an_entry_of_another_size] CHECK(four_wide(document) != 4.0 * static_cast<double>(small_cell))
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:722: [an_advance_is_never_taken_from_an_entry_of_another_size] CHECK(cell > static_cast<double>(small_cell))
+[FAIL ] an_advance_is_never_taken_from_an_entry_of_another_size (/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:693): 2 failed check(s)
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:769: [a_paragraph_laid_out_for_another_display_is_not_drawn_as_it_stands] CHECK(!drew)
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:770: [a_paragraph_laid_out_for_another_display_is_not_drawn_as_it_stands] CHECK_EQ(wrote, 0)
+    left:  160
+    right: 0
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:771: [a_paragraph_laid_out_for_another_display_is_not_drawn_as_it_stands] CHECK_EQ(code, static_cast<int>(ImTypesetError_InvalidArgument))
+    left:  0
+    right: 3
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:772: [a_paragraph_laid_out_for_another_display_is_not_drawn_as_it_stands] CHECK(said.find("LayoutParagraph") != std::string::npos)
+[FAIL ] a_paragraph_laid_out_for_another_display_is_not_drawn_as_it_stands (/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:729): 4 failed check(s)
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:832: [a_document_asked_without_its_imgui_context_answers_from_the_layout_it_has] CHECK_EQ(away, on_device)
+    left:  266.239501953125 (0x1.0a3d5p+8)
+    right: 272.99981689453125 (0x1.10fff4p+8)
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:833: [a_document_asked_without_its_imgui_context_answers_from_the_layout_it_has] CHECK_EQ(asked.BlocksLaidOut, laid.BlocksLaidOut)
+    left:  2
+    right: 1
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:838: [a_document_asked_without_its_imgui_context_answers_from_the_layout_it_has] CHECK(fresh_said)
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:842: [a_document_asked_without_its_imgui_context_answers_from_the_layout_it_has] CHECK_EQ(ImTypeset::GetDocumentStats(document).BlocksLaidOut, laid.BlocksLaidOut)
+    left:  3
+    right: 1
+[FAIL ] a_document_asked_without_its_imgui_context_answers_from_the_layout_it_has (/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:788): 4 failed check(s)
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:883: [a_wrapped_code_line_continues_a_whole_number_of_cells_in] CHECK(worst < EXACT_PX)
+    in: density 1, pixel height 13
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:883: [a_wrapped_code_line_continues_a_whole_number_of_cells_in] CHECK(worst < EXACT_PX)
+    in: density 1, pixel height 16
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:883: [a_wrapped_code_line_continues_a_whole_number_of_cells_in] CHECK(worst < EXACT_PX)
+    in: density 1, pixel height 19
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:883: [a_wrapped_code_line_continues_a_whole_number_of_cells_in] CHECK(worst < EXACT_PX)
+    in: density 1, pixel height 22
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:883: [a_wrapped_code_line_continues_a_whole_number_of_cells_in] CHECK(worst < EXACT_PX)
+    in: density 2, pixel height 13
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:883: [a_wrapped_code_line_continues_a_whole_number_of_cells_in] CHECK(worst < EXACT_PX)
+    in: density 2, pixel height 16
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:883: [a_wrapped_code_line_continues_a_whole_number_of_cells_in] CHECK(worst < EXACT_PX)
+    in: density 2, pixel height 19
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:883: [a_wrapped_code_line_continues_a_whole_number_of_cells_in] CHECK(worst < EXACT_PX)
+    in: density 2, pixel height 22
+[FAIL ] a_wrapped_code_line_continues_a_whole_number_of_cells_in (/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:850): 8 failed check(s)
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1, size 13, size at a density
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1, size 13, size at a density
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1, size 13, size in framebuffer pixels
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1, size 13, size in framebuffer pixels
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1, size 16, size at a density
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1, size 16, size at a density
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1, size 16, size in framebuffer pixels
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1, size 16, size in framebuffer pixels
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1, size 22, size at a density
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1, size 22, size at a density
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1, size 22, size in framebuffer pixels
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1, size 22, size in framebuffer pixels
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1, size 24, size at a density
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1, size 24, size at a density
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1, size 24, size in framebuffer pixels
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1, size 24, size in framebuffer pixels
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1.5, size 13, size at a density
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1.5, size 13, size at a density
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1.5, size 13, size in framebuffer pixels
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1.5, size 13, size in framebuffer pixels
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1.5, size 16, size at a density
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1.5, size 16, size at a density
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1.5, size 16, size in framebuffer pixels
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1.5, size 16, size in framebuffer pixels
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:935: [dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake] CHECK_EQ(baked->IsGlyphLoaded(static_cast<ImWchar>(c)), route == 1)
+    left:  true
+    right: false
+    in: density 1.5, size 22, size at a density
+    (further failures in this test are counted, not printed)
+[FAIL ] dear_imguis_advance_only_route_answers_the_advance_of_the_glyph_it_would_bake (/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:892): 64 failed check(s)
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 420
+    in: code character 3 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 420
+    in: code character 8 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 420
+    in: code character 16 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 420
+    in: code character 23 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 420
+    in: code character 26 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 455
+    in: code character 3 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 455
+    in: code character 8 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 455
+    in: code character 16 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 455
+    in: code character 23 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 455
+    in: code character 26 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 500
+    in: code character 3 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 500
+    in: code character 8 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 500
+    in: code character 16 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 500
+    in: code character 23 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 500
+    in: code character 26 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 530
+    in: code character 3 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 530
+    in: code character 8 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 530
+    in: code character 16 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 530
+    in: code character 23 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 530
+    in: code character 26 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 610
+    in: code character 3 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 610
+    in: code character 8 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 610
+    in: code character 16 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 610
+    in: code character 23 (' ')
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:994: [a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs] CHECK(std::fabs(static_cast<double>(b.x - a.x) - cell) < EXACT_PX)
+    in: width 610
+    in: code character 26 (' ')
+    (further failures in this test are counted, not printed)
+[FAIL ] a_justified_line_stretches_its_prose_spaces_and_never_a_code_runs (/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:957): 25 failed check(s)
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:1061: [a_paragraph_in_the_code_face_is_ragged_and_its_columns_agree_line_to_line] CHECK(worst < EXACT_PX)
+    in: density 1
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:1062: [a_paragraph_in_the_code_face_is_ragged_and_its_columns_agree_line_to_line] CHECK(ragged)
+    in: density 1
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:1093: [a_paragraph_in_the_code_face_is_ragged_and_its_columns_agree_line_to_line] CHECK(worst_pen < EXACT_PX)
+    in: density 1
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:1061: [a_paragraph_in_the_code_face_is_ragged_and_its_columns_agree_line_to_line] CHECK(worst < EXACT_PX)
+    in: density 2
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:1062: [a_paragraph_in_the_code_face_is_ragged_and_its_columns_agree_line_to_line] CHECK(ragged)
+    in: density 2
+/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:1093: [a_paragraph_in_the_code_face_is_ragged_and_its_columns_agree_line_to_line] CHECK(worst_pen < EXACT_PX)
+    in: density 2
+[FAIL ] a_paragraph_in_the_code_face_is_ragged_and_its_columns_agree_line_to_line (/home/wreel/Source/imtypeset/tests/test_device_grid.cpp:1022): 6 failed check(s)
+l 19 em space                           cells 1 0.9881 1 -2.988 | glyph from layout 0.2267 px, layout from the grid 0.2266 px, 3 drawn
+    d2 px22 cell 19 tab after ascii                    cells 1 1 2 1 -5 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 4 drawn
+    d2 px22 cell 19 tab after a wide character         cells 1.842 3 1 -5.842 | glyph from layout 0.0000 px, layout from the grid 3.0000 px, 3 drawn
+    d2 px22 cell 19 tab after a character of no width  cells 1 1 0.9881 1 1 -4.988 | glyph from layout 0.2267 px, layout from the grid 0.2266 px, 3 drawn
+    d2 px22 cell 19 tab after wide and narrow          cells 1 1.842 1.842 1.842 1 3 1 -11.53 | glyph from layout 0.0000 px, layout from the grid 8.9999 px, 7 drawn
+    d2 px22 cell 19 replacement character written      cells 1 1 1 | glyph from layout 0.0000 px, layout from the grid 0.0000 px, 3 drawn
+    NoHinting ticked in the atlas's loader flags, a frame between: 'aaaa' 40 before; then 'ZZZZ' 40; a frame later 'aaaa' 40, 'ZZZZ' 40, the cell 10
+    NoHinting ticked in the atlas's loader flags, within one frame: 'aaaa' 40 before; then 'ZZZZ' 40; a frame later 'aaaa' 40, 'ZZZZ' 40, the cell 10
+    every source given a pixel of extra advance, a frame between: 'aaaa' 40 before; then 'ZZZZ' 44; a frame later 'aaaa' 40, 'ZZZZ' 44, the cell 11
+    every source given a pixel of extra advance, within one frame: 'aaaa' 40 before; then 'ZZZZ' 44; a frame later 'aaaa' 40, 'ZZZZ' 44, the cell 11
+    15 px: 'a' 6; with the font's density left at 2, 'b' 7 and 'cdef' 28
+    the font's sizes locked at 16 px (cell 7): '0000' at 22 px is 28 wide
+    laid out at density 1 (40th character at 234 units), drawn at density 2: DrawParagraph answered true, wrote 160 vertices, said ""
+    40th character: 273 on the device; asked with no ImGui context 266.24 (1 blocks laid out for the question); a document first laid out there 266.24
+    d1 px13 cell 6 : 2 lines, a continuation starts 3.6978 cells in (1.8133 px off the grid)
+    d1 px16 cell 7 : 2 lines, a continuation starts 3.9010 cells in (0.6933 px off the grid)
+    d1 px19 cell 8.00001: 3 lines, a continuation starts 4.0533 cells in (0.4266 px off the grid)
+    d1 px22 cell 10: 3 lines, a continuation starts 3.7547 cells in (2.4533 px off the grid)
+    d2 px13 cell 11: 2 lines, a continuation starts 4.0339 cells in (0.3733 px off the grid)
+    d2 px16 cell 14: 2 lines, a continuation starts 3.9010 cells in (1.3866 px off the grid)
+    d2 px19 cell 16: 3 lines, a continuation starts 4.0533 cells in (0.8532 px off the grid)
+    d2 px22 cell 19: 3 lines, a continuation starts 3.9523 cells in (0.9067 px off the grid)
+    1280 advances the same by both routes; glyphs packed: 704 asked by FindGlyph, 128 asked for the advance alone
+    142 steps inside the code run each one cell of 7 px; prose spaces from 3.02 to 5.44 px
+    d1: 4 lines, a character at most 3.0000 px from a whole cell, both margins flush
+    d2: 4 lines, a character at most 6.1000 px from a whole cell, both margins flush
+FAILED: 10 test(s), 5802 check(s), 578 failed check(s) in 10 test(s)

@@ -70,26 +70,90 @@
 //     stb_truetype, or FreeType told not to hint, it is the font's own and
 //     the rounding is the library's (what ImFontConfig::PixelSnapH does).
 //     No kerns. This is how ImGui's own text is measured.
-// TEXT MEASURED ON THE DEVICE IS DRAWN WHERE IT WAS LAID OUT. Within a word,
-// and along a whole line of a Code block (whose spaces are characters), every
-// glyph is drawn at exactly its laid-out distance from the first, every step
-// is the advance layout used, N characters of a monospace face take N times
-// one whole number of framebuffer pixels on every row, and a selection's
-// edge, a caret and a hit test are on the glyphs. The first glyph of a line
-// or a word is on the pixel nearest its own place, so all of it is exact
-// where the text starts on a pixel: `pos` and the block's indent whole.
+// TEXT MEASURED ON THE DEVICE IS DRAWN WHERE IT WAS LAID OUT. Every advance
+// on the device is a whole number of framebuffer pixels, whatever the
+// character (one its face lacks included). Within a word, and along a whole
+// line of a Code block (whose spaces are characters), every glyph is drawn at
+// exactly its laid-out distance from the first, every step is the advance
+// layout used, and a selection's edge, a caret and a hit test are on the
+// glyphs.
+// THE GRID. A face is FIXED-PITCH if every character from U+0020 to U+007E
+// its font has is one advance wide in the font file (the hmtx table; the post
+// table's isFixedPitch is not read). Text in a fixed-pitch face measured on
+// the device is on a grid of CELLS, one cell being that advance on the
+// device (GetDeviceGlyphAdvance), and this holds whatever the text holds:
+//   - every character takes a whole number of cells, so every character of
+//     every line starts a whole number of cells from where its line starts;
+//   - a character borrowed from another face because the face lacks it (see
+//     FaceHasGlyph) takes as many cells as hold its advance there, at least
+//     one, with its glyph at the left of them: an ideograph takes two;
+//   - a control, a format character or a combining mark (Unicode's Cc, Cf,
+//     Mn, Me: ESC, U+200B, U+200D, U+FEFF, U+0301) that the face has no ink
+//     for takes NO cell, whether the font lacks it or gives an empty glyph an
+//     advance; U+FFFD or `?` standing for a character no face has takes one,
+//     and is the face's own where it has one;
+//   - in a Code block a tab goes to the next multiple of four CELLS, whatever
+//     stands before it, and a wrapped line's continuation hangs a whole
+//     number of cells in (the number nearest two ems);
+//   - its spaces are cells: a justified line never stretches or shrinks a
+//     space inside such text and takes its slack from the line's other
+//     spaces, and a paragraph whose own face is fixed-pitch on the device is
+//     set ragged right where its style says Justify, so its columns agree
+//     from line to line;
+//   - a word of it is drawn on the pixel nearest its own place and never
+//     nudged to even out a space, so two lines, or two rows of a table, that
+//     layout has at one x are drawn at one x.
+// So the drawn grid is the laid-out grid moved, as a whole block, by less
+// than half a framebuffer pixel, and by nothing where the text starts on a
+// framebuffer pixel: `pos` and the block's indent whole. A host finds a
+// column by asking (GetDocumentCaretRect, GetDocumentRangeRects), not by
+// counting characters: a character can be two cells or none.
+// What is NOT on the grid: a formula in such a line, which is as wide as its
+// font makes it, and what follows it on that line; the first line of a
+// paragraph with a FirstLineIndent that is not whole cells; a line the host
+// indents by a part of a cell.
+// A FACE THAT IS NOT FIXED-PITCH measured on the device (prose under
+// ImTypesetAdvances_Device) has no grid and is promised none: its advances
+// are whole framebuffer pixels, a word is drawn exactly as laid out, and a
+// word's first glyph is less than a pixel from its place.
 // Where ImGui's own advances for the face are whole framebuffer pixels (any
 // hinting FreeType mode; a font added with PixelSnapH at density 1) the pens
 // are also ImGui's own for the same string in the same ImFont at the same
 // size: GetFont(), ImGui::PushFont(font, size), ImGui::TextUnformatted().
 // BY DEFAULT the two Code faces are measured on the device, because columns
 // are what code is set for, and every other face by its font.
+// UNDER stb_truetype (ImGui built without FreeType), and FreeType told not to
+// hint, everything above holds as written: the rounding to a whole pixel is
+// the library's. What does not hold there is that the pens are ImGui's
+// own: ImGui's OWN text in the same font is spaced by the font's
+// fractional advances and does not stand on the library's grid, unless the
+// host bakes the font with ImFontConfig::PixelSnapH and the display's density
+// is 1. There is one default for both loaders.
 // WHAT IT COSTS. Such a layout is for one size on one display: at another
 // density the same text has other advances, and is laid out again when that
 // is seen (LayoutDocument, LayoutParagraph and the widgets see it; a document
-// also looks whenever it is drawn or asked a question). Its lines can break
+// also looks whenever it is drawn or asked a question). A retained
+// ImTypesetParagraph holding such text is NOT drawn at another density than
+// it was laid out for: DrawParagraph refuses it until LayoutParagraph is
+// called again, as it does when the fonts have changed. Its lines can break
 // elsewhere on another display. A character's width is no longer what the
 // designer drew: at 16 px a face whose advance is 7.6 px is set at 8.
+// The advances are read from ImGui's atlas and remembered, and what is
+// remembered is checked once a frame against the atlas: if the host changes
+// how the atlas rasterises under the same fonts (loader flags edited in
+// place and the fonts rebuilt, as ImGui's own Fonts debug window does;
+// another loader; an ImFontConfig's GlyphExtraAdvanceX) everything is
+// measured again, from the next frame's first layout or draw. Asking the
+// atlas for an advance rasterises the glyph below 128 px (ImGui's own rule),
+// so every character laid out on the device is in the atlas, drawn or not.
+// WITH THE IMGUI CONTEXT AWAY (not the current one) nothing can be asked of
+// the atlas. What was laid out on the device keeps its device and its
+// layout: a document answers from the layout it has, and LayoutParagraph
+// with the same text keeps the paragraph's measurements. What is laid out
+// for the first time there is measured by its fonts
+// (ImTypesetDocumentStats::MeasuredWithoutDevice says so for a document) and
+// is laid out again, on the device, when it is next asked with the context
+// current.
 // GetFontMetrics() and GetGlyphAdvance() answer the font's numbers whatever
 // the style; GetDeviceGlyphAdvance() answers the device's. A formula is set
 // by its font's advances always.
@@ -158,7 +222,17 @@
 //     ImTypesetMark, ImTypesetDocumentDraw)
 //     is plain data whose all-zero state is the default: zeroed memory from C
 //     or a binding, a default-constructed one in C++. New fields are appended
-//     at the end, in a minor version, and zero keeps meaning "as before".
+//     at the end, in a minor version, and zero in a new field is the DEFAULT
+//     of the version that added it, which a minor version may make differ
+//     from what the version before did (docs/CHANGELOG.md says where).
+//     0.4.0 did: ImTypesetStyle::Advances and ImTypesetBlockStyle::Advances
+//     are new there, their zero is ImTypesetAdvances_Default, and that
+//     measures the Code and CodeBold faces on the device, where 0.3.0
+//     measured every face by its font. ImTypesetAdvances_Font is 0.3.0's
+//     measure. A host compiled against 0.3.0's header has structs four bytes
+//     shorter and is refused by IMTYPESET_CHECKVERSION(), by its version and
+//     by its sizes; one that does not call it hands the library structs it
+//     reads past the end of.
 //   - A struct the library fills (ImTypesetLine, ImTypesetHit,
 //     ImTypesetFormula, ImTypesetStats, ImTypesetErrorInfo) grows the same
 //     way. Those a call answers with are returned by value, never through an
@@ -174,8 +248,8 @@
 
 #include "imgui.h"
 
-#define IMTYPESET_VERSION     "0.3.0"
-#define IMTYPESET_VERSION_NUM 300 // XYYZZ: 0.03.00
+#define IMTYPESET_VERSION     "0.4.0"
+#define IMTYPESET_VERSION_NUM 400 // XYYZZ: 0.04.00
 
 // The ImGui release this is built and tested against, and the oldest it is
 // written for: 1.92.0 introduced the dynamic font atlas (ImFontBaked, sizes
@@ -710,7 +784,9 @@ enum ImTypesetContainerFlags_ {
 
 // What becomes of a code line longer than the column.
 enum ImTypesetCodeOverflow_ {
-    ImTypesetCodeOverflow_Wrap = 0, // It continues on further lines, indented by two ems.
+    // It continues on further lines, indented by two ems; in a face on a grid
+    // (see THE GRID at the top) by the whole number of cells nearest that.
+    ImTypesetCodeOverflow_Wrap = 0,
     ImTypesetCodeOverflow_Clip =
         1, // It is cut at the column's edge when drawn; a copy has all of it.
     ImTypesetCodeOverflow_Grow = 2 // It runs on, and the document is as wide as its longest.
@@ -1379,6 +1455,14 @@ struct ImTypesetDocumentStats {
     // heights tried, each one pass over every line of the document.
     ImU64 ColumnsCut;
     ImU64 BalanceHeightsTried;
+    // Not a count. The document's style measures some face on the device
+    // (see ADVANCES at the top) and the document was laid out where no device
+    // could be asked, with its ImGui context not the current one: it is set
+    // by its fonts' advances, and is laid out again, on the device, the first
+    // time it is drawn or asked anything with its ImGui context current.
+    // False for a document that was laid out on a device before its context
+    // went away: that one keeps the layout it has and answers from it.
+    bool MeasuredWithoutDevice;
 };
 
 // A role's font at one size, in pixels: what GetFontMetrics() answers. The
@@ -1627,8 +1711,9 @@ IMTYPESET_API bool GetFontMetrics(ImTypesetFace face, float em_size, ImTypesetFo
 // the Code faces by default) is set with GetDeviceGlyphAdvance()'s. [E]
 IMTYPESET_API float GetGlyphAdvance(ImTypesetFace face, float em_size, unsigned int codepoint);
 // How far the pen moves after one character of a role's font in text that
-// `style` (null: GetStyle()) sets and measures on the device, in pixels: the
-// width of one cell of a grid of code. It is what layout uses, to the
+// `style` (null: GetStyle()) sets and measures on the device, in pixels: for
+// a fixed-pitch face the width of one cell of its grid (see THE GRID at the
+// top) for any character of it that takes one. It is what layout uses, to the
 // rounding of one scaled point, for the style's size times `scale` (an
 // ImTypesetBlockStyle's or a run's; 0 is 1) on the display as ImGui has it
 // now: a whole number of framebuffer pixels, so at a display density of 2 it
@@ -1796,7 +1881,10 @@ IMTYPESET_API ImTypesetLine GetParagraphLine(const ImTypesetParagraph* paragraph
 // texture is the font atlas (any window's is). False, with nothing drawn, if
 // that context is not current, the backend has no texture updates, the
 // paragraph has no font, or it has not been laid out since its text or the
-// context's fonts last changed. `draw_list` null is the current window's
+// context's fonts last changed, or, if it holds text measured on the device
+// (see ADVANCES at the top), since the display's density or the atlas's
+// rasterisation did (ImTypesetError_InvalidArgument: call LayoutParagraph
+// again). `draw_list` null is the current window's
 // (ImGui::GetWindowDrawList()), for a binding that has no way to name one,
 // and needs what that needs: a current window, which there is from
 // ImGui::NewFrame() to ImGui::EndFrame(). It is refused before the first

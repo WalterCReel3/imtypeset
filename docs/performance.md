@@ -1086,6 +1086,26 @@ over 24.5 to 28.3 ms and 24.1 to 28.7) and was replaced. The raw rows are in
 a face's glyphs alone (it is inside the first sample of the "size not met before" rows);
 `bench_reflow` and `bench_marks` before and after.
 
+## The grid and the check of remembered advances (task `device-finish`, D79 to D81)
+
+Release, GCC 12.2.0, FreeType 2.12.1, Ryzen 7 PRO 4750U, one-minute load average 3.9 to 4.4 from
+other sessions: not timings to quote. `bench/bench_code.cpp`, every block with exact line
+heights; the whole output is `.concerns/device-finish--builder--bench-code.txt`.
+
+| | the device's (min / median / p95) | the font's |
+|---|---|---|
+| 5,000 lines, one block, laid out whole, warm | 17.65 / 17.99 / 18.26 ms | 17.83 / 18.37 / 18.75 ms |
+| a steady frame of a 768 px window | 43.6 / 44.1 / 46.0 us | 43.6 / 44.9 / 48.0 us |
+| the first frame after the density changed | 15.68 / 16.05 / 17.01 ms | 46.8 / 50.3 / 51.3 us |
+| 5,000 lines as 250 blocks, first frame after the density changed | 233 / 236 / 244 us | 50.7 / 54.1 / 55.1 us |
+| 50,000 lines, one block, laid out whole, warm | 186 / 189 / 201 ms | 191 / 199 / 201 ms |
+| a steady frame | 47.1 / 48.3 / 53.9 us | 46.2 / 47.4 / 49.1 us |
+| the first frame after the density changed | 170 / 177 / 194 ms | 48.4 / 52.0 / 58.8 us |
+| 50,000 lines as 2,500 blocks, first frame after the density changed | 660 / 721 / 759 us | (this row ran under a burst of load) |
+
+The once-a-frame check of remembered advances costs nothing that shows here. Its first form,
+which asked every face ever made, cost 17 us a frame after twelve sizes had been met.
+
 ## Not measured
 
 - **stb_truetype.** Every number is the FreeType build. Layout does not depend

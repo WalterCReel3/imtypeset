@@ -1324,7 +1324,14 @@ TEST(under_the_references_rules_the_default_measures_every_face_by_its_font)
     CHECK(same(commands(ImTypesetAdvances_Font), reference_font));
 }
 
-TEST(without_its_imgui_context_text_is_measured_by_its_font_and_set_again_when_it_is_back)
+// Until 0.4.0 this test asserted that a paragraph laid out again with its
+// ImGui context away was measured by its font. That made a question move what
+// was on screen: the same call with the same text, width and style answered
+// other geometry than the glyphs drawn a frame before, and the next draw laid
+// everything out once more (review-9, finding 4; decision D81). What has a
+// layout on a device keeps that device while the atlas cannot be asked;
+// only what must be measured anew there is measured by its font.
+TEST(without_its_imgui_context_what_is_laid_out_keeps_its_device_and_what_is_new_is_by_its_font)
 {
     Stage stage(Faces::USUAL, 1.0f);
     REQUIRE(stage.ctx != nullptr);
@@ -1338,14 +1345,27 @@ TEST(without_its_imgui_context_text_is_measured_by_its_font_and_set_again_when_i
     const float on_device = ImTypeset::GetParagraphLine(p, 0).Max.x;
     const float step = ImTypeset::GetDeviceGlyphAdvance(ImTypesetFace_Code, '0', &code);
     CHECK(std::fabs(static_cast<double>(on_device) - 10.0 * static_cast<double>(step)) < EXACT_PX);
+    const ImTypesetStats laid = ImTypeset::GetStats();
 
     ImGuiContext* imgui = ImGui::GetCurrentContext();
     ImGui::SetCurrentContext(nullptr);
-    // Nothing of the atlas is asked: the font file answers.
+    // Nothing of the atlas is asked.
     CHECK_EQ(ImTypeset::GetDeviceGlyphAdvance(ImTypesetFace_Code, '0', &code), 0.0f);
     CHECK_EQ(ImTypeset::GetLastError()->Code, ImTypesetError_NoContext);
+    // The paragraph it has: kept, at the same width and at another.
     CHECK(ImTypeset::LayoutParagraph(p, 800.0f, &code));
-    const float by_font = ImTypeset::GetParagraphLine(p, 0).Max.x;
+    CHECK_EQ(ImTypeset::GetParagraphLine(p, 0).Max.x, on_device);
+    CHECK_EQ(ImTypeset::GetStats().TextBuilds, laid.TextBuilds);
+    CHECK_EQ(ImTypeset::GetStats().Layouts, laid.Layouts);
+    CHECK(ImTypeset::LayoutParagraph(p, 700.0f, &code));
+    CHECK_EQ(ImTypeset::GetParagraphLine(p, 0).Max.x, on_device);
+    CHECK_EQ(ImTypeset::GetStats().TextBuilds, laid.TextBuilds);
+    // A paragraph first laid out there has no device to keep: by its font.
+    ImTypesetParagraph* q = ImTypeset::CreateParagraph();
+    REQUIRE(q != nullptr);
+    CHECK(ImTypeset::SetParagraphText(q, "0123456789"));
+    CHECK(ImTypeset::LayoutParagraph(q, 800.0f, &code));
+    const float by_font = ImTypeset::GetParagraphLine(q, 0).Max.x;
     const float font_step =
         ImTypeset::GetGlyphAdvance(ImTypesetFace_Code, 15.0f * 2048.0f / 2400.0f, '0');
     CHECK(std::fabs(static_cast<double>(by_font) - 10.0 * static_cast<double>(font_step)) < 1.0e-3);
@@ -1353,7 +1373,10 @@ TEST(without_its_imgui_context_text_is_measured_by_its_font_and_set_again_when_i
     ImGui::SetCurrentContext(imgui);
     CHECK(ImTypeset::LayoutParagraph(p, 800.0f, &code));
     CHECK_EQ(ImTypeset::GetParagraphLine(p, 0).Max.x, on_device);
+    CHECK(ImTypeset::LayoutParagraph(q, 800.0f, &code));
+    CHECK_EQ(ImTypeset::GetParagraphLine(q, 0).Max.x, on_device);
     ImTypeset::DestroyParagraph(p);
+    ImTypeset::DestroyParagraph(q);
 }
 
 TEST(the_device_advance_a_host_can_ask_for_is_the_atlas_entrys_rounded_to_the_pixel)
@@ -1374,13 +1397,16 @@ TEST(the_device_advance_a_host_can_ask_for_is_the_atlas_entrys_rounded_to_the_pi
                 for (const unsigned int c : {'M', 'i', ' ', '0'}) {
                     const ImFontGlyph* glyph = baked->FindGlyph(static_cast<ImWchar>(c));
                     REQUIRE(glyph != nullptr);
-                    const double expected = std::floor(static_cast<double>(glyph->AdvanceX) + 0.5) /
+                    // Copied out: the library's answer can load other glyphs
+                    // into the entry, which moves the entry's glyphs.
+                    const float entry_advance = glyph->AdvanceX;
+                    const double expected = std::floor(static_cast<double>(entry_advance) + 0.5) /
                                             static_cast<double>(density);
                     const float got = ImTypeset::GetDeviceGlyphAdvance(face, c, &style);
                     CHECK_EQ(ImTypeset::GetLastError()->Code, ImTypesetError_None);
                     CHECK(std::fabs(static_cast<double>(got) - expected) < 1.0e-4);
                     if (LOADER_HINTS)
-                        CHECK_EQ(glyph->AdvanceX, std::floor(glyph->AdvanceX));
+                        CHECK_EQ(entry_advance, std::floor(entry_advance));
                 }
             }
         }

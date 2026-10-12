@@ -241,6 +241,9 @@ struct ImTypesetParagraph {
     // The text could not be set at all (no font): a widget draws it with
     // ImGui instead.
     bool fallback = false;
+    // Some character of the material is measured on a device (src/device.h):
+    // its layout is for that device alone.
+    bool on_device = false;
     ImTypesetTextFlags flags = 0;
     uint32_t text_version = 1;
     uint32_t material_text_version = 0;
@@ -554,8 +557,20 @@ ResolvedStyle resolve_style(ImTypesetContext& ctx, const ImTypesetStyle& style);
 void resolve_device(ImTypesetContext& ctx, ResolvedStyle& style, int advances);
 // Whether a style resolved earlier would be resolved to the same device now:
 // false once the display's density has changed under it, or the fonts its
-// faces are measured from.
+// faces are measured from, or the way the atlas rasterises them.
 bool device_current(ImTypesetContext& ctx, const ResolvedStyle& style);
+// Whether the atlas can be asked for an advance now: the context is bound to
+// its ImGui context and the backend bakes glyphs on demand.
+bool device_askable(ImTypesetContext& ctx);
+// `style` as it was resolved, but on the device of `held` where the atlas
+// cannot be asked and `held` was resolved for the same ImTypesetAdvances_:
+// what was laid out on a device keeps its device while the ImGui context is
+// away, and is not laid out again by its fonts for a question.
+ResolvedStyle keeping_device(ImTypesetContext& ctx, ResolvedStyle style, const ResolvedStyle& held);
+// An alignment for text whose own font is `font`: ragged right in place of
+// justified where the font is on a grid (FontMetrics::cell), whose spaces
+// are cells and do not stretch.
+Align grid_align(ImTypesetContext& ctx, Align align, const FontSpec& font);
 Scaled resolve_width(float width, const ResolvedStyle& style);
 
 // Installs, or with a default-constructed value removes, a formula layer that

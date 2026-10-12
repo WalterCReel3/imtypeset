@@ -17,7 +17,7 @@ import os
 from ._bundle import open_library, refusal
 
 C_ABI_VERSION = 1  # IMTYPESET_C_ABI_VERSION this file was written against.
-C_VERSION = "0.3.0"  # IMTYPESET_C_VERSION
+C_VERSION = "0.4.0"  # IMTYPESET_C_VERSION
 
 
 class Vec2(C.Structure):
@@ -351,6 +351,7 @@ DOCUMENT_STATS_FIELDS = (
     "TableRowsSet",
     "ColumnsCut",
     "BalanceHeightsTried",
+    "MeasuredWithoutDevice",
 )
 
 
@@ -358,7 +359,8 @@ class DocumentStats(C.Structure):
     _fields_ = (
         [(name, C.c_ulonglong) for name in DOCUMENT_STATS_FIELDS[:5]]
         + [("Blocks", C.c_int), ("BlocksDeferred", C.c_int)]
-        + [(name, C.c_ulonglong) for name in DOCUMENT_STATS_FIELDS[7:]]
+        + [(name, C.c_ulonglong) for name in DOCUMENT_STATS_FIELDS[7:11]]
+        + [("MeasuredWithoutDevice", C.c_bool)]
     )
 
 

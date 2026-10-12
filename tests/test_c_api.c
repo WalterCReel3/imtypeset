@@ -259,6 +259,30 @@ static void test_version_check(void)
               sizeof(ImTypeset_TextRange), sizeof(ImTypeset_Line), sizeof(ImTypeset_Hit),
               sizeof(ImTypeset_Formula), sizeof(ImTypeset_Stats),
               sizeof(ImTypeset_ErrorInfo)) == 1);
+    /* A host compiled against 0.3.0, whose ImTypeset_Style and
+       ImTypeset_BlockStyle end before Advances: refused by its version, and,
+       if it names this version, by the size of either struct. */
+    CHECK(ImTypeset_DebugCheckVersionAndDataLayout(
+              "0.3.0", NULL, wchar_size, vert_size, idx_size, sizeof(ImTypeset_Style) - 4,
+              sizeof(ImTypeset_Run), sizeof(ImTypeset_TextRange), sizeof(ImTypeset_Line),
+              sizeof(ImTypeset_Hit), sizeof(ImTypeset_Formula), sizeof(ImTypeset_Stats),
+              sizeof(ImTypeset_ErrorInfo)) == 0);
+    CHECK(last_error_code() == ImTypeset_Error_VersionMismatch);
+    CHECK(ImTypeset_DebugCheckVersionAndDataLayout(
+              IMTYPESET_C_VERSION, NULL, wchar_size, vert_size, idx_size,
+              sizeof(ImTypeset_Style) - 4, sizeof(ImTypeset_Run), sizeof(ImTypeset_TextRange),
+              sizeof(ImTypeset_Line), sizeof(ImTypeset_Hit), sizeof(ImTypeset_Formula),
+              sizeof(ImTypeset_Stats), sizeof(ImTypeset_ErrorInfo)) == 0);
+    CHECK(last_error_code() == ImTypeset_Error_VersionMismatch);
+    CHECK(ImTypeset_CreateContext() == NULL);
+    CHECK(ImTypeset_DebugCheckDocumentDataLayout(
+              sizeof(ImTypeset_Block), sizeof(ImTypeset_BlockStyle) - 4,
+              sizeof(ImTypeset_Container), sizeof(ImTypeset_DocumentContent),
+              sizeof(ImTypeset_DocumentOptions), sizeof(ImTypeset_Position),
+              sizeof(ImTypeset_DocumentRange), sizeof(ImTypeset_Mark),
+              sizeof(ImTypeset_DocumentDraw), sizeof(ImTypeset_DocumentHit),
+              sizeof(ImTypeset_BlockGeometry), sizeof(ImTypeset_DocumentStats)) == 0);
+    CHECK(last_error_code() == ImTypeset_Error_VersionMismatch);
     /* A struct of a table that is another size: the third part refuses. */
     CHECK(ImTypeset_DebugCheckTableDataLayout(
               sizeof(ImTypeset_Cell), sizeof(ImTypeset_TableColumn),

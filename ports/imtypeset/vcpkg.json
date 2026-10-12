@@ -1,7 +1,7 @@
 {
   "$comment": "UNTESTED sketch of a port. See portfile.cmake.",
   "name": "imtypeset",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Typeset text for Dear ImGui: TeX's box-and-glue model over ImGui's font atlas",
   "dependencies": [
     {

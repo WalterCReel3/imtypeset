@@ -235,6 +235,28 @@ class Loading(unittest.TestCase):
         self.assertIn("ImportError", result.stderr)
         self.assertIn("refuses this package", result.stderr)
 
+    def test_a_package_from_0_3_0_is_refused_at_import(self):
+        # Style and BlockStyle as they were before 0.4.0 added Advances at
+        # the end of each: the library's own size check refuses either.
+        for name, table in (("Style", None), ("BlockStyle", "DOCUMENT_STRUCTS")):
+            patch = (
+                f"class {name}(ctypes.Structure):\n"
+                f"    _fields_ = capi.{name}._fields_[:-1]\n"
+                f"assert capi.{name}._fields_[-1][0] == 'Advances'\n"
+                f"assert ctypes.sizeof({name}) == ctypes.sizeof(capi.{name}) - 4\n"
+                f"capi.{name} = {name}"
+            )
+            if table:
+                patch += (
+                    f"\ncapi.{table} = tuple((n, {name} if n == '{name}' else t) "
+                    f"for n, t in capi.{table})"
+                )
+            with self.subTest(struct=name):
+                result = child(self.PATCHED_IMPORT.format(patch=patch))()
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("ImportError", result.stderr)
+                self.assertIn("refuses this package", result.stderr)
+
     def test_another_abi_revision_is_refused_at_import(self):
         result = child(self.PATCHED_IMPORT.format(patch="capi.C_ABI_VERSION = 2"))()
         self.assertNotEqual(result.returncode, 0, result.stdout)

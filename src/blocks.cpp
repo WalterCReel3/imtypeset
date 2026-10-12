@@ -201,6 +201,7 @@ void CodeLines::clear()
 {
     nodes.clear();
     ends.clear();
+    cell = 0;
 }
 
 uint64_t table_stamp()
@@ -324,8 +325,10 @@ namespace
 // called once for each character a line holds, in order, `i` being the index
 // in `text` of the codepoint it came from: a tab is its spaces, each with the
 // tab's index. `ends` is set to how many characters precede the end of each
-// line. The column counts characters and starts again at each newline. Blank
-// lines at the end are dropped, so the last character is the last line's.
+// line. The column starts again at each newline and moves by what
+// `character` answers for a character, which is one wherever a column is a
+// character. Blank lines at the end are dropped, so the last character is
+// the last line's.
 template<typename Character>
 void walk_code(const std::vector<uint32_t>& text, std::vector<uint32_t>& ends,
                Character&& character)
@@ -357,9 +360,8 @@ void walk_code(const std::vector<uint32_t>& text, std::vector<uint32_t>& ends,
             column += spaces;
             continue;
         }
-        character(i, codepoint);
+        column += character(i, codepoint);
         ++count;
-        ++column;
     }
     // What follows the last newline is a line unless it is empty.
     if (open)
@@ -393,17 +395,28 @@ bool set_code(CodeLines& out, std::string_view source, FontSpec font,
     out.offsets.clear();
     decode_utf8(source, out.codepoints, node_bytes != nullptr ? &out.offsets : nullptr);
 
-    walk_code(out.codepoints, out.ends, [&](size_t i, uint32_t codepoint) {
+    const double cell = metrics->cell();
+    out.cell = cell > 0.0 ? round_to_scaled(cell) : 0;
+    // How many columns a character takes. Every character from U+0020 to
+    // U+007E the face has is one cell of its grid (src/device.h).
+    const auto columns = [&](const FontMetrics* in, uint32_t shown, bool plain) -> uint32_t {
+        if (!(cell > 0.0) || plain || in == nullptr)
+            return 1;
+        const double cells = in->advance(shown) / cell;
+        return cells > 0.0 ? static_cast<uint32_t>(cells + 0.5) : 0;
+    };
+    walk_code(out.codepoints, out.ends, [&](size_t i, uint32_t codepoint) -> uint32_t {
         if (node_bytes != nullptr)
             node_bytes->push_back(out.offsets[i]);
         if (metrics->has(codepoint)) {
             out.nodes.push_back(char_node(key, codepoint));
-            return;
+            return columns(metrics, codepoint, codepoint >= 0x20 && codepoint <= 0x7E);
         }
         const StandIn shown = stand_in(composition, resolve, key, codepoint);
         out.nodes.push_back(shown.codepoint == codepoint
                                 ? char_node(shown.font, codepoint)
                                 : replaced_char(shown.font, shown.codepoint, codepoint));
+        return columns(cell > 0.0 ? resolve(shown.font) : nullptr, shown.codepoint, false);
     });
     return true;
 }
@@ -416,7 +429,10 @@ CodeExtent code_extent(std::string_view source)
     decode_utf8(source, codepoints, &offsets);
     const size_t none = codepoints.size();
     size_t last = none;
-    walk_code(codepoints, ends, [&](size_t i, uint32_t) { last = i; });
+    walk_code(codepoints, ends, [&](size_t i, uint32_t) -> uint32_t {
+        last = i;
+        return 1;
+    });
     CodeExtent extent;
     extent.lines = static_cast<uint32_t>(std::min<size_t>(ends.size(), 0xFFFFFFFFu));
     if (last != none) {
@@ -635,6 +651,19 @@ void BlockComposer::code_boxes(NodeArena& arena, const Block& block, Scaled inde
         hang = 0;
     if (hang > available - UNITY)
         hang = available - UNITY;
+    // On a grid a continuation starts at a cell: the whole number of cells
+    // nearest the indent, one at least, and as many as leave the line room.
+    const Scaled cell = block.code.cell;
+    if (cell > 0 && rules.code_continuation_indent > 0) {
+        const Scaled asked = clamp_dimen(rules.code_continuation_indent);
+        Scaled cells = (asked + cell / 2) / cell;
+        if (cells < 1)
+            cells = 1;
+        const Scaled most = (available - UNITY) / cell;
+        if (cells > most)
+            cells = most > 0 ? most : 0;
+        hang = cells * cell;
+    }
 
     // One box of the block: `contents` packed, moved right by `shift`, the
     // marker hung on it if it is the block's first, and set on the strut.

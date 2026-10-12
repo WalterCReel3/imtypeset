@@ -1,0 +1,57 @@
+## bench_code
+
+- compiler: GNU 12.2.0, build type Release, flags "-O3 -DNDEBUG" plus -ffp-contract=off -fno-exceptions -fno-rtti
+- machine: AMD Ryzen 7 PRO 4750U with Radeon Graphics; load average 3.87 3.85 3.31 1/2853 96
+- imtypeset 0.4.0, Dear ImGui 1.92.9, rasteriser FreeType (2.12.1; 2.12.1), ImWchar 32 bits, ImDrawIdx 16 bits
+- text: bench/data/sample.txt, the prose of the reference's demo/sample.md as plain paragraphs (the port has no markdown: headings are set as paragraphs, code blocks and tables are left out)
+- warm-up: 8.0 s of untimed arithmetic on this thread before the first row (IMTYPESET_BENCH_WARMUP_S sets the seconds, 0 for none)
+
+### 5000 lines of code, 327301 bytes, exact line heights, through a window of 768 px: one block, and 250 blocks of 20 lines
+
+| what | n | min | median | p95 | unit | note |
+|---|---|---|---|---|---|---|
+| one block, the device's advances: laid out whole, cold | 12 | 17.191 | 17.626 | 18.540 | ms | a size not met before each time |
+| one block, the device's advances: laid out whole, warm | 12 | 17.648 | 17.993 | 18.258 | ms |  |
+| one block, the device's advances: a frame of a window, steady | 2000 | 43.622 | 44.113 | 46.037 | us |  |
+| one block, the device's advances: the first frame on another display | 120 | 15.677 | 16.049 | 17.014 | ms | density 2 and 1 in turn |
+| one block, the device's advances: blocks laid out over all of the above | | 150 | | | blocks | structure visits 287 |
+| 250 blocks, the device's advances: laid out whole, cold | 12 | 16.579 | 16.869 | 17.455 | ms | a size not met before each time |
+| 250 blocks, the device's advances: laid out whole, warm | 12 | 16.265 | 16.356 | 16.556 | ms |  |
+| 250 blocks, the device's advances: a frame of a window, steady | 2000 | 48.261 | 48.962 | 51.577 | us |  |
+| 250 blocks, the device's advances: the first frame on another display | 120 | 233.158 | 236.104 | 243.939 | us | density 2 and 1 in turn |
+| 250 blocks, the device's advances: blocks laid out over all of the above | | 6872 | | | blocks | structure visits 71750 |
+| one block, the font's advances: laid out whole, cold | 12 | 18.326 | 19.083 | 21.529 | ms | a size not met before each time |
+| one block, the font's advances: laid out whole, warm | 12 | 17.825 | 18.374 | 18.754 | ms |  |
+| one block, the font's advances: a frame of a window, steady | 2000 | 43.642 | 44.854 | 48.020 | us |  |
+| one block, the font's advances: the first frame on another display | 120 | 46.828 | 50.315 | 51.256 | us | density 2 and 1 in turn |
+| one block, the font's advances: blocks laid out over all of the above | | 26 | | | blocks | structure visits 39 |
+| 250 blocks, the font's advances: laid out whole, cold | 12 | 16.875 | 17.453 | 18.191 | ms | a size not met before each time |
+| 250 blocks, the font's advances: laid out whole, warm | 12 | 16.652 | 16.914 | 17.448 | ms |  |
+| 250 blocks, the font's advances: a frame of a window, steady | 2000 | 48.592 | 51.356 | 53.851 | us |  |
+| 250 blocks, the font's advances: the first frame on another display | 120 | 50.705 | 54.131 | 55.143 | us | density 2 and 1 in turn |
+| 250 blocks, the font's advances: blocks laid out over all of the above | | 6500 | | | blocks | structure visits 9750 |
+
+### 50000 lines of code, 3453015 bytes, exact line heights, through a window of 768 px: one block, and 2500 blocks of 20 lines
+
+| what | n | min | median | p95 | unit | note |
+|---|---|---|---|---|---|---|
+| one block, the device's advances: laid out whole, cold | 5 | 199.004 | 201.725 | 572.274 | ms | a size not met before each time |
+| one block, the device's advances: laid out whole, warm | 5 | 186.190 | 189.229 | 201.329 | ms |  |
+| one block, the device's advances: a frame of a window, steady | 2000 | 47.069 | 48.281 | 53.871 | us |  |
+| one block, the device's advances: the first frame on another display | 50 | 170.145 | 176.551 | 194.150 | ms | density 2 and 1 in turn |
+| one block, the device's advances: blocks laid out over all of the above | | 66 | | | blocks | structure visits 126 |
+| 2500 blocks, the device's advances: laid out whole, cold | 5 | 185.852 | 194.503 | 378.225 | ms | a size not met before each time |
+| 2500 blocks, the device's advances: laid out whole, warm | 5 | 175.382 | 175.952 | 181.311 | ms |  |
+| 2500 blocks, the device's advances: a frame of a window, steady | 2000 | 51.507 | 56.276 | 58.089 | us |  |
+| 2500 blocks, the device's advances: the first frame on another display | 50 | 660.141 | 720.765 | 759.468 | us | density 2 and 1 in turn |
+| 2500 blocks, the device's advances: blocks laid out over all of the above | | 30162 | | | blocks | structure visits 315000 |
+| one block, the font's advances: laid out whole, cold | 5 | 197.297 | 208.563 | 422.289 | ms | a size not met before each time |
+| one block, the font's advances: laid out whole, warm | 5 | 190.819 | 198.867 | 200.847 | ms |  |
+| one block, the font's advances: a frame of a window, steady | 2000 | 46.167 | 47.430 | 49.112 | us |  |
+| one block, the font's advances: the first frame on another display | 50 | 48.411 | 51.988 | 58.830 | us | density 2 and 1 in turn |
+| one block, the font's advances: blocks laid out over all of the above | | 12 | | | blocks | structure visits 18 |
+| 2500 blocks, the font's advances: laid out whole, cold | 5 | 177.813 | 185.983 | 228.544 | ms | a size not met before each time |
+| 2500 blocks, the font's advances: laid out whole, warm | 5 | 177.801 | 182.150 | 654.062 | ms |  |
+| 2500 blocks, the font's advances: a frame of a window, steady | 2000 | 111.089 | 147.548 | 160.692 | us |  |
+| 2500 blocks, the font's advances: the first frame on another display | 50 | 115.707 | 125.175 | 134.522 | us | density 2 and 1 in turn |
+| 2500 blocks, the font's advances: blocks laid out over all of the above | | 30000 | | | blocks | structure visits 45000 |

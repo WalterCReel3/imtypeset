@@ -363,6 +363,7 @@ IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, TableCellsMea
 IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, TableRowsSet);
 IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, ColumnsCut);
 IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, BalanceHeightsTried);
+IMTYPESET_C_FIELD(ImTypeset_DocumentStats, ImTypesetDocumentStats, MeasuredWithoutDevice);
 IMTYPESET_C_MIRROR(ImTypeset_Columns, ImTypesetColumns);
 IMTYPESET_C_FIELD(ImTypeset_Columns, ImTypesetColumns, Count);
 IMTYPESET_C_FIELD(ImTypeset_Columns, ImTypesetColumns, Height);

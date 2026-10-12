@@ -511,7 +511,7 @@ BlockSpec resolve_spec(ImTypesetDocument& d, const DocBlock& b)
     spec.strut = Strut::filling(baselineskip);
     spec.strut.exact = (b.flags & ImTypesetBlockFlags_FixedLineHeight) != 0;
 
-    spec.align = own != nullptr ? align_of(own->Align) : base.align;
+    spec.align = grid_align(ctx, own != nullptr ? align_of(own->Align) : base.align, spec.font);
     spec.left_indent = clamp_dimen(base.left_indent + length_sp(d, b.left_indent));
     spec.first_line_indent =
         own != nullptr ? length_sp(d, own->FirstLineIndent) : base.first_line_indent;
@@ -976,11 +976,22 @@ void collect_boxes(ImTypesetDocument& d)
 void take_style(ImTypesetDocument& d, const ImTypesetStyle& given, float width)
 {
     ImTypesetContext& ctx = *d.ctx;
-    const ResolvedStyle resolved = resolve_style(ctx, given);
+    const bool askable = device_askable(ctx);
+    const ResolvedStyle asked = resolve_style(ctx, given);
+    const ResolvedStyle resolved = d.has_style ? keeping_device(ctx, asked, d.style) : asked;
     // A block that states its own ImTypesetAdvances_ can be measured on the
     // device where the document's style is not, and the style then does not
-    // show that the device has moved.
-    const uint16_t device = device_number(ctx, resolved.px_per_inch);
+    // show that the device has moved. With the atlas out of reach the device
+    // is the one the document has (see `ready`).
+    const uint16_t device = askable || !d.has_style || d.device_epoch_seen != ctx.devices.epoch
+                                ? device_number(ctx, resolved.px_per_inch)
+                                : d.device_seen;
+    // Text that would be measured on a device and cannot be: set by its
+    // fonts until the atlas can be asked, and said (ImTypesetDocumentStats).
+    d.without_device =
+        !askable && device == 0 &&
+        (d.own_advances || resolved.advances == ImTypesetAdvances_Device ||
+         (resolved.advances == ImTypesetAdvances_Default && ctx.tex_rules.code_on_device));
     const bool moved =
         d.own_advances && (device != d.device_seen || ctx.devices.epoch != d.device_epoch_seen);
     const bool changed = !d.has_style || !same_style(resolved, d.style) ||
@@ -1068,9 +1079,15 @@ void ready(ImTypesetDocument& d)
     // when the device has: a layout measured on one display is not one for
     // another (src/device.h), and a host need not have called LayoutDocument
     // since its window moved.
+    //
+    // While the atlas cannot be asked (the ImGui context is not current) a
+    // document that has a style keeps it, device and all, and answers from
+    // the layout it has: a question must not move what is on screen. One
+    // never laid out has nothing to keep and is set by its fonts until the
+    // atlas is back, which the first comparison below then sees.
     if (!d.has_style || d.generation != ctx.library.generation() ||
-        device_number(ctx, d.style.px_per_inch) != d.device_seen ||
-        ctx.devices.epoch != d.device_epoch_seen)
+        (device_askable(ctx) && (device_number(ctx, d.style.px_per_inch) != d.device_seen ||
+                                 ctx.devices.epoch != d.device_epoch_seen)))
         take_style(d, d.has_style ? d.given_style : ctx.style, d.width_px);
     d.composer.measure = ctx.measure();
     d.composer.materialize = &materialize;
@@ -3396,6 +3413,7 @@ ImTypesetDocumentStats GetDocumentStats(const ImTypesetDocument* document)
     if (d == nullptr)
         return out;
     out = d->stats;
+    out.MeasuredWithoutDevice = d->without_device;
     out.BlocksLaidOut = d->composer.blocks_composed;
     out.UnitsStacked = d->composer.units_assembled;
     out.StructureVisits = d->composer.blocks_prepared + d->spec_visits;
