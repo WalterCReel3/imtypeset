@@ -7,8 +7,9 @@ States: **done**, **in progress**, **queued**, **declined** (with the reason),
 **needs the user**. A decision an agent took is marked *agent decision*; the
 user is the only one who moves the border.
 
-Last updated: 2026-10-12, at tag `v0.3.0` (not pushed). The handoff channel's tables are current to
-advtext's file as of its commit `6e42665`; its requests after H20 are received and not yet answered.
+Last updated: 2026-10-12, at tag `v0.4.0` (not pushed). The handoff channel's tables are current to
+advtext's file as read on 2026-10-12; H34 and H35 are answered; its other requests after H20 are
+received and not yet answered.
 
 ## The handoff channel (from 2026-10-11)
 
@@ -27,10 +28,10 @@ only in its own repository. The user's direction, quoted there and here:
 > adoption and product packaging (goal of a Mac supported install with
 > automatic updates)."
 
-**Ref to build from:** tag **`v0.3.0`** — **not pushed** (created in the local checkout; the sessions
-that write here cannot reach GitHub; the user pushes commits and tags). What it is and is not is
-under "Build from" below. The changelog is `docs/CHANGELOG.md`; what a version promises is
-`docs/versioning.md`. `03b5cd4`, which advtext pinned meanwhile, is three commits before it.
+**Ref to build from:** tag **`v0.4.0`** — **not pushed** (created in the local checkout; the user
+pushes commits and tags). It has H34 and H35. `v0.3.0` is the tag before it; a 0.3.0 package and a
+0.4.0 library refuse each other. What the tag is and is not is under "Build from" below. The
+changelog is `docs/CHANGELOG.md`; what a version promises is `docs/versioning.md`.
 
 ### Answers to advtext's requests
 
@@ -59,7 +60,9 @@ how; a finding from reading is labelled.
 | H18 | `_same_module` without `/proc`; code-signing | **written, never run** (task `py-dist`, in `03b5cd4`): dyld's image list on macOS; `host_info()["bundle"]["second_module_check"]` says `done: …` or `not done: <why>`, never silence. Signing: `docs/sidecar.md` §10, from reading, with what a person at a Mac must report **Since (task `gate-fixes`, in `v0.3.0`):** The check now also refuses a second Dear ImGui answering in the global symbol scope (`dlsym`/`dladdr`; *run on Linux*, written and never run for macOS); an image opened `RTLD_LOCAL` is not seen. A file is refused unless it is as long as its load commands say; the Mach-O side has met only hand-made files. What a person at a Mac reports is in `docs/sidecar.md` §10, now including `otool -l` before and after signing. |
 | H19 | Retina: font density and pixel snapping | **built, not confirmed on a Mac** (task `hidpi`, not pushed; D72). *Measured on Linux by an agent, headless, framebuffer scale set to 1, 1.5, 2 and 3 and the draw data rasterised:* before, the library's glyphs were density-1 bitmaps stretched (0.500 atlas texels per framebuffer pixel at 2x against 1.000 for ImGui's own text in the same window) and every position a whole unit; the cause is not `RasterizerDensity` 1.0, which is right, but that ImGui raises a font's density only while it is the current font. Now each draw reads `io.DisplayFramebufferScale` and places and rasterises in framebuffer pixels: 1.000 texels per pixel, nothing off the grid, the same ink as ImGui's line at every scale; the draw rules' bounds are in framebuffer pixels. No call added or changed; layout, sizes and hit tests unchanged; at scale 1 the vertices are bit-identical. **A host does nothing on macOS** and must not put the scale into `PixelsPerInch`. The sidecar's probe has a 25th row: rebuild library and package together. *Needs a person at a Mac:* `examples/python/hidpi_check.py` (five things to look at, in its docstring). |
 | H20 | the fonts a packaged application must carry | **done** (task `py-dist`, in `03b5cd4`): the installed gate reads no font, so dropping `imgui_bundle/assets` no longer refuses the import. The library looks for fonts nowhere: it opens what `add_font` is given. advtext's own six files in `imgui_bundle/assets/fonts` are advtext's to carry. `docs/sidecar.md` §10 |
-| H22–H28, H34–H42 | (added to the handoff file by 2026-10-12 01:48, advtext commit `6e42665`: characters set as U+FFFD or borrowed; an unbreakable run wider than the measure; a rule under every table row; `destroy_context` and the atlas; "no library for this platform"; a caret at a code line's end; `edit_error` as a class attribute; layout from the advances the rasteriser bakes, and glyphs drawn where they were laid out — pptmstr's measurements on monospace rows; `ValueError` naming block and field; values taken silently; ragged tables; knowing the ImGui context is gone; white space and HardBreaks) | **received, not yet answered.** None of these is in `v0.3.0`. They are the next round's work and will each get a row here. H34 and H35 are **in progress** (task `device-advances`, started 2026-10-12 at the user's direction: "I think we need to tackle H34/H35. This is important to get the new diff interface working."): reproduce at `v0.3.0`, then a way to lay text out from the advances the rasteriser bakes, the default for code blocks, with drawn glyphs, selection rectangles, carets and hit tests agreeing. Nothing is said about the result until it has been measured here. (H34 and H35: a glyph drawn up to 16.9 px from where it was laid out in a monospace row, measured by pptmstr's builder at `c9f8902`) are taken first: `c9f8902` predates device-pixel drawing (D72) but not the word and formula placement rules, so they are to be re-measured at `v0.3.0` before anything is said |
+| H34 | lay text out from the advances the rasteriser bakes | **Done in `v0.4.0`** (tasks `device-advances`, `device-finish`; D77 to D81). Code is measured on the device by default (the advance of the glyph in the atlas entry it is drawn from, a whole number of framebuffer pixels, no kerns) and, the code face being fixed-pitch, is on a GRID that holds whatever the text holds: every character takes a whole number of cells, a character the face lacks takes as many cells as hold it in the face it is borrowed from (an ideograph two), a control, format character or combining mark with no ink takes none, U+FFFD for what no face has takes one, a tab goes to a multiple of four cells, a wrapped line hangs whole cells, spaces never stretch, a Code-face paragraph is ragged. Measured by this library's builder (an agent), vertices read, FreeType 2.12.1 and stb_truetype: on 192 pages (densities 1, 1.5, 2, 3; pixel heights 13 to 24; origins 0, 1/4, 1/2, 3/4 of a framebuffer pixel) of eighteen rows holding tabs, box-drawing, Cyrillic, Greek, a math-alphabet letter, U+200B, U+200D, U+FEFF, U+0301, ESC, an ideograph and an emoji, every laid-out character is a whole number of cells from its row's start, every glyph is on a whole framebuffer pixel, and all glyphs of a block are one distance from their places, at most half a pixel and nothing at a whole origin. With IPA Gothic as the regular face an ideograph takes two cells. Under FreeType the pens are still Dear ImGui's own for ASCII (the 49 pages of `device-advances`); under stb only with `PixelSnapH` at density 1. Remembered advances are checked against the atlas once a frame. NOT promised: a grid after a formula on the same line, or for a face that is not fixed-pitch. Not measured: a real window beyond Xvfb's, a Retina display, macOS, FreeType's light and mono modes. |
+| H35 | a glyph drawn where it was laid out, or geometry answering from where it was drawn | **Done in `v0.4.0`.** On the device the rectangle, caret, hit test and copy agree with the cells for every row above: a row's rectangle is whole cells, a point a quarter and three quarters across any character answers the carets at its two edges, a copy is the row as written. In the diff view's shape (one Code block of 5,000 lines, `FixedLineHeight`, Behind, Under and Ink marks and a selection, densities 1, 1.5, 2) each fill's edges are on the pens of the first character marked and the first after it, and hit tests in marked cells are right. A retained Paragraph laid out for another density is refused by the draw and not drawn stale; a Document asked while its ImGui context is away answers from the layout on screen. Text by its font: as `device-advances` left it (under 2 px, 1.00 measured). |
+| H22–H28, H36–H42 | (characters set as U+FFFD or borrowed; an unbreakable run wider than the measure; a rule under every table row; `destroy_context` and the atlas; "no library for this platform"; a caret at a code line's end; `edit_error` as a class attribute; `ValueError` naming block and field; values taken silently; ragged tables; knowing the ImGui context is gone; white space and HardBreaks) | **received, not yet answered.** None is in `v0.4.0`. The next round's work; each will get a row here |
 
 ### In `74f5116` (task `handoff-core`): API changes and things to know
 
@@ -94,6 +97,54 @@ tree refuses a library from before it (it declares two functions the old library
   are no longer emitted at all.
 - **`Document.view("")` draws; an index past a C int no longer wraps to a small one.**
 
+### In `v0.4.0`: API changes since `v0.3.0`, and what a diff view must set
+
+**API lines since v0.3.0** (C++ / C / Python):
+
+| | C++ | C | Python |
+|---|---|---|---|
+| version | `IMTYPESET_VERSION "0.4.0"`, `_NUM 400` | `IMTYPESET_C_VERSION "0.4.0"` | `imtypeset.version() == "0.4.0"`; wheel `0.4.0.192900` |
+| new enum | `ImTypesetAdvances_Default = 0`, `_Font = 1`, `_Device = 2` | `ImTypeset_Advances_*` | `imtypeset.Advances` |
+| new field, last | `ImTypesetStyle::Advances` | `ImTypeset_Style.Advances` | `Style(Advances=...)` |
+| new field, last | `ImTypesetBlockStyle::Advances` | `ImTypeset_BlockStyle.Advances` | `BlockStyle(Advances=...)` |
+| new field, last | `bool ImTypesetDocumentStats::MeasuredWithoutDevice` | `ImTypeset_DocumentStats.MeasuredWithoutDevice` | `DocumentStats.MeasuredWithoutDevice` |
+| new call | `float GetDeviceGlyphAdvance(ImTypesetFace, unsigned int codepoint, const ImTypesetStyle* = NULL, float scale = 1.0f)` [E]: for a fixed-pitch face, the cell | `ImTypeset_GetDeviceGlyphAdvance` | `device_glyph_advance(face, char, style=None, scale=1.0)` |
+| changed default | Code and CodeBold on the device | same | same |
+| changed layout | a fixed-pitch face on the device is on a grid (borrowed characters whole cells, inkless controls none, rigid spaces, ragged code paragraph, tabs and hang in cells) | same | same |
+| changed draw | every glyph of a word within a pixel of its place; a grid word on the pixel nearest its own place | same | same |
+| changed failure | `DrawParagraph` false, `InvalidArgument`, for device text laid out for another density or rasterisation | `ImTypeset_DrawParagraph` 0 | `Paragraph.draw` raises `Error` |
+| changed | a Document asked off-context keeps its layout | same | same |
+| sidecar | probe still 26 rows; imports `ImFontBaked::GetCharAdvance` and `IsGlyphLoaded` from the wheel (119 names) | | a 0.3.0 package and a 0.4.0 library refuse each other |
+
+**What advtext must set for a diff view.**
+
+1. `imtypeset==0.4.*` with its exact imgui-bundle pin; library and package from one build.
+2. One `BlockKind.Code` block per hunk (or per file: see 7), `BlockFlags.FixedLineHeight`,
+   `DocumentOptions(CodeOverflow=CodeOverflow.Grow)` (or `Clip`) so rows are lines and line n is
+   at n line heights. `Style(Advances=...)` left at Default; nothing else for the grid.
+3. Draw at a `pos` whose x is a whole number of FRAMEBUFFER pixels (`round(x * scale) / scale`)
+   and a block `LeftIndent` that is whole too. Then glyphs, rectangles and marks coincide
+   exactly; otherwise all are right against each other and the whole block is up to half a
+   pixel from layout's answers.
+4. **Columns by asking, never by counting characters.** A character can be two cells or none.
+   Use `caret_rect` / `range_rects` for a mark's x, and `device_glyph_advance(Face.Code, "0",
+   style, scale)` for the cell width (gutter arithmetic, a ruler). Ask again when the size or
+   `io.display_framebuffer_scale` changes.
+5. Marks: `MarkPlace.Behind` for a changed range, `Ink` for syntax colour, `Under` for a
+   squiggle; all take byte ranges of the block's text and land on cells.
+6. A line of Dear ImGui's own beside it (a gutter of numbers): the role's ImFont pushed at the
+   Code face's pixel height (`device-advances` result, section 6.3). FreeType: on the grid at
+   every density tested. stb: only with `PixelSnapH` and density 1.
+7. What to expect: at density 1 and 2, FreeType, a cell is a whole number of framebuffer pixels
+   (at density 2 that can be a number of units and a half). At 1.5 and 3 likewise. A density or
+   size change lays a block out again whole: 16 ms for 5,000 lines in one block, 0.24 ms as
+   twenty-line blocks (section 5). A file's worth of distinct characters is rasterised at
+   layout.
+8. If it keeps `Paragraph` objects in code faces across a display change it must call
+   `layout` again when `draw` raises; `Document` does that itself.
+9. Do not query a Document from a thread or a moment where another ImGui context is current
+   expecting a re-layout: it answers from what it has (that is the point).
+
 ### Requests of advtext (`T1`…)
 
 | # | request | why |
@@ -113,8 +164,8 @@ tree refuses a library from before it (it declares two functions the old library
 
 | | |
 |---|---|
-| ref | tag **`v0.3.0`** on `main` — not pushed until the user pushes. Before it: `03b5cd4` (wheels, gate), `74f5116` (H7–H13), `69375e6` (sidecar build, CI), `c9f8902` (the swap gate) |
-| what it is | Every preset configured, built and run from clean directories on its tree (GCC 12.2, Linux x86-64; task `v030-gate`): `debug` 53 of 53, `python-host` 54 of 54, the other nine 52 of 52, no warning from our sources. Both sidecars and both wheels rebuilt on **stand-in headers**, installed into throwaway environments, 92 of 92 installed-wheel checks each; 25 probe rows. **What the tag does not mean:** nothing has run on macOS; no GitHub workflow has run; nothing was built against the wheel's own Dear ImGui headers, so no release wheel exists; no licence is chosen, so nothing is to be published from it. Library and package must come from one ref |
+| ref | tag **`v0.4.0`** on `main` — not pushed until the user pushes. Before it: `v0.3.0` (the Level 1 round), `c9f8902` (the swap gate) |
+| what it is | All eleven presets were configured, built and run from clean directories on its tree before one late test-only change (GCC 12.2, Linux x86-64; task `device-finish`): ten passed in full (`debug` 55 of 55, `python-host` 56 of 56, eight at 54 of 54); `imgui-next` was 53 of 54 because of a flaw in a new test's own harness, and passed 54 of 54 after that test-only change, which was then rebuilt and rerun as one binary in all eleven. Both sidecars and both wheels (`0.4.0.19290x.dev0+standin`) rebuilt on **stand-in headers**, installed into throwaway environments, 92 of 92 installed-wheel checks each; 26 probe rows; the windowed checks ran on Xvfb. **What the tag does not mean:** nothing has run on macOS; no GitHub workflow has run; nothing was built against the wheel's own Dear ImGui headers, so no release wheel exists; no licence is chosen, so nothing is to be published from it. Library and package must come from one ref |
 | how | `python/host/build_bundle_library.sh` as before; one library per interpreter |
 | pushed? | no — the session cannot reach the network; the local repository has it |
 
