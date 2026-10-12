@@ -224,9 +224,13 @@ Observed, each in a child process. None raises; none can be caught.
 - Two arguments hostile at once, beyond what the nested values gave.
 - Threads. The package and the library are for one.
 - `imtypeset._capi` and `imtypeset._bundle` are not for a host. Importing the
-  package raises `ImportError` with the reason when `IMTYPESET_LIBRARY` is
-  unset, not a file, not an imtypeset library or not the one the package was
-  written for. Called by hand, `_capi.load` raises `ImportError`, `TypeError`
+  package raises `ImportError` and nothing else when it refuses: no library
+  (`IMTYPESET_LIBRARY` unset and none inside the package), not a file, not an
+  imtypeset library, not the one the package was written for, or not built
+  for the imgui-bundle that is running. The error's first line is a sentence
+  an application can show, and it carries `kind`, `sentence` and `detail`;
+  `docs/sidecar.md`, section 9, lists every kind and was run for the installed
+  package (section 12). Called by hand, `_capi.load` raises `ImportError`, `TypeError`
   or `ValueError`; `_bundle.check`, `_bundle.accepted` and `_bundle.gate` were
   called only with a library that has no bundle shim, where they raise
   `AttributeError`, `KeyError`, `TypeError` and `FileNotFoundError`.

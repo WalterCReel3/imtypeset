@@ -1,0 +1,118 @@
+# Builds the imtypeset wheel for every (platform, CPython, imgui-bundle) the
+# sidecar is offered for, checks each archive, installs each into a new
+# environment beside the imgui-bundle wheel from PyPI and checks the
+# installation; uploads the wheels as artifacts on every run; and, for a tag
+# v<version>, attaches them to a GitHub Release. docs/sidecar.md, sections 8
+# and 12, and docs/versioning.md say what a wheel and a release are.
+#
+# Every step is a script under tools/ci that also runs on a developer's
+# machine; this file only says where and in what order.
+#
+# NEVER RUN. The runner labels and action versions are those of
+# sidecar-probe.yml, with actions/download-artifact read the same way on
+# 2026-10-11 (a summarising fetch of its releases page). Nothing is uploaded
+# to a package index.
+name: wheels
+
+on:
+  workflow_dispatch:
+    inputs:
+      linux_runner:
+        description: Runner label for Linux x86-64
+        default: ubuntu-latest
+      macos_arm64_runner:
+        description: Runner label for macOS on Apple Silicon
+        default: macos-14
+      headers:
+        description: fork (the wheel's own headers) or stand-in (a development build)
+        default: fork
+  push:
+    tags:
+      - "v*"
+    branches:
+      - main
+    paths:
+      - .github/workflows/wheels.yml
+      - pyproject.toml
+      - tools/wheel/**
+      - tools/ci/**
+      - tools/bundle_route/**
+      - tools/amalgamate.py
+      - tools/version.py
+      - python/**
+      - src/**
+      - include/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wheels-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Which wheels
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - id: matrix
+        env:
+          IMTYPESET_CI_LINUX: ${{ github.event.inputs.linux_runner }}
+          IMTYPESET_CI_MACOS_ARM64: ${{ github.event.inputs.macos_arm64_runner }}
+        run: python3 tools/ci/wheel_matrix.py >> "$GITHUB_OUTPUT"
+
+  wheel:
+    name: ${{ matrix.name }}
+    needs: plan
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: System libraries the wheel's module links
+        run: sh tools/ci/install_deps.sh sidecar
+      - name: Build the wheel, check it, install it, check the installation
+        env:
+          IMTYPESET_BUNDLE_HEADERS: ${{ github.event.inputs.headers }}
+          IMTYPESET_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+        run: sh tools/ci/wheel_build.sh "${{ matrix.bundle }}" wheel-out python
+      - name: The wheel, and the build's log
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: wheel-${{ matrix.id }}
+          path: |
+            wheel-out/wheels
+            wheel-out/work/build.log
+            wheel-out/work/stage/imtypeset/_attestation.json
+          if-no-files-found: warn
+
+  # Only for a tag, only after every wheel job passed, and the only job that
+  # may write to the repository.
+  release:
+    name: Attach the wheels to the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: wheel
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          path: released
+          pattern: wheel-*
+      - name: Refuse anything that is not this release, then create it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sh tools/ci/wheel_release.sh "${{ github.ref_name }}" released

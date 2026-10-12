@@ -1,6 +1,6 @@
 """imtypeset from Python: a ctypes binding over the C ABI (include/imtypeset_c.h).
 
-    import imtypeset as ts          # loads $IMTYPESET_LIBRARY and checks it; ImportError if wrong
+    import imtypeset as ts          # loads its library and checks it; ImportError if wrong
     ts.create_context()             # inside a Dear ImGui context the same library draws through
     ts.add_font(ts.Face.Regular, "Roboto-Regular.ttf")
     ...each frame, between the host's NewFrame and Render:
@@ -33,15 +33,18 @@ of the same name. What is written here is how it looks from Python:
   - Lengths are pixels, colours are ImGui's packed 32-bit ints (`col32`).
   - One thread, as for the library and for ImGui.
 
-WHICH DEAR IMGUI. The library named by IMTYPESET_LIBRARY decides, and
+WHICH DEAR IMGUI. The library decides, and
 `host_info()` says: "self-hosted" when ImGui is compiled into that library
 (python/host: one .so with ImGui, its SDL2 backends and a small host surface),
 "imgui_bundle" when the library was built against Dear ImGui Bundle's ImGui and
 resolves it from the bundle's module. Importing this package checks the pairing
 before anything else can be called.
 
-This is a binding to run from a build tree. It is not a packaged, portable
-distribution: no wheel, no installer, one platform (Linux) run.
+WHERE THE LIBRARY IS. An installed wheel of this distribution carries it
+inside the package and needs no environment variable; it is pinned to the one
+imgui-bundle it was built for and refuses any other with a sentence
+(docs/sidecar.md, sections 8 and 9). IMTYPESET_LIBRARY, when set, names a
+library and wins: the development override.
 """
 
 from __future__ import annotations
@@ -550,19 +553,36 @@ class _HostFacts(_C.Structure):
 
 
 def _load():
-    path = _capi.library_path()
-    lib = _capi.load(path)
+    from . import _bundle
+
+    path, route = _capi.library_route()
+
+    def refuse(kind, sentence, detail=""):
+        return _bundle.refusal(kind, sentence, f"{path!r}" + (": " + detail if detail else ""))
+
+    together = "The library and the package are installed together, from one release."
+
+    # Where an attestation vouches for the library (an installed distribution;
+    # a development build that has one), the library and the wheel's module
+    # are held to it by content BEFORE the library is loaded: a truncated or
+    # half-updated file is refused here and never mapped.
+    attestation = _bundle.precheck(path, route)
+    lib = _capi.load(path, bundle_first=attestation is not None)
     raw = _capi.BuildInfo()
     whole = lib.ImTypeset_GetBuildInfo(_C.byref(raw), _C.sizeof(raw))
     if whole < _C.sizeof(raw) or raw.StructSize != whole:
-        raise ImportError(
-            f"imtypeset: {path!r} describes itself in {whole} bytes and this package reads "
-            f"{_C.sizeof(raw)}: the library is older than the package"
+        raise refuse(
+            "package-mismatch",
+            "The imtypeset library and the imtypeset Python package are of different versions: "
+            "the library is older than the package. " + together,
+            f"the library describes itself in {whole} bytes and this package reads "
+            f"{_C.sizeof(raw)}",
         )
     if raw.AbiVersion != _capi.C_ABI_VERSION:
-        raise ImportError(
-            f"imtypeset: {path!r} has C ABI revision {raw.AbiVersion}; this package was written "
-            f"for revision {_capi.C_ABI_VERSION}"
+        raise refuse(
+            "package-mismatch",
+            f"The imtypeset library has C ABI revision {raw.AbiVersion} and this imtypeset Python "
+            f"package was written for revision {_capi.C_ABI_VERSION}. " + together,
         )
     info = BuildInfo(
         version=raw.Version.decode("ascii", "replace"),
@@ -592,9 +612,12 @@ def _load():
         lib.ImTypesetHost_GetInfo.argtypes = [_C.c_void_p, _C.c_int]
         lib.ImTypesetHost_GetInfo(_C.byref(facts), _C.sizeof(facts))
         if facts.ImGuiVersionNum != raw.ImGuiVersionNum:
-            raise ImportError(
-                f"imtypeset: {path!r} holds Dear ImGui {facts.ImGuiVersionNum} and an imtypeset "
-                f"compiled against {raw.ImGuiVersionNum}"
+            raise refuse(
+                "not-a-library",
+                "The imtypeset library was put together from two versions of Dear ImGui and "
+                "cannot be used. Build it again.",
+                f"it holds Dear ImGui {facts.ImGuiVersionNum} and an imtypeset compiled against "
+                f"{raw.ImGuiVersionNum}",
             )
         sizes = (facts.SizeofImWchar, facts.SizeofImDrawVert, facts.SizeofImDrawIdx)
         layout_checked = True
@@ -602,79 +625,74 @@ def _load():
         # No Dear ImGui in the library: it resolved the one in Dear ImGui
         # Bundle's module. _bundle.gate() raises ImportError unless that ImGui
         # is laid out the way the library was compiled to expect.
-        from . import _bundle
-
         host = "imgui_bundle"
-        bundle_report = _bundle.gate(lib, path)
+        bundle_report = _bundle.gate(lib, path, route, attestation, lib.preload)
         layout_checked = True
     else:
         host = "unknown"
         layout_checked = False
 
-    ok = lib.ImTypeset_DebugCheckVersionAndDataLayout(
-        _capi.C_VERSION.encode("ascii"),
-        None,
-        *sizes,
-        _C.sizeof(_capi.Style),
-        _C.sizeof(_capi.Run),
-        _C.sizeof(_capi.TextRange),
-        _C.sizeof(_capi.Line),
-        _C.sizeof(_capi.Hit),
-        _C.sizeof(_capi.Formula),
-        _C.sizeof(_capi.Stats),
-        _C.sizeof(_capi.ErrorInfo),
-    )
-    if not ok:
+    def checked(ok, what):
+        if ok:
+            return
         message = _C.create_string_buffer(1024)
         lib.ImTypeset_GetLastErrorMessage(message, len(message))
-        raise ImportError(
-            f"imtypeset: {path!r} refuses this package (written for {_capi.C_VERSION}): "
-            f"{message.value.decode('utf-8', 'replace')}"
+        raise refuse(
+            "package-mismatch",
+            f"The imtypeset library refuses this package{what} (written for {_capi.C_VERSION}): "
+            f"{message.value.decode('utf-8', 'replace')}. " + together,
         )
-    ok = lib.ImTypeset_DebugCheckDocumentDataLayout(
-        *(_C.sizeof(struct) for _, struct in _capi.DOCUMENT_STRUCTS)
+
+    checked(
+        lib.ImTypeset_DebugCheckVersionAndDataLayout(
+            _capi.C_VERSION.encode("ascii"),
+            None,
+            *sizes,
+            _C.sizeof(_capi.Style),
+            _C.sizeof(_capi.Run),
+            _C.sizeof(_capi.TextRange),
+            _C.sizeof(_capi.Line),
+            _C.sizeof(_capi.Hit),
+            _C.sizeof(_capi.Formula),
+            _C.sizeof(_capi.Stats),
+            _C.sizeof(_capi.ErrorInfo),
+        ),
+        "",
     )
-    if not ok:
-        message = _C.create_string_buffer(1024)
-        lib.ImTypeset_GetLastErrorMessage(message, len(message))
-        raise ImportError(
-            f"imtypeset: {path!r} refuses this package's document structs (written for "
-            f"{_capi.C_VERSION}): {message.value.decode('utf-8', 'replace')}"
-        )
-    ok = lib.ImTypeset_DebugCheckTableDataLayout(
-        *(_C.sizeof(struct) for _, struct in _capi.TABLE_STRUCTS)
+    checked(
+        lib.ImTypeset_DebugCheckDocumentDataLayout(
+            *(_C.sizeof(struct) for _, struct in _capi.DOCUMENT_STRUCTS)
+        ),
+        "'s document structs",
     )
-    if not ok:
-        message = _C.create_string_buffer(1024)
-        lib.ImTypeset_GetLastErrorMessage(message, len(message))
-        raise ImportError(
-            f"imtypeset: {path!r} refuses this package's table structs (written for "
-            f"{_capi.C_VERSION}): {message.value.decode('utf-8', 'replace')}"
-        )
-    ok = lib.ImTypeset_DebugCheckColumnDataLayout(
-        *(_C.sizeof(struct) for _, struct in _capi.COLUMN_STRUCTS)
+    checked(
+        lib.ImTypeset_DebugCheckTableDataLayout(
+            *(_C.sizeof(struct) for _, struct in _capi.TABLE_STRUCTS)
+        ),
+        "'s table structs",
     )
-    if not ok:
-        message = _C.create_string_buffer(1024)
-        lib.ImTypeset_GetLastErrorMessage(message, len(message))
-        raise ImportError(
-            f"imtypeset: {path!r} refuses this package's column structs (written for "
-            f"{_capi.C_VERSION}): {message.value.decode('utf-8', 'replace')}"
-        )
-    return lib, path, info, host, layout_checked, bundle_report
+    checked(
+        lib.ImTypeset_DebugCheckColumnDataLayout(
+            *(_C.sizeof(struct) for _, struct in _capi.COLUMN_STRUCTS)
+        ),
+        "'s column structs",
+    )
+    return lib, path, info, host, layout_checked, bundle_report, route
 
 
 # True when this is importlib.reload() of a package that had loaded: the names
 # below are then already bound, to what the load before answered.
 _reloading = "_lib" in globals()
 try:
-    _lib, _path, _build, _host, _layout_checked, _bundle_report = _load()
+    _lib, _path, _build, _host, _layout_checked, _bundle_report, _route = _load()
 except BaseException:
     # A refused import leaves no module of this package behind. Python takes
     # the package itself out of sys.modules and not the submodules it had
     # already imported, and a second attempt -- after IMTYPESET_LIBRARY was
     # set right, or with another copy of the package in front on sys.path --
-    # would otherwise be made with the first attempt's `_capi`. What cannot
+    # would otherwise be made with the first attempt's `_capi`. (So a refusal
+    # is a plain ImportError carrying `kind`, `sentence` and `detail`, and not
+    # a class of this package: _bundle.refusal.) What cannot
     # be taken back is the shared object: once loaded it stays mapped in the
     # process (ctypes never unloads a library, and no platform promises that
     # it could), so its static initialisers have run. Loading it again later
@@ -715,6 +733,14 @@ def host_info() -> dict:
     return {
         "host": _host,  # "self-hosted", "imgui_bundle" or "unknown"
         "library": _path,
+        # How the library was found: "installed" (it is inside this package, as
+        # a wheel puts it) or "IMTYPESET_LIBRARY" (the development override).
+        "route": _route,
+        # The distribution's version (the library's version and the
+        # imgui-bundle line it was built for); None for a development build.
+        "distribution_version": (
+            ((_bundle_report or {}).get("attestation") or {}).get("distribution_version") or None
+        ),
         "imgui_version": _build.imgui_version,
         "imgui_version_num": _build.imgui_version_num,
         "imgui_layout_checked": _layout_checked,
@@ -724,9 +750,14 @@ def host_info() -> dict:
         "imtypeset_version": _build.version,
         "c_abi_version": _build.abi_version,
         "catches_exceptions": _build.catches_exceptions,
-        # Inside Dear ImGui Bundle only: _bundle.check()'s report, with
-        # "headers" ("fork:<commit>" or "stand-in:..."), "accepted_by"
-        # ("imgui-check+probe" or "probe") and every probe's outcome.
+        # Inside Dear ImGui Bundle only: _bundle.gate()'s report, with
+        # "headers" ("fork:<commit>" or "stand-in:...") and "stand_in",
+        # "accepted_by" ("imgui-check+probe" or "probe"), every probe's
+        # outcome, "wheel_version" (the wheel that is running), "built_for"
+        # (the wheel the library was built for), "checked_in" ("attestation":
+        # by content, against the record of the probe run when the library was
+        # built; "child": the probe, now, in a child interpreter),
+        # "second_module_check" and "preload".
         "bundle": _bundle_report,
     }
 

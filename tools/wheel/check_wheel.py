@@ -1,0 +1,182 @@
+"""Reads imtypeset wheels as files, without installing them, and says whether
+each is what tools/wheel/build_wheel.py promises; with --release, whether it
+may be published.
+
+    python3 -I -B tools/wheel/check_wheel.py [--release] [--tag v0.3.0] <wheel> [<wheel> ...]
+
+For every wheel:
+  - the archive holds exactly the package's modules, one library, the
+    attestation, the notices and the three metadata files, and every file has
+    the sha256 RECORD gives it;
+  - the file name, METADATA, WHEEL and the attestation agree on the version,
+    the CPython tag and the platform tag;
+  - the version is <library version>.<bundle line>, the line being that of the
+    one `Requires-Dist: imgui-bundle==X`, which is the wheel the attestation is of;
+  - the library in the archive is the file the attestation is about (sha256,
+    and the sha256 of what the loader maps of it);
+  - a build against stand-in headers says so in its version (+standin), and
+    nothing else does.
+
+--release adds: no stand-in headers, accepted by Dear ImGui's own layout check
+and not by the field probe alone, no local version segment; and --tag: the
+library version is the tag's. This is the step that keeps a development build
+out of a release (.github/workflows/wheels.yml, tools/release.sh).
+
+Exit 0 when every wheel passes.
+"""
+
+import base64
+import hashlib
+import importlib.util
+import json
+import os
+import re
+import sys
+import tempfile
+import zipfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(os.path.dirname(HERE))
+MODULES = {"__init__.py", "_bundle.py", "_capi.py", "demo.py"}
+LIBRARIES = {"libimtypeset_bundle.so", "libimtypeset_bundle.dylib"}
+
+
+def _gate():
+    spec = importlib.util.spec_from_file_location(
+        "_bundle", os.path.join(REPO, "python", "imtypeset", "_bundle.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def bundle_line(wheel_version: str) -> str:
+    major, minor, patch = (int(part) for part in wheel_version.split("."))
+    return str(major * 100000 + minor * 1000 + patch)
+
+
+def check(path: str, release: bool, tag: str, gate) -> list:
+    problems = []
+    name = os.path.basename(path)
+    parts = name[:-len(".whl")].split("-") if name.endswith(".whl") else []
+    if len(parts) != 5 or parts[0] != "imtypeset":
+        return [f"the file name is not imtypeset-<version>-<python>-<abi>-<platform>.whl"]
+    _, version, python_tag, abi_tag, platform_tag = parts
+    try:
+        archive = zipfile.ZipFile(path)
+    except (OSError, zipfile.BadZipFile) as exc:
+        return [f"not a zip archive: {exc}"]
+    with archive:
+        names = set(archive.namelist())
+        dist_info = f"imtypeset-{version}.dist-info"
+        libraries = sorted(LIBRARIES & {n.split("/", 1)[1] for n in names if n.startswith("imtypeset/")})
+        if len(libraries) != 1:
+            return [f"holds {len(libraries)} libraries, not one: {libraries}"]
+        expected = {f"imtypeset/{m}" for m in MODULES} | {
+            f"imtypeset/{libraries[0]}", "imtypeset/_attestation.json",
+            f"{dist_info}/METADATA", f"{dist_info}/WHEEL", f"{dist_info}/RECORD",
+            f"{dist_info}/licenses/THIRD-PARTY.md", f"{dist_info}/licenses/NOTICE.txt",
+        }
+        if names != expected:
+            problems.append(f"files: missing {sorted(expected - names)}, unexpected {sorted(names - expected)}")
+            if expected - names:
+                return problems
+        recorded = {}
+        for row in archive.read(f"{dist_info}/RECORD").decode("utf-8").splitlines():
+            file_name, digest, _size = row.rsplit(",", 2)
+            recorded[file_name] = digest
+        for file_name in sorted(names - {f"{dist_info}/RECORD"}):
+            digest = "sha256=" + base64.urlsafe_b64encode(
+                hashlib.sha256(archive.read(file_name)).digest()).rstrip(b"=").decode("ascii")
+            if recorded.get(file_name) != digest:
+                problems.append(f"RECORD does not give {file_name} its sha256")
+        metadata = archive.read(f"{dist_info}/METADATA").decode("utf-8")
+        head = metadata.split("\n\n", 1)[0]
+        fields = {}
+        for line in head.splitlines():
+            key, _, value = line.partition(": ")
+            fields.setdefault(key, []).append(value)
+        wheel_file = archive.read(f"{dist_info}/WHEEL").decode("utf-8")
+        attestation = json.loads(archive.read("imtypeset/_attestation.json"))
+        library_bytes = archive.read(f"imtypeset/{libraries[0]}")
+
+    if fields.get("Name") != ["imtypeset"] or fields.get("Version") != [version]:
+        problems.append(f"METADATA says {fields.get('Name')} {fields.get('Version')}; the file name says {version}")
+    requires = fields.get("Requires-Dist", [])
+    pin = re.fullmatch(r"imgui-bundle==(\d+\.\d+\.\d+)", requires[0]) if len(requires) == 1 else None
+    if not pin:
+        return problems + [f"Requires-Dist is not exactly one `imgui-bundle==X`: {requires}"]
+    wheel_version = pin.group(1)
+    if f"Tag: {python_tag}-{abi_tag}-{platform_tag}" not in wheel_file.splitlines():
+        problems.append("WHEEL's Tag is not the file name's")
+    if abi_tag != "none" or not re.fullmatch(r"cp3\d+", python_tag):
+        problems.append(f"the tag is {python_tag}-{abi_tag}; expected cp3XY-none")
+    if fields.get("Requires-Python") != [f"=={python_tag[2]}.{python_tag[3:]}.*"]:
+        problems.append(f"Requires-Python {fields.get('Requires-Python')} is not the tag's CPython")
+
+    public, _, local = version.partition("+")
+    stand_in = bool(attestation.get("stand_in"))
+    library_version = str(attestation.get("imtypeset_version"))
+    if public != f"{library_version}.{bundle_line(wheel_version)}":
+        problems.append(f"version {public} is not {library_version}.{bundle_line(wheel_version)} "
+                        f"(library version, line of imgui-bundle {wheel_version})")
+    if local not in ("", "standin") or (local == "standin") != stand_in:
+        problems.append(f"local version {local!r} with stand_in {stand_in}")
+    if stand_in != str(attestation.get("headers", "")).startswith("stand-in:"):
+        problems.append("the attestation's stand_in and headers disagree")
+    for key, want in (("distribution_version", version), ("wheel_version", wheel_version),
+                      ("python_tag", python_tag), ("platform_tag", platform_tag)):
+        if attestation.get(key) != want:
+            problems.append(f"the attestation's {key} is {attestation.get(key)!r}, not {want!r}")
+    if attestation.get("module", {}).get("file", "").find(python_tag.replace("cp", "cpython-")) < 0 \
+            and attestation.get("platform", {}).get("system") == "Linux":
+        problems.append(f"the attested module {attestation.get('module', {}).get('file')!r} is not {python_tag}'s")
+    if not attestation.get("probes") or not all(row[1] for row in attestation["probes"]):
+        problems.append("the attestation's probe rows are missing or not all passed")
+
+    with tempfile.TemporaryDirectory() as scratch:
+        copy = os.path.join(scratch, libraries[0])
+        with open(copy, "wb") as handle:
+            handle.write(library_bytes)
+        now = gate.identity(copy)
+    for key in ("sha256", "image_sha256", "size"):
+        if now[key] != attestation.get("library", {}).get(key):
+            problems.append(f"the library's {key} is not the attestation's")
+    if now["image_sha256"] is None:
+        problems.append("the library does not read as an ELF or Mach-O image")
+
+    if release:
+        if stand_in or local:
+            problems.append("NOT A RELEASE: built against stand-in headers")
+        if attestation.get("accepted_by") != "imgui-check+probe" or not attestation.get("imgui_check"):
+            problems.append(f"NOT A RELEASE: accepted by {attestation.get('accepted_by')!r}, and a "
+                            "release is accepted by Dear ImGui's own layout check as well")
+        if tag and tag != "v" + library_version:
+            problems.append(f"NOT THIS RELEASE: the library is {library_version} and the tag is {tag}")
+    if not problems:
+        print(f"ok   {name}: imtypeset {library_version} for imgui-bundle=={wheel_version}, "
+              f"{python_tag}, {platform_tag}, headers {attestation.get('headers')}, "
+              f"accepted by {attestation.get('accepted_by')}")
+    return problems
+
+
+def main(argv) -> int:
+    release = "--release" in argv
+    tag = argv[argv.index("--tag") + 1] if "--tag" in argv else ""
+    wheels = [a for i, a in enumerate(argv) if a.endswith(".whl") and (i == 0 or argv[i - 1] != "--tag")]
+    if not wheels:
+        print(__doc__, file=sys.stderr)
+        return 2
+    gate = _gate()
+    failed = False
+    for path in wheels:
+        problems = check(path, release, tag, gate)
+        if problems:
+            failed = True
+            print(f"FAIL {os.path.basename(path)}")
+            for problem in problems:
+                print("     " + problem)
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

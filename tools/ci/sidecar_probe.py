@@ -290,7 +290,12 @@ def load(report: Report, log: list, library: str, headers: str, bind: str, optio
     answer = {"accepted": False, "preload": None, "imgui_check": None, "checks_ok": False,
               "probes_failed": None, "accepted_by": None}
     modes = [""] if bind == "link" else ["", "import", "1"]
-    described = {"": "nothing loaded first", "import": "`import imgui_bundle` first",
+    # With nothing asked of the harness, the loading is the package's own
+    # (_bundle.open_library): `import imgui_bundle` first and, off Linux, the
+    # module reopened RTLD_GLOBAL if the load still fails. The gate's log says
+    # which it took, on its `preload:` line.
+    described = {"": "the package's own loading, nothing more (see `preload:` in the log)",
+                 "import": "`import imgui_bundle` first",
                  "1": "`import imgui_bundle` and its module reopened RTLD_GLOBAL first"}
     stem = f"load-{headers}-{bind}"
     for mode in modes:
@@ -426,7 +431,8 @@ def verdict(facts: dict, expected: dict | None, outcomes: dict, options) -> tupl
     fork = outcomes.get(f"fork-{options.default_bind}")
     stand_in = outcomes.get(f"stand-in-{options.default_bind}")
     best = fork if works(fork) else stand_in if works(stand_in) else None
-    how = {None: "", "": "with nothing loaded first", "import": "once `imgui_bundle` is imported first "
+    how = {None: "", "": "by the package's own loading (the wheel's module imported first; the "
+           "gate's `preload:` line says whether it was also reopened RTLD_GLOBAL)", "import": "once `imgui_bundle` is imported first "
            "(nothing more)", "1": "only after the wheel's module is reopened with RTLD_GLOBAL"}
     if best is not None:
         data["h1"] = "works"

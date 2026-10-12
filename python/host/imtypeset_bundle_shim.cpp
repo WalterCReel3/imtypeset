@@ -29,6 +29,18 @@
 #define IMTYPESET_BUNDLE_HEADERS "unknown"
 #endif
 
+// What the build script knows of the wheel this library is built for; empty
+// where a build does not say.
+#ifndef IMTYPESET_BUNDLE_WHEEL_VERSION
+#define IMTYPESET_BUNDLE_WHEEL_VERSION ""
+#endif
+#ifndef IMTYPESET_BUNDLE_MODULE_NAME
+#define IMTYPESET_BUNDLE_MODULE_NAME ""
+#endif
+#ifndef IMTYPESET_BUNDLE_MODULE_SHA256
+#define IMTYPESET_BUNDLE_MODULE_SHA256 ""
+#endif
+
 #define IMTYPESET_BUNDLE_EXPORT extern "C" __attribute__((visibility("default")))
 
 // --- Text input, under stand-in headers ---------------------------------------------
@@ -95,6 +107,17 @@ bool ImGui::InputTextWithHint(const char* label, const char* hint, char* buf, si
 IMTYPESET_BUNDLE_EXPORT const char* ImTypesetBundle_Headers(void)
 {
     return IMTYPESET_BUNDLE_HEADERS;
+}
+
+// The wheel this library was built for, one "key=value" line each: the
+// imgui-bundle version, the file name of its extension module, and the sha256
+// of that file. python/imtypeset shows it as host_info()["bundle"]["built_for"]
+// and names it when it refuses another wheel.
+IMTYPESET_BUNDLE_EXPORT const char* ImTypesetBundle_BuiltFor(void)
+{
+    return "wheel_version=" IMTYPESET_BUNDLE_WHEEL_VERSION "\n"
+           "module=" IMTYPESET_BUNDLE_MODULE_NAME "\n"
+           "module_sha256=" IMTYPESET_BUNDLE_MODULE_SHA256 "\n";
 }
 
 // ImGui::DebugCheckVersionAndDataLayout with the sizes given; a negative size

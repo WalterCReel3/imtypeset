@@ -92,6 +92,8 @@ jobs:
           python-version: "3.11"
       - name: fetch_headers.py against local sources
         run: python -I -B tools/ci/test_fetch_headers.py -v
+      - name: The Python distribution's parts that need no library
+        run: python -I -B tools/ci/test_wheel.py -v
       - name: The workflows themselves
         run: |
           python -m pip install --disable-pip-version-check pyyaml

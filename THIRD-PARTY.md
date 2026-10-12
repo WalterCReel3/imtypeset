@@ -26,6 +26,24 @@ below are checked against.
 | SDL2 | zlib | linked by the optional demo host `examples/demo_sdl2` and the self-hosted Python library only; found on the machine or in `.deps/sdl2` | no (`.deps/`, untracked) |
 | `advtext`, the Python reference | none stated | the oracle; data derived from it | derived data, yes |
 
+## What a Python wheel of this project carries
+
+A wheel built by `tools/wheel/build_wheel.py` (`docs/sidecar.md`, section 8)
+holds one shared library, the Python package and this file, with a
+`NOTICE.txt` written by the build. Compiled into that library: this project's
+own code; the routines that follow fontTools (below); the Unicode range tables
+(below); the code that reproduces Dear ImGui's output conventions (below); and
+the inline functions of the Dear ImGui headers it was compiled against, which
+are the fork's that the imgui-bundle wheel is built from (`pthom/imgui`, MIT,
+Dear ImGui's licence) or, in a development build, upstream's. Not in it: Dear
+ImGui itself, FreeType, SDL2, any font. Its Dear ImGui symbols are bound at
+load to the installed imgui-bundle wheel, which is a requirement of the wheel
+and not a part of it; FreeType is inside that wheel, not this one, so the
+FreeType disclaimer below falls to whoever ships imgui-bundle. The C++ runtime
+is the system's, linked dynamically. Checked for the two wheels built on
+2026-10-11 by listing the archive (11 files) and the library's needed
+libraries (`_imgui_bundle.*.so`, `libstdc++`, `libm`, `libgcc_s`, `libc`).
+
 ## Dear ImGui
 
 MIT. The library is an extension of Dear ImGui and links it. No Dear ImGui

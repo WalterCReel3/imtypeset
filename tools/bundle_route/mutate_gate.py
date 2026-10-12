@@ -7,7 +7,6 @@ and is reported as such), and lists the moves the probe lets through.
 Exit 0 if no mutant survives.
 """
 
-import ctypes
 import importlib.util
 import os
 import subprocess
@@ -20,7 +19,8 @@ spec = importlib.util.spec_from_file_location(
 gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
 
-library = ctypes.CDLL(os.path.abspath(sys.argv[1]))
+# The wheel's module first: a library bound by lookup finds Dear ImGui in it.
+library, _preload = gate.open_library(os.path.abspath(sys.argv[1]), bundle_first=True)
 facts = gate._facts(library)
 
 if len(sys.argv) == 4:  # the child: one mutant

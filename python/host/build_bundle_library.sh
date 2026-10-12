@@ -32,16 +32,25 @@
 #   IMTYPESET_IMGUI_CLONE     a local clone of ocornut/imgui to take stand-in
 #                    headers from, default ../imgui if it exists, else
 #                    https://github.com/ocornut/imgui.git.
+#   IMTYPESET_BUNDLE_RPATH    (link) the run path through which the library
+#                    finds the wheel's module. Default: the absolute directory
+#                    of the module it is built against, for a library used
+#                    where it was built. tools/wheel/build_wheel.py passes
+#                    $ORIGIN/../imgui_bundle, for a library installed beside
+#                    the wheel; such a library is not loadable from the build
+#                    directory, so the gate step is left to the caller.
 #   IMTYPESET_BUNDLE_JOBS     compiler processes at once, default 4.
 #   CXX                       the compiler; default g++ on Linux, c++ on macOS.
 #   MACOSX_DEPLOYMENT_TARGET  macOS only; default 14.0, the tag of the wheels
 #                    on PyPI for 1.92.801 and 1.92.900 (macosx_14_0_arm64).
 #
 # Writes <out>/libimtypeset_bundle.so (Linux) or .dylib (macOS), <out>/LIBRARY
-# (one line: that path), <out>/dist (the generated sources), <out>/obj,
-# <out>/BUILD (the facts of this build, key=value) and four one-line files it
-# reads back (WHEEL_VERSION, IMGUI_VERSION, MODULE, HEADERS); and the header
-# cache. Nothing else.
+# (one line: that path), <library>.attestation.json (the gate step: the record
+# that the full probe accepted this library beside this wheel, which is what
+# `import imtypeset` checks against), <out>/dist (the generated sources),
+# <out>/obj, <out>/BUILD (the facts of this build, key=value) and five one-line
+# files it reads back (WHEEL_VERSION, IMGUI_VERSION, MODULE, MODULE_SHA256,
+# HEADERS); and the header cache. Nothing else.
 #
 # WHICH HEADERS. The wheel's ImGui is a fork (github.com/pthom/imgui) and the
 # wheel ships no headers. python/host/fetch_headers.py fetches them at the
@@ -117,14 +126,20 @@ library="$out/libimtypeset_bundle.$suffix"
 # The wheel, as the interpreter sees it. One line each, read back by name so
 # that nothing depends on a sed or an awk dialect.
 "$python" -P -B -c '
+import hashlib
 import sys
 import imgui_bundle
 from imgui_bundle import imgui
 out = sys.argv[1]
+digest = hashlib.sha256()
+with open(imgui_bundle._imgui_bundle.__file__, "rb") as handle:
+    for block in iter(lambda: handle.read(1 << 20), b""):
+        digest.update(block)
 facts = {
     "WHEEL_VERSION": imgui_bundle.__version__,
     "IMGUI_VERSION": imgui.get_version(),
     "MODULE": imgui_bundle._imgui_bundle.__file__,
+    "MODULE_SHA256": digest.hexdigest(),
 }
 for name, value in facts.items():
     with open(f"{out}/{name}", "w", encoding="utf-8") as handle:
@@ -133,6 +148,7 @@ for name, value in facts.items():
 wheel_version="$(cat "$out/WHEEL_VERSION")"
 imgui_version="$(cat "$out/IMGUI_VERSION")"
 bundle_so="$(cat "$out/MODULE")"
+bundle_sha256="$(cat "$out/MODULE_SHA256")"
 bundle_dir="$(dirname "$bundle_so")"
 echo "wheel: imgui_bundle $wheel_version, Dear ImGui $imgui_version, $bundle_so"
 echo "build: $system $(uname -m), $cxx, headers=$headers, bind=$bind, steps=$steps"
@@ -225,10 +241,13 @@ if has_step compile; then
             -DIMGUI_BUNDLE_BUILD_PYTHON -DIMGUI_BUNDLE_PYTHON_API -DIMGUI_USE_WCHAR32 \
             -DImTextureID=int -DIMGUI_DISABLE_OBSOLETE_FUNCTIONS -DIMGUI_ENABLE_FREETYPE \
             "-DIMTYPESET_BUNDLE_HEADERS=\"$label\"" \
+            "-DIMTYPESET_BUNDLE_WHEEL_VERSION=\"$wheel_version\"" \
+            "-DIMTYPESET_BUNDLE_MODULE_NAME=\"$(basename "$bundle_so")\"" \
+            "-DIMTYPESET_BUNDLE_MODULE_SHA256=\"$bundle_sha256\"" \
             $stand_in_define \
             -c "$1" -o "$out/obj/$(basename "$1" .cpp).o" || touch "$out/obj/FAILED"
     }
-    rm -f "$out/obj/FAILED" "$out"/obj/*.o "$library" "$library.gate"
+    rm -f "$out/obj/FAILED" "$out"/obj/*.o "$library" "$library.attestation.json"
     running=0
     for src in "$out/dist/imtypeset.cpp" "$out/dist/imtypeset_c.cpp" "$out/dist/imtypeset_demo.cpp" \
         "$repo/python/host/imtypeset_bundle_shim.cpp"; do
@@ -245,7 +264,7 @@ fi
 # Either way the library exports the C ABI and nothing else: a GNU version
 # script on ELF, an exported-symbols list on Mach-O, the same two patterns.
 if has_step link; then
-    rm -f "$library" "$library.gate"
+    rm -f "$library" "$library.attestation.json"
     if [ "$system" = Darwin ]; then
         # Apple's ld cannot name the wheel's module as a dependency (it is a
         # loadable bundle, not a dylib), so the ImGui symbols are marked for
@@ -265,7 +284,7 @@ if has_step link; then
         # name alone, found through the run path.
         "$cxx" -shared -o "$library" "$out"/obj/*.o \
             "-L$bundle_dir" "-l:$(basename "$bundle_so")" \
-            -Wl,-rpath,"$bundle_dir" -Wl,--no-undefined \
+            -Wl,-rpath,"${IMTYPESET_BUNDLE_RPATH:-$bundle_dir}" -Wl,--no-undefined \
             "-Wl,--version-script=$repo/python/host/exports_bundle.map"
     fi
     printf '%s\n' "$library" > "$out/LIBRARY"
@@ -279,6 +298,8 @@ if has_step link; then
         echo "wheel_version=$wheel_version"
         echo "imgui_version=$imgui_version"
         echo "module=$bundle_so"
+        echo "module_sha256=$bundle_sha256"
+        echo "rpath=${IMTYPESET_BUNDLE_RPATH:-$bundle_dir}"
     } > "$out/BUILD"
     echo "built $library ($label, bind=$bind)"
 fi
@@ -289,17 +310,22 @@ if has_step audit; then
 fi
 
 # --- gate ----------------------------------------------------------------------------
-# The import gate, in a child interpreter. A library bound by lookup needs the
-# wheel's module loaded and visible first; python/imtypeset does not do that
-# itself, so here the interpreter is started with tools/ci/preload on its path.
+# The full probe, in a child interpreter: first with its whole report printed,
+# then once more to write the attestation, <library>.attestation.json, which
+# is what `import imtypeset` holds the library and the wheel's module to from
+# then on (python/imtypeset/_bundle.py). The package itself imports the wheel
+# before the library, which a library bound by lookup needs; where that is not
+# enough IMTYPESET_PRELOAD_BUNDLE=1 has the module reopened RTLD_GLOBAL.
 if has_step gate; then
-    if [ "$bind" = lookup ]; then
-        PYTHONDONTWRITEBYTECODE=1 IMTYPESET_PRELOAD_BUNDLE=1 \
-            PYTHONPATH="$repo/tools/ci/preload${PYTHONPATH:+:$PYTHONPATH}" \
-            "$python" -P -B "$repo/tools/bundle_route/run_gate.py" "$library"
-    else
-        PYTHONDONTWRITEBYTECODE=1 "$python" -P -B "$repo/tools/bundle_route/run_gate.py" "$library"
+    if [ "$bind" = lookup ] && [ "$system" = Linux ]; then
+        # The comparison build: on Linux the package never makes the module's
+        # symbols global unasked (docs/sidecar.md, section 2), so this asks,
+        # and whoever imports such a library must ask too.
+        IMTYPESET_PRELOAD_BUNDLE=1
+        export IMTYPESET_PRELOAD_BUNDLE
     fi
+    PYTHONDONTWRITEBYTECODE=1 "$python" -P -B "$repo/tools/bundle_route/run_gate.py" "$library"
+    PYTHONDONTWRITEBYTECODE=1 "$python" -P -B "$repo/tools/bundle_route/attest.py" "$library"
     echo "use it with:"
     echo "  IMTYPESET_LIBRARY=$library PYTHONPATH=$repo/python $python ..."
 fi

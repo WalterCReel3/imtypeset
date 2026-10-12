@@ -30,7 +30,7 @@ not re-made since:
 [the Python host](docs/images/py-host.png),
 [a `Document` beside pptmstr's own pane, on pptmstr's wheel](docs/images/py-bundle-pptmstr-document.png).*
 
-**Status, 2026-10-11.** Version 0.2.0, unreleased, **no licence chosen**. Built
+**Status, 2026-10-11.** Version 0.3.0, not yet tagged, **no licence chosen**. Built
 and tested with one compiler on one platform: GCC 12.2 on Linux x86-64. Clang
 and MSVC have never compiled it. It needs Dear ImGui 1.92.0 or later and is
 tested against 1.92.9. What works, what does not and what is rough is said
@@ -258,6 +258,13 @@ frame from Python (not run for this document).
 The route for an application that already runs on the `imgui_bundle` wheel from
 PyPI. One library **per virtual environment**: it is linked against that
 interpreter's wheel and refuses any other.
+
+As an installable wheel, with the library inside the package and no
+environment variable (built and installed here for Linux x86-64 against
+stand-in headers; CI for the rest is written and has never run):
+`tools/wheel/build_wheel.py`, [docs/sidecar.md](docs/sidecar.md) sections 8 to
+12, [docs/versioning.md](docs/versioning.md). What follows is the development
+build.
 
 ```sh
 # arguments: a clone of imgui_bundle, and the interpreter whose wheel it is for

@@ -1,0 +1,13 @@
+# imtypeset reaches Python as a wheel that holds the Python package
+# (python/imtypeset) and one shared library, built for and pinned to exactly
+# one imgui-bundle. docs/sidecar.md, section 8, says what a wheel is and why;
+# tools/wheel/build_wheel.py builds one and holds every fact of it (name,
+# version, pin, tag), because each is read from the build: the version from
+# include/imtypeset.h, the pin and the tag from the interpreter built for.
+#
+# So there is no [project] table. This file names the backend, which is in
+# this tree and needs nothing installed.
+[build-system]
+requires = []
+build-backend = "imtypeset_backend"
+backend-path = ["tools/wheel"]

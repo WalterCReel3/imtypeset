@@ -14,8 +14,10 @@ from __future__ import annotations
 import ctypes as C
 import os
 
+from ._bundle import open_library, refusal
+
 C_ABI_VERSION = 1  # IMTYPESET_C_ABI_VERSION this file was written against.
-C_VERSION = "0.2.0"  # IMTYPESET_C_VERSION
+C_VERSION = "0.3.0"  # IMTYPESET_C_VERSION
 
 
 class Vec2(C.Structure):
@@ -558,37 +560,83 @@ PROTOTYPES = {
 
 ENVIRONMENT_VARIABLE = "IMTYPESET_LIBRARY"
 
+# The library an installed distribution carries, beside this file, by platform.
+PACKAGED_LIBRARIES = {"linux": "libimtypeset_bundle.so", "darwin": "libimtypeset_bundle.dylib"}
+
+
+def _platform() -> str:
+    import sys
+
+    return "linux" if sys.platform.startswith("linux") else sys.platform
+
 
 def library_path() -> str:
-    """Where the library is, by IMTYPESET_LIBRARY. ImportError says how to make one."""
+    """Where the library is. ImportError says how to get one."""
+    return library_route()[0]
+
+
+def library_route():
+    """(where the library is, by which route).
+
+    "IMTYPESET_LIBRARY": the environment variable names it. That is the
+    development override and wins over everything else.
+    "installed": the library is beside this file, as a wheel of this
+    distribution puts it. No environment variable, no metadata and no search:
+    this is also how an application recognises an installed imtypeset
+    (docs/sidecar.md, section 8).
+    """
     path = os.environ.get(ENVIRONMENT_VARIABLE, "")
-    if not path:
-        raise ImportError(
-            f"imtypeset: {ENVIRONMENT_VARIABLE} is not set. It names the shared library that holds "
-            "imtypeset's C ABI and the Dear ImGui it draws through, e.g. "
-            "build/py-host/libimtypeset_pyhost.so after "
-            "`cmake -S python -B build/py-host -G Ninja && cmake --build build/py-host`."
+    if path:
+        if not os.path.isfile(path):
+            raise refusal(
+                "not-a-library",
+                f"{ENVIRONMENT_VARIABLE} does not name a file.",
+                f"{ENVIRONMENT_VARIABLE}={path!r} is not a file",
+            )
+        return os.path.abspath(path), ENVIRONMENT_VARIABLE
+    here = os.path.dirname(os.path.abspath(__file__))
+    mine = PACKAGED_LIBRARIES.get(_platform())
+    if mine is not None and os.path.isfile(os.path.join(here, mine)):
+        return os.path.join(here, mine), "installed"
+    others = [name for name in PACKAGED_LIBRARIES.values() if os.path.isfile(os.path.join(here, name))]
+    if others:
+        import platform
+
+        raise refusal(
+            "wrong-platform",
+            "This copy of imtypeset was built for another system than this computer's "
+            f"({platform.system()} {platform.machine()}). Install the imtypeset built for it.",
+            f"{here!r} holds {others[0]} and this platform's library is {mine or 'not one this package knows'}",
         )
-    if not os.path.isfile(path):
-        raise ImportError(f"imtypeset: {ENVIRONMENT_VARIABLE}={path!r} is not a file")
-    return os.path.abspath(path)
+    raise refusal(
+        "no-library",
+        f"{ENVIRONMENT_VARIABLE} is not set, and this copy of the imtypeset package carries no "
+        "library: it is a source directory and not an installed wheel.",
+        f"Install an imtypeset wheel, or build a library and name it: "
+        "python/host/build_bundle_library.sh for one that draws through an installed imgui_bundle, "
+        "or build/py-host/libimtypeset_pyhost.so after "
+        "`cmake -S python -B build/py-host -G Ninja && cmake --build build/py-host`. "
+        f"Looked in {here!r}.",
+    )
 
 
-def load(path: str) -> C.CDLL:
-    """The library with every prototype declared. ImportError if it is not one of ours."""
-    try:
-        lib = C.CDLL(path)
-    except OSError as exc:
-        raise ImportError(f"imtypeset: cannot load {path!r}: {exc}") from exc
+def load(path: str, bundle_first: bool = False) -> C.CDLL:
+    """The library with every prototype declared, and `preload` set on it to
+    what had to be in the process first (_bundle.open_library). ImportError if
+    it is not one of ours."""
+    lib, preload = open_library(path, bundle_first)
     missing = [name for name in PROTOTYPES if not hasattr(lib, name)]
     if missing:
-        raise ImportError(
-            f"imtypeset: {path!r} does not export {len(missing)} of the {len(PROTOTYPES)} functions "
-            f"of imtypeset_c.h this package calls (first: {missing[0]}): it is not an imtypeset "
-            "library, or it is an older one"
+        raise refusal(
+            "package-mismatch" if hasattr(lib, "ImTypeset_GetBuildInfo") else "not-a-library",
+            f"The imtypeset library does not export {len(missing)} of the {len(PROTOTYPES)} "
+            "functions this imtypeset package calls: it is not an imtypeset library, or it is an "
+            "older one. The library and the package are installed together, from one release.",
+            f"{path!r}; first missing: {missing[0]}",
         )
     for name, (result, arguments) in PROTOTYPES.items():
         function = getattr(lib, name)
         function.restype = result
         function.argtypes = arguments
+    lib.preload = preload
     return lib

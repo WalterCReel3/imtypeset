@@ -118,9 +118,16 @@ That branch of the script has never run.
 ImGui version, or another binary of the same version) and the remedy is to run
 the script again.
 
-**What this is not**: a wheel, a `pyproject.toml`, or anything portable. Linux,
-x86-64, GCC, CPython 3.11 and a GNU linker are all that ran; a wheel ships no
-import library, so the Windows equivalent of step 3 does not exist as written.
+**This section describes a development build**, and parts of it are older
+than the script: `docs/sidecar.md` is the current account (headers are
+fetched and never substituted; the last step writes an attestation; the gate
+no longer starts a child at import). **The way into an application is a
+wheel**: `tools/wheel/build_wheel.py` puts this library inside the Python
+package, pinned to its imgui-bundle, and `import imtypeset` then needs no
+variable (`docs/sidecar.md`, sections 8 to 12; `docs/versioning.md`). Linux,
+x86-64, GCC, CPython 3.11 and a GNU linker are all that ran; a wheel of
+imgui-bundle ships no import library, so the Windows equivalent of step 3
+does not exist as written.
 
 ### The other Python library: self-hosted
 

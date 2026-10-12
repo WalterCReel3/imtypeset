@@ -3648,3 +3648,42 @@ things changed in `src/imtypeset_demo.cpp`: lines of counters wrap at the window
 were cut, and the two formula columns of Math's table are as wide as their widest formula where
 they were a share of the window, in which formulas ran under each other from 24 px and were cut
 from 16. The numbers are in the header at `ShowDemoSection`. Nothing new is exposed.
+
+## D71. The Python distribution: a wheel per imgui-bundle, an attested import gate, version 0.3.0 (task `py-dist`, 2026-10-11)
+
+Agent decisions, taken with nobody to ask; `docs/sidecar.md` sections 8 to 12 and
+`docs/versioning.md` are the account, and say what ran.
+
+**Decided: prebuilt wheels, one per platform, CPython version and imgui-bundle version, each
+pinned `imgui-bundle==X`; two imgui-bundle versions are two version lines of one name**
+(`0.3.0.192900`, `0.3.0.192801`). A resolver backtracks over versions and not over files of one
+version, an index refuses local version segments, and separate names would make a host state the
+imgui-bundle twice. *Measured:* pip 26.2.1 settles on the line for the installed imgui-bundle from a
+directory holding both. The tag is `cp3XY-none-<platform>`: the CPython version because the
+attestation is of that CPython's module, no ABI because ctypes uses none.
+
+**Decided: the field probe runs when a wheel is built, in a child, and what ships is its verdict
+keyed on content; `import imtypeset` compares hashes before it loads the library and then runs
+only what reads nothing through an offset.** No child interpreter, no stamp, nothing written.
+The comparison is the file's sha256, and failing that a sha256 of what the loader maps (ELF
+`PT_LOAD` segments, Mach-O sections), which `strip` and code signing leave alone. **Not the
+linker's build-id:** *measured*, a library truncated to half keeps its build-id, was accepted on
+it by a draft of this gate, and the process died with SIGBUS on load. The probe at import is kept
+only for a library named by `IMTYPESET_LIBRARY` with no attestation, never when `sys.frozen`.
+*Not measured:* anything on macOS, the Mach-O reader on a real file, a frozen application.
+
+**Decided: Linux wheels link the module by name with run path `$ORIGIN/../imgui_bundle`,** so
+`imtypeset` and `imgui_bundle` must share a site directory there; the alternative, lookup with the
+module reopened `RTLD_GLOBAL`, is the interposition `mac-ci` measured. The package makes the
+module global unasked only off Linux, and only after a load has failed without it.
+
+**Decided: a refusal is a plain `ImportError` with `kind`, `sentence`, `detail`,** not a subclass:
+a refused import removes the package's modules, and a class would go with them; and the existing
+tests hold the type to `ImportError` exactly.
+
+**Decided: the version is 0.3.0 and the first tag is to be `v0.3.0`,** because every commit since
+`5654eee` called itself 0.2.0 while names were added and meanings changed. The header stays the
+one place the version is written; `tools/version.py --check` holds the five copies to it.
+
+**Decided: a stand-in wheel is marked `+standin` and no release path accepts one.** Both wheels
+built here are such wheels; none against the wheel's own headers has been built anywhere.
