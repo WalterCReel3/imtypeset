@@ -497,3 +497,15 @@ rename, non-reproducible library bytes across header-cache paths, and a 1,089-by
 like the release. Waiting on the USER: push (commits + tag), the first sidecar-probe / ci / wheels
 runs, two checksum lines per bundle version into python/host/bundle_pins.toml, a licence, a person
 at a Mac, the decisions listed in the lead's last report.
+
+## v0.4.0 (lead, 2026-10-12)
+
+Tag `v0.4.0` exists LOCALLY at 9a280b8 (annotated; not pushed). H34 and H35 done: tasks
+device-advances (D77, D78), review-9-device, device-finish (D79-D81). Code is laid out from the
+advances the rasteriser bakes, on a cell grid that holds for borrowed, wide and inkless characters;
+prose glyphs are held within a pixel of their places. The status file has what a diff view must set.
+Not built as ruled: no metrics-only layout (every distinct device character is rasterised once at
+layout, D80); no lazy re-layout inside a block (16 ms per 5,000-line block on a density change, D81).
+NEVER RUN: macOS, any GitHub workflow, the wheel's real headers, a display other than Xvfb.
+NEXT, not started: H22-H28, H36-H42 of advtext's handoff file; prose table cells can still be drawn
+a pixel apart; a click in a wide tab; the numpy dependence of the Mac checklist's screenshot command.
