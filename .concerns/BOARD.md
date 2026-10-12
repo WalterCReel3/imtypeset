@@ -479,3 +479,21 @@ Board (specs = board details): RUNNING mac-ci (H1, H2, H5), handoff-core (H7-H13
 (H14, a document only). QUEUED py-dist (H3, H4, H6) after mac-ci and handoff-core. THEN a reviewer
 over all of it, a gate (eleven presets from clean + both sidecars + wheels), a commit, and a TAG
 (py-dist proposes the name; the lead creates it locally; "not pushed" until the user pushes).
+
+## v0.3.0 (lead, 2026-10-12)
+
+Tag `v0.3.0` exists LOCALLY at 2fd705e (annotated; not pushed — the user pushes commits and tags).
+It is the tree task `v030-gate` ran all eleven presets on from clean, plus the status-file commit.
+Done in this round: mac-ci (H1 machinery, H2, H5, H16), handoff-core (H7-H13), vector-output (H14),
+py-dist (H3, H4, H6, H15, H18, H20), hidpi (H19, D72), review-8-level1 -> gate-fixes, v030-gate.
+NEVER RUN: anything on macOS, any GitHub workflow, a build against the wheel's real headers.
+NEXT ROUND, not started: advtext's handoff file grew to H42 (H22-H28, H34-H42); the status file
+lists them as received. H34/H35 first (pptmstr measured a glyph drawn up to 16.9 px from where it
+was laid out in a monospace row at c9f8902: re-measure at v0.3.0), then H41/H40/H42 (HardBreaks and
+white space: contradicts a README sentence), H25/H39 (context and atlas lifetime), H23, H22, H24,
+H26-H28, H36-H38. Also open: `hidpi_check.py --screenshot` needs numpy (the Mac checklist's own
+command fails without it); advtext reports `<out>/LIBRARY` naming a staging path after an install by
+rename, non-reproducible library bytes across header-cache paths, and a 1,089-byte test wheel named
+like the release. Waiting on the USER: push (commits + tag), the first sidecar-probe / ci / wheels
+runs, two checksum lines per bundle version into python/host/bundle_pins.toml, a licence, a person
+at a Mac, the decisions listed in the lead's last report.
