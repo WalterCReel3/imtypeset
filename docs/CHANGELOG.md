@@ -18,6 +18,21 @@ was measured, are in `docs/advtext-swap-status.md` ("API changes since
 that added a function or a struct makes a package from after it refuse a
 library from before it, at import, with a sentence.
 
+### Dense displays (task `hidpi`, request H19)
+
+- **changed**: on a display whose framebuffer is denser than ImGui's
+  coordinates (`io.DisplayFramebufferScale` above 1: macOS Retina) every draw
+  places glyphs, rules and rectangles on the framebuffer's pixels and
+  rasterises the glyphs at the framebuffer's size. Before, they were bitmaps
+  of density 1 stretched, on whole units. No call changed and none was added;
+  layout, sizes and hit tests are the same; at a scale of 1 the vertices are
+  the same floats (D72). A vertex can now be at a fraction of a unit.
+- **changed**: the sidecar's field probe has a 25th row,
+  `ImGuiIO.DisplayFramebufferScale`. A package from this tree refuses a
+  library from before it, and the other way about.
+- **new**: `examples/python/hidpi_check.py`, the check a person at a dense
+  display runs.
+
 ### The Python distribution (task `py-dist`)
 
 - **new**: imtypeset installs as a wheel with its library inside:

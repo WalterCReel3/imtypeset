@@ -7,7 +7,9 @@
 # machine; this file only says where and in what order.
 #
 # Runner labels and action versions were read from GitHub's pages on
-# 2026-10-11 through a summarising fetch. A label GitHub has since retired
+# 2026-10-11 through a summarising fetch. Each action is named by the
+# commit its tag pointed at on 2026-10-12 (api.github.com, two endpoints that
+# agreed, through the same kind of fetch), the tag in a comment. A label GitHub has since retired
 # leaves its job queued and never started: start the workflow by hand
 # (Actions, "sidecar-probe", "Run workflow") and give another label there.
 name: sidecar-probe
@@ -49,7 +51,7 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: matrix
         env:
           IMTYPESET_CI_LINUX: ${{ github.event.inputs.linux_runner }}
@@ -66,22 +68,27 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-python@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
       - name: System libraries the wheel's module links
         run: sh tools/ci/install_deps.sh sidecar
       - name: Install the wheel (never fails; the probe reports what is there)
-        run: sh tools/ci/sidecar_install.sh "${{ matrix.bundle }}" probe-report python
+        env:
+          IMTYPESET_PROBE_BUNDLE: ${{ matrix.bundle }}
+        run: sh tools/ci/sidecar_install.sh "$IMTYPESET_PROBE_BUNDLE" probe-report python
       - name: Probe (never fails; the verdict step does)
-        run: python -P -B tools/ci/sidecar_probe.py --out probe-report ${{ matrix.flags }}
+        # Unquoted on purpose: the matrix's flags are several words.
+        env:
+          IMTYPESET_PROBE_FLAGS: ${{ matrix.flags }}
+        run: python -P -B tools/ci/sidecar_probe.py --out probe-report $IMTYPESET_PROBE_FLAGS
       - name: The report, on the summary page
         if: always()
         run: sh tools/ci/sidecar_summary.sh probe-report
       - name: The report and every log, as an artifact
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sidecar-probe-${{ matrix.id }}
           path: |

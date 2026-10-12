@@ -225,15 +225,26 @@ Observed, each in a child process. None raises; none can be caught.
 - Threads. The package and the library are for one.
 - `imtypeset._capi` and `imtypeset._bundle` are not for a host. Importing the
   package raises `ImportError` and nothing else when it refuses: no library
-  (`IMTYPESET_LIBRARY` unset and none inside the package), not a file, not an
-  imtypeset library, not the one the package was written for, or not built
-  for the imgui-bundle that is running. The error's first line is a sentence
-  an application can show, and it carries `kind`, `sentence` and `detail`;
-  `docs/sidecar.md`, section 9, lists every kind and was run for the installed
-  package (section 12). Called by hand, `_capi.load` raises `ImportError`, `TypeError`
-  or `ValueError`; `_bundle.check`, `_bundle.accepted` and `_bundle.gate` were
-  called only with a library that has no bundle shim, where they raise
-  `AttributeError`, `KeyError`, `TypeError` and `FileNotFoundError`.
+  (a source checkout with `IMTYPESET_LIBRARY` unset), not a file, not an
+  imtypeset library, not the one the package was written for, not built
+  for the imgui-bundle that is running, or not checked and not checkable
+  here. The error's first line is a sentence an application can show, and it
+  carries `kind`, `sentence` and `detail`; `docs/sidecar.md`, section 9, lists
+  every kind and was run for the installed package (section 12). **Any other
+  exception raised while the package checks its library is caught and raised
+  as an `ImportError` with kind `unchecked`**, the exception's name on its
+  second line. Run (2026-10-12): an attestation whose `library`, `module` or
+  `platform` is not an object, whose `probes` are not `[name, passed,
+  detail]` rows, or that is not an object at all, is `damaged` (26 shapes in
+  `tools/ci/test_wheel.py`, five through an installed package); an
+  `imgui_bundle` with no extension module is `bundle-missing`. Before that
+  date those raised `AttributeError` and `ValueError`.
+  An installed package reads no `IMTYPESET_*` variable but
+  `IMTYPESET_BUNDLE_STRICT`. Called by hand, `_capi.load` raises
+  `ImportError`, `TypeError` or `ValueError`; `_bundle.check`,
+  `_bundle.accepted` and `_bundle.gate` were called only with a library that
+  has no bundle shim, where they raise `AttributeError`, `KeyError`,
+  `TypeError` and `FileNotFoundError`.
 
 ## Adding a call
 

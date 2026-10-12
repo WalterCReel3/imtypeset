@@ -576,15 +576,43 @@ def library_path() -> str:
 
 
 def library_route():
-    """(where the library is, by which route).
+    """(where the library is, by which route). The route is decided by what is
+    in this package's own directory, and by nothing an environment holds:
 
-    "IMTYPESET_LIBRARY": the environment variable names it. That is the
-    development override and wins over everything else.
-    "installed": the library is beside this file, as a wheel of this
-    distribution puts it. No environment variable, no metadata and no search:
-    this is also how an application recognises an installed imtypeset
-    (docs/sidecar.md, section 8).
+    "installed": the directory holds `_attestation.json` or a library, as a
+    wheel of this distribution puts them. The library is the one in the
+    directory. IMTYPESET_LIBRARY IS NOT READ, set or not: an environment
+    variable does not choose what a shipped application loads
+    (docs/sidecar.md, section 9). No metadata and no search either, so this
+    is also how an application recognises an installed imtypeset.
+
+    "IMTYPESET_LIBRARY": the directory holds neither, which is a source
+    checkout, and the variable names the library: the development route.
     """
+    from ._bundle import PACKAGED_ATTESTATION
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    mine = PACKAGED_LIBRARIES.get(_platform())
+    carried = [name for name in PACKAGED_LIBRARIES.values() if os.path.isfile(os.path.join(here, name))]
+    if carried or os.path.isfile(os.path.join(here, PACKAGED_ATTESTATION)):
+        if mine in carried:
+            return os.path.join(here, mine), "installed"
+        if carried:
+            import platform
+
+            raise refusal(
+                "wrong-platform",
+                "This copy of imtypeset was built for another system than this computer's "
+                f"({platform.system()} {platform.machine()}). Install the imtypeset built for it.",
+                f"{here!r} holds {carried[0]} and this platform's library is "
+                f"{mine or 'not one this package knows'}",
+            )
+        raise refusal(
+            "damaged",
+            "This copy of imtypeset is incomplete: its library is missing. Install imtypeset "
+            "again.",
+            f"{here!r} holds {PACKAGED_ATTESTATION} and no {mine or 'library'}",
+        )
     path = os.environ.get(ENVIRONMENT_VARIABLE, "")
     if path:
         if not os.path.isfile(path):
@@ -594,20 +622,6 @@ def library_route():
                 f"{ENVIRONMENT_VARIABLE}={path!r} is not a file",
             )
         return os.path.abspath(path), ENVIRONMENT_VARIABLE
-    here = os.path.dirname(os.path.abspath(__file__))
-    mine = PACKAGED_LIBRARIES.get(_platform())
-    if mine is not None and os.path.isfile(os.path.join(here, mine)):
-        return os.path.join(here, mine), "installed"
-    others = [name for name in PACKAGED_LIBRARIES.values() if os.path.isfile(os.path.join(here, name))]
-    if others:
-        import platform
-
-        raise refusal(
-            "wrong-platform",
-            "This copy of imtypeset was built for another system than this computer's "
-            f"({platform.system()} {platform.machine()}). Install the imtypeset built for it.",
-            f"{here!r} holds {others[0]} and this platform's library is {mine or 'not one this package knows'}",
-        )
     raise refusal(
         "no-library",
         f"{ENVIRONMENT_VARIABLE} is not set, and this copy of the imtypeset package carries no "
@@ -620,11 +634,12 @@ def library_route():
     )
 
 
-def load(path: str, bundle_first: bool = False) -> C.CDLL:
+def load(path: str, bundle_first: bool = False, environment: bool = True) -> C.CDLL:
     """The library with every prototype declared, and `preload` set on it to
-    what had to be in the process first (_bundle.open_library). ImportError if
-    it is not one of ours."""
-    lib, preload = open_library(path, bundle_first)
+    what had to be in the process first (_bundle.open_library; `environment`
+    is its: False for an installed distribution). ImportError if it is not
+    one of ours."""
+    lib, preload = open_library(path, bundle_first, environment)
     missing = [name for name in PROTOTYPES if not hasattr(lib, name)]
     if missing:
         raise refusal(

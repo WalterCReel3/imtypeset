@@ -8,7 +8,12 @@ the rules this repository holds its workflows to.
     GitHub Release and has `contents: write`, runs only for a tag, and needs
     every other job of the file;
   - no secret is read;
-  - every action is pinned to an exact version (`owner/name@vX.Y.Z`);
+  - every action is named by a commit id, with the exact version it was on
+    the same line as a comment (`owner/name@<40 hex> # vX.Y.Z`): a tag can be
+    moved, a commit id cannot;
+  - no `run` holds a `${{ }}` expression: a value reaches the shell through
+    `env:`, as a variable's value, and never as text of the command (a ref
+    name or an input may hold characters a shell acts on);
   - every job has `timeout-minutes`;
   - every `run` step runs a script under tools/ci that exists, so that a
     workflow holds no logic of its own;
@@ -29,7 +34,8 @@ import subprocess
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-PINNED = re.compile(r"^[\w.-]+/[\w.-]+@v\d+\.\d+\.\d+$")
+PINNED = re.compile(r"^[\w.-]+/[\w.-]+@[0-9a-f]{40}$")
+PINNED_LINE = re.compile(r"uses:\s*([\w.-]+/[\w.-]+@[0-9a-f]{40})\s+#\s*v\d+\.\d+\.\d+\s*$")
 SCRIPT = re.compile(r"tools/ci/[\w./-]+\.(?:sh|py)")
 WRITER = ("wheels.yml", "release")  # the one job that may write, and to releases only
 
@@ -51,6 +57,18 @@ def check(path: str, yaml) -> list:
         problems.append("top-level `permissions` is not exactly `contents: read`")
     if "secrets." in text or "secrets[" in text:
         problems.append("reads a secret")
+    # The version comments, which YAML does not keep: every `uses:` line of
+    # the text carries one, and one action is one commit throughout.
+    commits = {}
+    for line in text.splitlines():
+        if re.match(r"\s*(-\s*)?uses:", line):
+            found = PINNED_LINE.search(line)
+            if not found:
+                problems.append(f"`{line.strip()}`: not `owner/name@<commit id> # vX.Y.Z`")
+            else:
+                name, commit = found.group(1).split("@")
+                if commits.setdefault(name, commit) != commit:
+                    problems.append(f"{name} is named by two commit ids")
     jobs = document.get("jobs")
     if not isinstance(jobs, dict) or not jobs:
         return problems + ["no jobs"]
@@ -80,8 +98,10 @@ def check(path: str, yaml) -> list:
             if ("uses" in step) == ("run" in step):
                 problems.append(f"{where}: needs exactly one of `uses` and `run`")
             if "uses" in step and not PINNED.match(str(step["uses"])):
-                problems.append(f"{where}: `{step['uses']}` is not pinned to an exact version")
+                problems.append(f"{where}: `{step['uses']}` is not named by a commit id")
             if "run" in step:
+                if "${{" in str(step["run"]):
+                    problems.append(f"{where}: `run` holds a ${{{{ }}}} expression; pass it through `env:`")
                 scripts = SCRIPT.findall(str(step["run"]))
                 if not scripts:
                     problems.append(f"{where}: runs no script under tools/ci")

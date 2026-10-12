@@ -26,12 +26,33 @@
 #   imgui_bundle_config.h is fetched as one file by URL and checked against
 #       config_sha256.
 #
+# AND THE HEADERS THEMSELVES, by sha256, so that a copy kept in a cache can be
+# held to this file without git (fetch_headers.py uses a cached copy only when
+# it hashes to what is recorded here, and a recorded value is checked on every
+# fetch as well):
+#
+#   standin_headers_sha256  one sha256 over every file fetched for stand-in
+#                           (the top-level *.h and LICENSE.txt at
+#                           standin_commit): in the directory of those files,
+#                               sha256sum $(ls | LC_ALL=C sort) | sha256sum
+#   imgui_headers_sha256    the same over the files fetched from the fork at
+#                           imgui_commit
+#   imgui_h_sha256          sha256sum imgui.h, the fork's
+#
 # The entries below were derived on 2026-10-11 from local clones
-# (../imgui_bundle, ../imgui) by the commands above, not from the network.
-# imgui_h_sha256 is absent from both: no copy of the fork's imgui.h has been on
-# the machine that wrote this file. fetch_headers.py prints the sha256 of every
-# file it fetches; an entry may record `imgui_h_sha256 = "<hex>"`, and it is
-# then checked as well.
+# (../imgui_bundle, ../imgui) by the commands above, not from the network;
+# standin_headers_sha256 on 2026-10-12, from files fetched out of ../imgui by
+# commit id.
+#
+# imgui_h_sha256 and imgui_headers_sha256 ARE ABSENT FROM BOTH ENTRIES: no copy
+# of the fork has been on the machine that wrote this file. Until they are
+# recorded, the fork's headers are checked by commit id alone, are fetched
+# again for every build (no cache is trusted for them), and a release build
+# is refused (fetch_headers.py --require-recorded). HOW THEY GET RECORDED: the
+# first fetch of the fork prints both, as the two lines to paste under the
+# entry, and writes them to the job summary of the workflow run that did it
+# (`wheels` or `sidecar-probe`). Compare the lines of two jobs before pasting:
+# they are the same on every platform.
 
 [bundle."1.92.900"]
 bundle_tag = "v1.92.900"
@@ -41,6 +62,7 @@ imgui_commit = "c9a0a84f8a4ddae794a9e1acf6a93afce73d5057"
 config_sha256 = "ccab306d04457df1130dc6b702e9499adfc0607fce63bc573284bda4122c78ea"
 standin_tag = "v1.92.9-docking"
 standin_commit = "9b4eb24cee2071e61dc1f9ef3e5228097cdde720"
+standin_headers_sha256 = "ccccaadb0f0b6f4d0de6c877d77e6c045775661864de6721f5459834e1f5e3c9"
 
 [bundle."1.92.801"]
 bundle_tag = "v1.92.801"
@@ -50,3 +72,4 @@ imgui_commit = "eb8df947f7e319de14ad383ad5c13c802d8163f6"
 config_sha256 = "ccab306d04457df1130dc6b702e9499adfc0607fce63bc573284bda4122c78ea"
 standin_tag = "v1.92.8-docking"
 standin_commit = "b61e56346a92cfcaf1f43a545ca37b0b32239654"
+standin_headers_sha256 = "59e4539c4a110062f53993b896f0118dcb7229f0c3f301c432e36efd14105faa"

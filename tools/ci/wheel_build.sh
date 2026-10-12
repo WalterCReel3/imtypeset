@@ -46,12 +46,22 @@ else
     "$python" -I -B "$repo/tools/wheel/check_wheel.py" "$out"/wheels/*.whl
 fi
 
+# The platform tag is measured from the library, never asserted: say what it
+# came to where a person looks (the job's summary page).
+# shellcheck disable=SC2016
+"$python" -I -B -c 'import json, sys
+a = json.load(open(sys.argv[1], encoding="utf-8"))
+print("- `%s`: platform tag `%s` (%s)" % (a["distribution_version"], a["platform_tag"], a["platform_tag_basis"]))' \
+    "$out/work/stage/imtypeset/_attestation.json" >> "${GITHUB_STEP_SUMMARY:-/dev/stdout}"
+
 echo "== a new environment: imgui-bundle from PyPI, imtypeset from the wheel just built"
 "$python" -m venv "$out/test-env"
 test_python="$out/test-env/bin/python"
 "$test_python" -m pip install --disable-pip-version-check --only-binary=:all: "imgui-bundle==$version"
 # From the directory only: the name is not looked up on an index.
-"$test_python" -m pip install --disable-pip-version-check --no-index --find-links "$out/wheels" imtypeset
+# --pre: a stand-in build is a development release (.dev0), which pip takes
+# unasked only when nothing else fits; here it is the one wheel there is.
+"$test_python" -m pip install --disable-pip-version-check --no-index --pre --find-links "$out/wheels" imtypeset
 "$test_python" -m pip check
 
 echo "== the installation"

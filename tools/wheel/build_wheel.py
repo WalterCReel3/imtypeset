@@ -13,14 +13,21 @@ the attestation `import imtypeset` checks the pair against.
   --headers          fork (default): the wheel's own Dear ImGui headers, fetched
                      (python/host/fetch_headers.py; needs the network once).
                      stand-in: upstream's, by name. A wheel built that way says so
-                     in its version (+standin), its metadata, its attestation and
-                     host_info(), and --release refuses to build one.
+                     in its version (.dev0+standin), its metadata, its
+                     attestation and host_info(), and --release refuses to
+                     build one.
   --work             scratch, default build/py-dist/<python tag>-<bundle version>.
-  --platform-tag     auto (default): on Linux, the manylinux tag the library's
-                     versioned symbols allow, never below manylinux_2_28 (the
-                     imgui-bundle wheel's own); on macOS, macosx_<target>_<arch>.
-  --release          refuse stand-in headers and anything Dear ImGui's own layout
-                     check did not accept.
+  --platform-tag     auto (default): on Linux, the tag MEASURED from the
+                     library that was just built (`platform_tag`): the glibc
+                     its versioned symbols need, never below 2.28 (the
+                     imgui-bundle wheel's own floor), and plain linux_<arch>
+                     when it needs anything a manylinux tag does not promise;
+                     on macOS, macosx_<target>_<arch>. A tag given by hand is
+                     held to the same measurement and refused if it claims
+                     more.
+  --release          refuse stand-in headers, headers whose checksums
+                     python/host/bundle_pins.toml does not record, and
+                     anything Dear ImGui's own layout check did not accept.
 
 It runs under any Python 3.11 or later with nothing installed, and writes the
 wheel itself (a zip, by the wheel specification): there is no build backend to
@@ -29,10 +36,14 @@ download. pyproject.toml's backend (tools/wheel/imtypeset_backend.py) calls buil
 WHAT A WHEEL IS, and why (docs/sidecar.md, section 8):
 
   name       imtypeset
-  version    <library version>.<bundle line>[+standin], the line being the
-             imgui-bundle version as one number (1.92.900 is 192900). One
-             version line per supported imgui-bundle, so that a resolver given
-             `imgui-bundle==X` and `imtypeset` settles on the wheel built for X.
+  version    <library version>.<bundle line>, the line being the imgui-bundle
+             version as one number (1.92.900 is 192900). One version line per
+             supported imgui-bundle, so that a resolver given `imgui-bundle==X`
+             and `imtypeset==0.3.0.*` settles on the wheel built for X. A
+             build against stand-in headers is <that>.dev0+standin: a
+             development release, which every installer orders BELOW the
+             release of the same line and does not pick while a release that
+             fits exists.
   tag        cp<XY>-none-<platform>: the CPython version, because the
              attestation is of that CPython's imgui_bundle module (and, on
              Linux, the library names that module's file); no CPython ABI,
@@ -87,8 +98,14 @@ def bundle_line(wheel_version: str) -> str:
     return str(major * 100000 + minor * 1000 + patch)
 
 
+STAND_IN_SUFFIX = ".dev0+standin"
+
+
 def distribution_version(library_version: str, wheel_version: str, stand_in: bool) -> str:
-    return f"{library_version}.{bundle_line(wheel_version)}" + ("+standin" if stand_in else "")
+    """A stand-in build is a DEVELOPMENT release of its line (PEP 440's
+    `.devN`), with the local label saying which kind. `.dev0` orders it below
+    the release, where a local label alone would order it above."""
+    return f"{library_version}.{bundle_line(wheel_version)}" + (STAND_IN_SUFFIX if stand_in else "")
 
 
 def clean_environment(extra=None) -> dict:
@@ -148,27 +165,70 @@ def symbol_versions(library: str) -> dict:
     return newest
 
 
+# The libraries a manylinux wheel may name as needed and expect the system to
+# have, as far as this library can need them. Written from the manylinux
+# policy as remembered (PEP 600 and auditwheel's table), not read here.
+MANYLINUX_SYSTEM_LIBRARIES = {
+    "libc.so.6", "libm.so.6", "libdl.so.2", "libpthread.so.0", "librt.so.1", "libgcc_s.so.1",
+    "libstdc++.so.6", "ld-linux-x86-64.so.2", "ld-linux-aarch64.so.1",
+}
+
+
+def needed_libraries(library: str) -> list:
+    """The DT_NEEDED entries of an ELF file (from `objdump -p`)."""
+    return re.findall(r"^\s*NEEDED\s+(\S+)", run(["objdump", "-p", library], what="objdump -p"), re.M)
+
+
+def measured_linux_tag(machine: str, library: str, module: str = ""):
+    """(the platform tag THIS FILE supports, what that rests on): measured
+    from the library, never asserted. `manylinux_2_<n>_<machine>` with n the
+    glibc its versioned symbols need and at least 28, when its libstdc++ and
+    libgcc symbols fit what manylinux_2_28 allows and it names no needed
+    library but the system's and `module` (the wheel's extension module,
+    which the distribution's pin supplies); plain `linux_<machine>`
+    otherwise. auditwheel is not run: it would refuse `module` as a library
+    from outside."""
+    plain = "linux_" + machine
+    newest = symbol_versions(library)
+    said = ", ".join(f"{family}_{'.'.join(map(str, number))}" for family, number in sorted(newest.items()))
+    glibc = newest.get("GLIBC", (2, 0))
+    over = [family for family, limit in MANYLINUX_2_28_LIMITS.items() if newest.get(family, (0,)) > limit]
+    foreign = [name for name in needed_libraries(library)
+               if name not in MANYLINUX_SYSTEM_LIBRARIES and name != module]
+    if glibc[0] != 2 or over or foreign:
+        why = (f"needs {said}, past what manylinux_2_28 allows of {over}" if over or glibc[0] != 2
+               else f"names needed libraries a manylinux tag does not promise: {foreign}")
+        return plain, f"measured with objdump: the library {why}"
+    return (f"manylinux_2_{max(28, glibc[1])}_{machine}",
+            f"measured with objdump: the newest versioned symbols the library needs are {said}, and it "
+            f"needs no library but the system's and {module or 'none'}; the floor is 2.28, the "
+            "imgui-bundle wheel's own tag")
+
+
+def manylinux_level(tag: str):
+    found = re.fullmatch(r"manylinux_2_(\d+)_\w+", tag)
+    return int(found.group(1)) if found else None
+
+
 def platform_tag(asked: str, facts: dict, library: str):
     """(the tag, what it rests on)."""
-    if asked != "auto":
-        return asked, "given on the command line"
     if facts["system"] == "Darwin":
+        if asked != "auto":
+            return asked, "given on the command line"
         target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "14.0")
         major, _, minor = target.partition(".")
         return (f"macosx_{major}_{minor or '0'}_{facts['machine']}",
                 f"MACOSX_DEPLOYMENT_TARGET {target}, the build script's")
     if facts["system"] != "Linux":
         raise Failed(f"no platform tag for {facts['system']}")
-    plain = "linux_" + facts["machine"]
-    newest = symbol_versions(library)
-    said = ", ".join(f"{family}_{'.'.join(map(str, number))}" for family, number in sorted(newest.items()))
-    glibc = newest.get("GLIBC", (2, 0))
-    over = [family for family, limit in MANYLINUX_2_28_LIMITS.items() if newest.get(family, (0,)) > limit]
-    if glibc[0] != 2 or over:
-        return plain, f"the library needs {said}, past what a manylinux tag allows ({over})"
-    return (f"manylinux_2_{max(28, glibc[1])}_{facts['machine']}",
-            f"the newest versioned symbols the library needs are {said}; the floor is 2.28, the "
-            "imgui-bundle wheel's own tag")
+    measured, basis = measured_linux_tag(facts["machine"], library, os.path.basename(facts["module"]))
+    if asked == "auto" or asked == measured:
+        return measured, basis
+    # A tag given by hand may claim less than was measured, never more.
+    claimed, supported = manylinux_level(asked), manylinux_level(measured)
+    if asked == "linux_" + facts["machine"] or (claimed and supported and claimed >= supported):
+        return asked, f"given on the command line; {basis}"
+    raise Failed(f"--platform-tag {asked} claims more than the library supports ({measured}: {basis})")
 
 
 def record_hash(data: bytes) -> str:
@@ -178,7 +238,11 @@ def record_hash(data: bytes) -> str:
 def metadata(version: str, facts: dict, attestation: dict) -> str:
     stand_in = attestation["stand_in"]
     lines = [
-        "Metadata-Version: 2.1",
+        # 2.4 is the version that has License-File (PEP 639), and the notices
+        # are where it says they are: <dist-info>/licenses/. There is no
+        # License-Expression and no License field: no licence has been chosen
+        # for imtypeset, and the description says so in words.
+        "Metadata-Version: 2.4",
         "Name: imtypeset",
         f"Version: {version}",
         f"Summary: Typeset text for Dear ImGui: the sidecar library for imgui-bundle {facts['wheel_version']}"
@@ -201,13 +265,17 @@ def metadata(version: str, facts: dict, attestation: dict) -> str:
         f"on {attestation['attested_on']} ({attestation['attested_where'] or 'not said where'}).",
         "",
         "`import imtypeset` refuses any other imgui-bundle with a sentence (an ImportError).",
-        "No licence has been chosen for imtypeset yet; the notices of what it derives from",
-        "are in this distribution's licenses directory.",
+        "",
+        "LICENCE: NONE HAS BEEN CHOSEN for imtypeset yet. This metadata therefore names no",
+        "licence and grants nothing. The two License-File entries are the notices of what",
+        "imtypeset derives from (THIRD-PARTY.md) and of what is inside the library",
+        "(NOTICE.txt); they are not a licence for imtypeset.",
     ]
     if stand_in:
         lines += [
             "",
-            "THIS WHEEL WAS BUILT AGAINST STAND-IN HEADERS: upstream Dear ImGui's, not the headers",
+            "THIS WHEEL WAS BUILT AGAINST STAND-IN HEADERS (its version ends .dev0+standin):",
+            "upstream Dear ImGui's, not the headers",
             "of the fork the imgui-bundle wheel is built from. Dear ImGui's own layout check refuses",
             "it, and it is accepted on imtypeset's field probe alone. It is a development build.",
         ]
@@ -286,6 +354,8 @@ def build(python: str, out: str, headers: str = "fork", work: str = "", bundle_c
         "IMTYPESET_IMGUI_FORK_SOURCE": os.environ.get("IMTYPESET_IMGUI_FORK_SOURCE", ""),
         "IMTYPESET_IMGUI_CLONE": os.environ.get("IMTYPESET_IMGUI_CLONE", ""),
         "IMTYPESET_BUNDLE_JOBS": os.environ.get("IMTYPESET_BUNDLE_JOBS", "4"),
+        # A release is built only from headers whose checksums the pins record.
+        "IMTYPESET_HEADERS_REQUIRE_RECORDED": "1" if release else "",
     })
     if facts["system"] == "Linux":
         environment["IMTYPESET_BUNDLE_RPATH"] = "$ORIGIN/../imgui_bundle"

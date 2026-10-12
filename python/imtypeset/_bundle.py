@@ -32,9 +32,27 @@ verdict is written down as an ATTESTATION: the sha256 of the library and of the
 wheel's module it was run against, a sha256 of what the loader maps of each,
 and every row. `import imtypeset` then compares content (`precheck()`), which
 cannot fault, runs the checks that read nothing through an offset (`gate()`),
-starts no interpreter and writes nothing. docs/sidecar.md, section 8, says what
-that trusts. Only a library named by IMTYPESET_LIBRARY with no attestation
-beside it, or IMTYPESET_GATE=probe, has the probe run at import, in a child.
+starts no interpreter and writes nothing. docs/sidecar.md, section 9, says what
+that trusts.
+
+TWO ROUTES, told apart by what is in the package's own directory and by
+nothing else (`_capi.library_route`):
+
+  installed    the directory holds `_attestation.json` or a library, as a
+               wheel puts them. The library is the one in the directory, the
+               gate is the attestation, and NO ENVIRONMENT VARIABLE CHANGES
+               EITHER: IMTYPESET_LIBRARY, IMTYPESET_PYTHON, IMTYPESET_GATE and
+               IMTYPESET_PRELOAD_BUNDLE are not read (`ignored_environment()`
+               names the ones that were set, for host_info()). This is every
+               shipped application, frozen or not.
+  development  the directory holds neither: a source checkout.
+               IMTYPESET_LIBRARY names the library, and the other variables
+               are honoured. Nothing is mapped into this process before a
+               content check or a child's verdict: with an attestation beside
+               it the library is held to it by content first; without one it
+               is loaded and probed in a CHILD interpreter first
+               (`probe_in_child`), and where a child cannot be started
+               (`child_interpreter`) the import is refused, kind `unchecked`.
 
 This file imports nothing of its package, so that a child interpreter and the
 tools can load it by path.
@@ -45,7 +63,22 @@ from __future__ import annotations
 import ctypes as C
 import glob
 import os
+import re
 import struct
+
+# The variables that choose a library or a gate. They are a developer's: an
+# installed distribution reads none of them.
+OVERRIDES = (
+    "IMTYPESET_LIBRARY", "IMTYPESET_PYTHON", "IMTYPESET_GATE", "IMTYPESET_PRELOAD_BUNDLE",
+)
+
+
+def ignored_environment(route: str) -> list:
+    """The override variables that are set and were NOT read, because the
+    package is an installed distribution."""
+    if route != "installed":
+        return []
+    return [name for name in OVERRIDES if os.environ.get(name, "") != ""]
 
 # Mangled names (Itanium ABI) of the wheel's functions the probe calls itself.
 _GET_IO = "_ZN5ImGui5GetIOEv"
@@ -136,7 +169,7 @@ def _probe(lib, facts: dict) -> list:
     import imgui_bundle
     from imgui_bundle import imgui
 
-    wheel = C.CDLL(imgui_bundle._imgui_bundle.__file__)
+    wheel = C.CDLL(module_file())
 
     def function(name, restype, *argtypes):
         f = getattr(wheel, name)
@@ -171,6 +204,18 @@ def _probe(lib, facts: dict) -> list:
             io.backend_flags = value
             seen.append(mem.read(io_p, "ImGuiIO.BackendFlags", "<i") == int(value))
         record("ImGuiIO.BackendFlags", all(seen))
+
+        # ImGuiIO::DisplayFramebufferScale, which the draw step reads for the
+        # display's density: two values through the binding, x and y apart.
+        seen = []
+        for value in (2.5, 1.25):
+            io.display_framebuffer_scale = imgui.ImVec2(value, value * 3.0)
+            seen.append(
+                near(mem.read(io_p, "ImGuiIO.DisplayFramebufferScale", "<f"), value)
+                and near(mem.read(io_p, "ImGuiIO.DisplayFramebufferScale", "<f", 4), value * 3.0)
+            )
+        io.display_framebuffer_scale = imgui.ImVec2(1.0, 1.0)
+        record("ImGuiIO.DisplayFramebufferScale", all(seen))
 
         # ImGuiIO::BackendRendererName, which the binding can read and not write:
         # null in a context no backend has touched; then a string of the probe's
@@ -648,15 +693,17 @@ def refusal(kind: str, sentence: str, detail: str = "") -> ImportError:
     for a log. Three attributes are set: `sentence`, `detail`, and `kind`, one
     word for a program (docs/sidecar.md, section 9):
 
-      no-library       IMTYPESET_LIBRARY is not set and the package carries none
+      no-library       a source checkout, and IMTYPESET_LIBRARY is not set
       wrong-platform   the library is for another system or machine
-      damaged          a file of the distribution is not the one it was built with
+      damaged          a file of the distribution is missing, cut short, or not
+                       the one it was built with
       not-a-library    the file cannot be loaded, or is not an imtypeset library
       package-mismatch the library and the Python package are of different versions
       bundle-missing   imgui_bundle cannot be imported
       bundle-mismatch  the library was built for another imgui-bundle
       layout           imtypeset and imgui_bundle are not installed side by side
-      unchecked        nothing vouches for this pair and no check can be run here
+      unchecked        nothing vouches for this pair and no check can be run
+                       here, or the check itself could not be finished
       refused          the pair was checked, and the check refused it
       configuration    an environment variable asks for something that is not offered
 
@@ -771,26 +818,52 @@ def _take(handle, digest, offset: int, size: int) -> bool:
     return True
 
 
-def _elf_loaded(handle, head: bytes, digest) -> bool:
-    # Every PT_LOAD segment's bytes in the file, with its address and length,
-    # and the program headers themselves. The first 64 bytes of the file (the
-    # ELF header, which says where the SECTION headers are, and `strip` moves
-    # them) are left out.
+def _elf_loaded(handle, head: bytes, digest, size: int) -> bool:
+    # What the loader is told and what it maps: the fields of the ELF header
+    # it reads (type, machine, entry, flags, where the program headers are),
+    # the program headers, and every PT_LOAD segment's bytes in the file with
+    # its address and length. Left out: the rest of the 64-byte ELF header,
+    # which says where the SECTION headers are (`strip` moves them), and the
+    # sections that no segment maps.
+    #
+    # And the file must be as long as its own headers say: every program
+    # header's bytes, the section header table, and every section that has
+    # bytes in the file lie inside it. The loader reads no section header, so
+    # a file cut in its tail would still load; it is refused here because it
+    # is not the file that was installed.
     if len(head) < 64 or head[4] != 2 or head[5] != 1:
         return False
-    (phoff,) = struct.unpack_from("<Q", head, 0x20)
-    phentsize, phnum = struct.unpack_from("<HH", head, 0x36)
+    e_type, e_machine = struct.unpack_from("<HH", head, 0x10)
+    e_entry, phoff, shoff = struct.unpack_from("<QQQ", head, 0x18)
+    (e_flags,) = struct.unpack_from("<I", head, 0x30)
+    phentsize, phnum, shentsize, shnum = struct.unpack_from("<HHHH", head, 0x36)
     if phentsize < 56 or not 0 < phnum <= 512:
         return False
     handle.seek(phoff)
     table = handle.read(phentsize * phnum)
     if len(table) != phentsize * phnum:
         return False
+    if shoff != 0:
+        if shentsize < 64 or shoff + shentsize * max(shnum, 1) > size:
+            return False
+        handle.seek(shoff)
+        sections = handle.read(shentsize * shnum)
+        if len(sections) != shentsize * shnum:
+            return False
+        for index in range(shnum):
+            (sh_type,) = struct.unpack_from("<I", sections, index * shentsize + 4)
+            sh_offset, sh_size = struct.unpack_from("<QQ", sections, index * shentsize + 0x18)
+            if sh_type not in (0, 8) and sh_offset + sh_size > size:  # SHT_NULL, SHT_NOBITS
+                return False
+    digest.update(struct.pack("<HHQQIHH", e_type, e_machine, e_entry, phoff, e_flags, phentsize, phnum))
+    digest.update(table)
     loads = 0
     for index in range(phnum):
         p_type, _flags, p_offset, p_vaddr, _paddr, p_filesz = struct.unpack_from(
             "<IIQQQQ", table, index * phentsize
         )
+        if p_offset + p_filesz > size:
+            return False
         if p_type != 1:  # PT_LOAD
             continue
         loads += 1
@@ -801,12 +874,29 @@ def _elf_loaded(handle, head: bytes, digest) -> bool:
     return loads > 0
 
 
-def _macho_loaded(handle, head: bytes, digest) -> bool:
-    # Every section's bytes in the file, with its names and length, of every
-    # LC_SEGMENT_64. Left out: the header and the load commands (a code
-    # signature and install_name_tool rewrite them) and __LINKEDIT, which has
-    # no sections and ends in the signature. Written from the format as
-    # remembered; no Mach-O file made by Apple's linker has been read by this.
+# Load commands that are a (file offset, size) pair into __LINKEDIT
+# (linkedit_data_command): the code signature, segment split info, function
+# starts, data in code, code-signing requirements, linker hints, the exports
+# trie and the chained fixups.
+_MACHO_LINKEDIT_DATA = (0x1D, 0x1E, 0x26, 0x29, 0x2B, 0x2E, 0x80000033, 0x80000034)
+
+
+def _macho_loaded(handle, head: bytes, digest, size: int) -> bool:
+    # Every section's bytes in the file, with its names, address, length and
+    # flags, of every LC_SEGMENT_64; and each such segment's name, address,
+    # size in memory and protection. __LINKEDIT is left out, name and all: it
+    # has no sections, ends in the code signature, and signing changes its
+    # length. Left out too: the header and every other load command. Signing
+    # adds or rewrites LC_CODE_SIGNATURE (and with it the header's count),
+    # and install_name_tool, which application freezers run on the libraries
+    # they collect, rewrites LC_ID_DYLIB, LC_LOAD_DYLIB and LC_RPATH.
+    #
+    # And the file must be as long as its load commands say: every segment's
+    # bytes (__LINKEDIT's too, which is the END of the file), the symbol
+    # table, and every table a linkedit_data_command names lie inside it.
+    #
+    # Written from the format as remembered; no Mach-O file made by Apple's
+    # linker has been read by this.
     if len(head) < 32:
         return False
     ncmds, sizeofcmds = struct.unpack_from("<II", head, 16)
@@ -820,49 +910,69 @@ def _macho_loaded(handle, head: bytes, digest) -> bool:
     for _ in range(ncmds):
         if at + 8 > len(commands):
             return False
-        command, size = struct.unpack_from("<II", commands, at)
-        if size < 8 or at + size > len(commands):
+        command, length_of = struct.unpack_from("<II", commands, at)
+        if length_of < 8 or at + length_of > len(commands):
             return False
         if command == 0x19:  # LC_SEGMENT_64
-            if size < 72:
+            if length_of < 72:
                 return False
-            (nsects,) = struct.unpack_from("<I", commands, at + 64)
-            if 72 + nsects * 80 > size:
+            segname = commands[at + 8:at + 24]
+            vmaddr, vmsize, fileoff, filesize = struct.unpack_from("<QQQQ", commands, at + 24)
+            _maxprot, initprot, nsects = struct.unpack_from("<iiI", commands, at + 56)
+            if fileoff + filesize > size or 72 + nsects * 80 > length_of:
                 return False
+            if segname.rstrip(b"\0") != b"__LINKEDIT":
+                digest.update(segname + struct.pack("<QQi", vmaddr, vmsize, initprot))
             for index in range(nsects):
                 section = at + 72 + index * 80
                 names = commands[section:section + 32]
-                _addr, length, offset = struct.unpack_from("<QQI", commands, section + 32)
+                addr, length, offset = struct.unpack_from("<QQI", commands, section + 32)
                 (flags,) = struct.unpack_from("<I", commands, section + 64)
                 if flags & 0xFF in (0x1, 0xC, 0x12) or offset == 0:  # zero-fill: no bytes in the file
                     continue
                 sections += 1
-                digest.update(names + struct.pack("<Q", length))
-                if not _take(handle, digest, offset, length):
+                digest.update(names + struct.pack("<QQI", addr, length, flags))
+                if offset + length > size or not _take(handle, digest, offset, length):
                     return False
-        at += size
+        elif command in _MACHO_LINKEDIT_DATA:
+            if length_of < 16:
+                return False
+            dataoff, datasize = struct.unpack_from("<II", commands, at + 8)
+            if dataoff + datasize > size:
+                return False
+        elif command == 0x2:  # LC_SYMTAB
+            if length_of < 24:
+                return False
+            symoff, nsyms, stroff, strsize = struct.unpack_from("<IIII", commands, at + 8)
+            if symoff + nsyms * 16 > size or stroff + strsize > size:
+                return False
+        at += length_of
     return sections > 0
 
 
 def image_sha256(path: str):
-    """A sha256 of what the loader MAPS of this file: "elf-load:<hex>" (the
-    PT_LOAD segments) or "macho-sections:<hex>" (the sections), or None for a
-    file that is neither, is cut short, or does not read as one. `strip`,
-    install_name_tool and code signing leave those bytes alone and change the
-    file's own sha256, so this is what holds a copy that an application
-    freezer rewrote to the file the attestation is about. A file that is
-    truncated or overwritten inside what is mapped does not keep it.
+    """A sha256 of what the loader MAPS of this file and of what it is told
+    about mapping it: "elf-load:<hex>" or "macho-sections:<hex>"
+    (`_elf_loaded` and `_macho_loaded` say exactly what goes in). None for a
+    file that is neither, does not read as one, or is SHORTER THAN ITS OWN
+    HEADERS SAY (cut anywhere, its tail included). `strip`, install_name_tool
+    and code signing leave what is hashed alone and change the file's own
+    sha256, so this is what holds a copy that an application freezer rewrote
+    to the file the attestation is about. A file that is truncated, or
+    overwritten inside what is mapped, does not keep it.
     Reads the file as bytes, within its own length; never raises."""
     import hashlib
 
     try:
+        size = os.path.getsize(path)
         with open(path, "rb") as handle:
             head = handle.read(64)
             digest = hashlib.sha256()
             if head[:4] == b"\x7fELF":
-                return "elf-load:" + digest.hexdigest() if _elf_loaded(handle, head, digest) else None
+                done = _elf_loaded(handle, head, digest, size)
+                return "elf-load:" + digest.hexdigest() if done else None
             if head[:4] == b"\xcf\xfa\xed\xfe":
-                done = _macho_loaded(handle, head, digest)
+                done = _macho_loaded(handle, head, digest, size)
                 return "macho-sections:" + digest.hexdigest() if done else None
     except (OSError, struct.error, ValueError):
         return None
@@ -880,17 +990,20 @@ def identity(path: str) -> dict:
     }
 
 
-def same_content(recorded: dict, path: str):
+def same_content(recorded, path: str):
     """"sha256" when the file is byte for byte the recorded one; "image" when
     it is not, and what the loader maps of it is (image_sha256); None
-    otherwise. Never raises."""
+    otherwise, and for a record that is not one. Never raises."""
+    if not isinstance(recorded, dict) or not isinstance(path, str):
+        return None
+    wanted, wanted_image = recorded.get("sha256"), recorded.get("image_sha256")
     try:
-        if sha256_file(path) == recorded.get("sha256"):
+        if isinstance(wanted, str) and len(wanted) == 64 and sha256_file(path) == wanted:
             return "sha256"
     except OSError:
         return None
     mapped = image_sha256(path)
-    if mapped is not None and mapped == recorded.get("image_sha256"):
+    if mapped is not None and isinstance(wanted_image, str) and mapped == wanted_image:
         return "image"
     return None
 
@@ -919,13 +1032,53 @@ def built_for(lib) -> dict:
     return answer
 
 
-# --- The wheel's module in the process, before the library ----------------------------------
+# --- The wheel's module: which file it is, and getting it into the process ------------------
 
 
-def _module_file() -> str:
-    import imgui_bundle
+def module_file():
+    """The file of the wheel's extension module (imgui_bundle._imgui_bundle),
+    found WITHOUT importing anything: from the module when the application has
+    already imported it, else from where the import system says the package
+    is. None when neither finds it. Never raises."""
+    import importlib.machinery
+    import importlib.util
+    import sys
 
-    return imgui_bundle._imgui_bundle.__file__
+    native = sys.modules.get("imgui_bundle._imgui_bundle")
+    path = getattr(native, "__file__", None)
+    if isinstance(path, str) and os.path.isfile(path):
+        return path
+    try:
+        spec = importlib.util.find_spec("imgui_bundle")
+    except Exception:  # whatever a broken install or a foreign finder raises
+        spec = None
+    try:
+        directories = list(getattr(spec, "submodule_search_locations", None) or [])
+    except Exception:
+        directories = []
+    for directory in directories:
+        for suffix in importlib.machinery.EXTENSION_SUFFIXES:
+            candidate = os.path.join(str(directory), "_imgui_bundle" + suffix)
+            if os.path.isfile(candidate):
+                return candidate
+    return None
+
+
+def _running_bundle_version():
+    """The version of the imgui-bundle that is here, without importing it:
+    from the package if it is imported, else from its metadata. None when
+    neither says (a freezer may drop the metadata)."""
+    import sys
+
+    version = getattr(sys.modules.get("imgui_bundle"), "__version__", None)
+    if isinstance(version, str) and version:
+        return version
+    try:
+        import importlib.metadata
+
+        return str(importlib.metadata.version("imgui-bundle"))
+    except Exception:
+        return None
 
 
 def _import_bundle(needed: str = ""):
@@ -942,7 +1095,17 @@ def _import_bundle(needed: str = ""):
         ) from exc
 
 
-def open_library(path: str, bundle_first: bool = False):
+def _bundle_missing(needed: str = "") -> ImportError:
+    wanted = f"imgui-bundle {needed}" if needed else "imgui-bundle"
+    return refusal(
+        "bundle-missing",
+        f"imtypeset needs {wanted}, and it is not found here. Install it.",
+        "imgui_bundle has no extension module (_imgui_bundle) where the import system looks "
+        "for the package",
+    )
+
+
+def open_library(path: str, bundle_first: bool = False, environment: bool = True):
     """(the library, what had to be in the process first: "none", "import" or "global").
 
     A library bound by lookup (the only kind macOS has) finds Dear ImGui among
@@ -950,15 +1113,20 @@ def open_library(path: str, bundle_first: bool = False):
     "import". Where that is not enough the module is opened again RTLD_GLOBAL:
     "global". On Linux that is never done unasked, because it puts every symbol
     of the module, its FreeType included, in front of libraries loaded later
-    (measured: docs/sidecar.md, section 2); IMTYPESET_PRELOAD_BUNDLE=1 asks.
+    (measured: docs/sidecar.md, section 2); IMTYPESET_PRELOAD_BUNDLE=1 asks,
+    and is read only with `environment`, which an installed distribution
+    passes as False.
     """
     import sys
 
     def make_global():
-        C.CDLL(_module_file(), mode=C.RTLD_GLOBAL)
+        module = module_file()
+        if module is None:
+            raise _bundle_missing()
+        C.CDLL(module, mode=C.RTLD_GLOBAL)
 
     preload = "none"
-    asked_global = os.environ.get("IMTYPESET_PRELOAD_BUNDLE", "") == "1"
+    asked_global = environment and os.environ.get("IMTYPESET_PRELOAD_BUNDLE", "") == "1"
     if bundle_first or asked_global:
         _import_bundle()
         preload = "import"
@@ -991,7 +1159,8 @@ def open_library(path: str, bundle_first: bool = False):
         "The imtypeset library cannot be loaded: it is damaged, or it was built for another "
         "system or another imgui-bundle. Install imtypeset again.",
         f"cannot load {path!r}: {first}"
-        + (" (on Linux a library bound by lookup loads only with IMTYPESET_PRELOAD_BUNDLE=1)"
+        + (" (on Linux a library bound by lookup loads only with IMTYPESET_PRELOAD_BUNDLE=1, "
+           "which only a development checkout reads)"
            if "undefined symbol" in str(first) and sys.platform.startswith("linux") else ""),
     ) from first
 
@@ -1030,31 +1199,99 @@ def _loaded_images():
     return None, f"this package knows no way to list loaded images on {sys.platform}"
 
 
+def _global_imgui(module: str):
+    """(the images, other than the wheel's module, that the process's GLOBAL
+    symbol scope answers with for Dear ImGui's names; how that was found out),
+    or (None, why not).
+
+    A library's undefined symbols are bound in that scope first: on ELF before
+    the library's own needed libraries are looked at, and on macOS it is where
+    a symbol left for lookup is found at all. So an executable that has a Dear
+    ImGui of its own linked in, or another extension opened RTLD_GLOBAL that
+    carries one, would be what the library draws through, with the wheel's
+    module loaded and unused. Asks dlsym for four names and dladdr for the
+    image of each answer; maps nothing and calls none of them.
+
+    NOT SEEN: an image that exports the names and was opened RTLD_LOCAL. On
+    ELF the library does not bind to such an image. Whether macOS's lookup can
+    is not known here; the macOS half of this function has never run.
+    """
+
+    class DlInfo(C.Structure):
+        _fields_ = [("dli_fname", C.c_char_p), ("dli_fbase", C.c_void_p),
+                    ("dli_sname", C.c_char_p), ("dli_saddr", C.c_void_p)]
+
+    try:
+        scope = C.CDLL(None)
+        dladdr = scope.dladdr
+        dladdr.restype = C.c_int
+        dladdr.argtypes = [C.c_void_p, C.POINTER(DlInfo)]
+    except (OSError, AttributeError, ValueError) as exc:
+        return None, f"the global scope cannot be asked ({type(exc).__name__}: {exc})"
+    others = []
+    for name in (_GET_IO, _GET_STYLE, _GET_WINDOW_DRAW_LIST, _MEM_ALLOC):
+        try:
+            address = C.cast(getattr(scope, name), C.c_void_p).value
+        except (AttributeError, ValueError):
+            continue  # not in the global scope: the ordinary case on Linux
+        info = DlInfo()
+        image = ""
+        if address and dladdr(address, C.byref(info)) and info.dli_fname:
+            image = os.fsdecode(info.dli_fname)
+        if not image or os.path.realpath(image) != module:
+            if (image or "an image dladdr cannot name") not in others:
+                others.append(image or "an image dladdr cannot name")
+    return others, "dlsym and dladdr on the global scope"
+
+
 def _same_module(library_path: str) -> str:
-    """Refuses if loading the library brought a second Dear ImGui Bundle module
-    into the process: a library linked by name finds the module through its run
-    path, and where that leads to another copy than the one the application
-    imported, the library draws through a Dear ImGui the application never
-    initialises. Returns how the check was made, or "not done: <why>" where the
-    loaded images cannot be listed: host_info() shows it either way."""
-    mine = os.path.realpath(_module_file())
+    """Refuses if the library can be drawing through another Dear ImGui than
+    the one the application imported:
+
+      - a second Dear ImGui Bundle module in the process. A library linked by
+        name finds the module through its run path, and where that leads to
+        another copy than the one the application imported, the library draws
+        through a Dear ImGui the application never initialises;
+      - another image answering for Dear ImGui's names in the global symbol
+        scope (`_global_imgui`).
+
+    Returns how the checks were made, with "not done: <why>" for one that
+    could not be: host_info() shows it either way."""
+    module = module_file()
+    if module is None:
+        raise _bundle_missing()
+    mine = os.path.realpath(module)
     mapped, how = _loaded_images()
     if mapped is None:
-        return "not done: " + how
-    others = sorted(
-        path for path in mapped
-        if os.path.basename(path).startswith("_imgui_bundle.") and os.path.realpath(path) != mine
-    )
-    if others:
+        first = "not done: " + how
+    else:
+        others = sorted(
+            path for path in mapped
+            if os.path.basename(path).startswith("_imgui_bundle.") and os.path.realpath(path) != mine
+        )
+        if others:
+            raise refusal(
+                "refused",
+                "imtypeset found two copies of imgui-bundle in this application and cannot tell "
+                "which one draws. Install imtypeset and imgui-bundle into the same place.",
+                f"{library_path!r} loaded the imgui_bundle module at {others[0]!r}, and this "
+                f"interpreter's is {mine!r}. A library built by python/host/build_bundle_library.sh "
+                "is for the interpreter it was built with.",
+            )
+        first = "done: " + how
+    foreign, how = _global_imgui(mine)
+    if foreign is None:
+        return f"{first}; global Dear ImGui names not done: {how}"
+    if foreign:
         raise refusal(
             "refused",
-            "imtypeset found two copies of imgui-bundle in this application and cannot tell "
-            "which one draws. Install imtypeset and imgui-bundle into the same place.",
-            f"{library_path!r} loaded the imgui_bundle module at {others[0]!r}, and this "
-            f"interpreter's is {mine!r}. A library built by python/host/build_bundle_library.sh "
-            "is for the interpreter it was built with.",
+            "imtypeset found a second Dear ImGui in this application, beside imgui-bundle's, and "
+            "would draw through the wrong one. imtypeset works only where imgui-bundle's is the "
+            "one Dear ImGui that is visible to it.",
+            f"the global symbol scope answers for Dear ImGui's names from {foreign[0]!r}, and "
+            f"the imgui_bundle module is {mine!r}",
         )
-    return "done: " + how
+    return f"{first}; global Dear ImGui names: none but the wheel's ({how})"
 
 
 # --- The attestation: the full probe's verdict, carried as content --------------------------
@@ -1063,76 +1300,128 @@ ATTESTATION_SCHEMA = 1
 PACKAGED_ATTESTATION = "_attestation.json"
 
 
-def attestation_file(library_path: str):
-    """Where the attestation for this library would be: `_attestation.json` in
-    its directory (an installed distribution), else `<library>.attestation.json`
-    (a build directory). None when there is neither."""
+def attestation_file(library_path: str, route: str = "IMTYPESET_LIBRARY"):
+    """Where the attestation for this library is, or None. For an installed
+    distribution: `_attestation.json` in the package's directory and nothing
+    else. For a library a developer named: `<library>.attestation.json` (a
+    build directory), else `_attestation.json` in its directory (a library
+    named inside an unpacked wheel)."""
     packaged = os.path.join(os.path.dirname(library_path), PACKAGED_ATTESTATION)
-    if os.path.isfile(packaged):
-        return packaged
+    if route == "installed":
+        return packaged if os.path.isfile(packaged) else None
     beside = library_path + ".attestation.json"
-    return beside if os.path.isfile(beside) else None
+    if os.path.isfile(beside):
+        return beside
+    return packaged if os.path.isfile(packaged) else None
+
+
+def child_interpreter():
+    """(sys.executable, "") when it can be taken for a Python interpreter that
+    may be started to run the probe; (None, why not) otherwise. Nothing is run
+    to find out: starting a `sys.executable` that is an application starts the
+    application again. So the answer is from what can be read: `sys.frozen`
+    (PyInstaller, py2app, cx_Freeze set it), Nuitka's mark on a compiled
+    module, this file being a file a child can load by path, and the
+    executable's NAME, which is what is left for a packager that sets no flag
+    (Briefcase starts the application from a binary named for it). An
+    interpreter under another name is refused too; the way past that is an
+    attestation (tools/bundle_route/attest.py), not a variable."""
+    import sys
+
+    if getattr(sys, "frozen", False):
+        return None, "sys.frozen is set: this is a packaged application"
+    if "__compiled__" in globals():
+        return None, "this module was compiled by Nuitka: this is a packaged application"
+    executable = sys.executable or ""
+    if not executable or not os.path.isfile(executable):
+        return None, f"sys.executable ({executable!r}) names no file"
+    name = os.path.basename(executable).lower()
+    if not re.fullmatch(r"(python|pypy)[0-9.]*[a-z]*(\.exe)?", name):
+        return None, (f"sys.executable is {name!r}, which is not the name of a Python "
+                      "interpreter: taken for a packaged application")
+    if not os.path.isfile(os.path.abspath(__file__)):
+        return None, "this module is not a file a child interpreter could load"
+    return executable, ""
 
 
 def mode(route: str, attested: bool) -> str:
-    """"attested" or "probe": which gate runs. IMTYPESET_GATE decides when set.
-    Unset: the attestation where there is one; the full probe, in a child
-    interpreter, only for a library named by IMTYPESET_LIBRARY (the development
-    override) and only where a child interpreter can exist."""
-    import sys
+    """"attested" or "probe": which gate decides, before the library is loaded.
 
+    An installed distribution: its attestation, or a refusal. No variable is
+    read. A development checkout: IMTYPESET_GATE when set ("attested" forbids
+    the probe, "probe" asks for it over an attestation); unset, the
+    attestation where there is one and else the full probe, in a child
+    interpreter, where one can be started (`child_interpreter`)."""
+    if route == "installed":
+        if attested:
+            return "attested"
+        raise refusal(
+            "unchecked",
+            "This copy of imtypeset carries no record that it was checked against the "
+            "imgui-bundle it is running beside, and it is not checked here. Install a released "
+            "imtypeset wheel.",
+            "No _attestation.json in the package's directory, which holds a library: an "
+            "installed distribution is accepted on its attestation and on nothing else.",
+        )
     asked = os.environ.get("IMTYPESET_GATE", "")
-    frozen = bool(getattr(sys, "frozen", False))
     if asked not in ("", "attested", "probe"):
         raise refusal(
             "configuration",
             f"IMTYPESET_GATE is 'attested' or 'probe', not {asked!r}.",
         )
-    if asked == "probe":
-        if frozen:
-            raise refusal(
-                "configuration",
-                "IMTYPESET_GATE=probe starts a Python interpreter, and a packaged application "
-                "has none. Unset it.",
-            )
-        return "probe"
-    if attested:
+    if attested and asked != "probe":
         return "attested"
-    if asked == "" and route == "IMTYPESET_LIBRARY" and not frozen:
-        return "probe"
-    raise refusal(
-        "unchecked",
-        "This copy of imtypeset carries no record that it was checked against the imgui-bundle "
-        "it is running beside, and it is not checked here. Install a released imtypeset wheel.",
-        "No _attestation.json beside the library. A development build gets one from "
-        "python/host/build_bundle_library.sh (its gate step) or tools/bundle_route/attest.py; "
-        "IMTYPESET_GATE=probe runs the full probe in a child interpreter instead.",
+    how_to = (
+        "A development build gets an attestation from python/host/build_bundle_library.sh "
+        "(its gate step) or tools/bundle_route/attest.py."
     )
+    if asked == "attested":
+        raise refusal(
+            "unchecked",
+            "The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked "
+            "against this imgui-bundle, and IMTYPESET_GATE=attested forbids checking it here.",
+            "No <library>.attestation.json beside the library. " + how_to,
+        )
+    python, why_not = child_interpreter()
+    if python is None:
+        raise refusal(
+            "unchecked",
+            "The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked "
+            "against this imgui-bundle, and it cannot be checked here: this is not a Python "
+            "interpreter that can start another. Install a released imtypeset wheel.",
+            f"The library is not loaded unchecked. No child interpreter: {why_not}. " + how_to,
+        )
+    return "probe"
 
 
-def precheck(library_path: str, route: str):
-    """Before the library is loaded: the attestation for it, or None when the
-    full probe is to decide. Refuses a library, or a wheel's module, that is not
-    the one the attestation is about. Hashes two files and imports imgui_bundle;
-    loads nothing else and reads nothing through an offset."""
+def _read_attestation(where: str) -> dict:
+    """The attestation in this file, with everything the gate reads of it held
+    to its shape; ImportError (kind `damaged`) for anything else."""
     import json
-    import platform
 
-    where = attestation_file(library_path)
-    if where is None and route != "installed":
-        return None  # gate() decides, once it is known what kind of library this is
-    if mode(route, where is not None) == "probe":
-        return None
     try:
         with open(where, encoding="utf-8") as handle:
             attestation = json.load(handle)
+        if not isinstance(attestation, dict):
+            raise TypeError("not an object")
         if attestation["schema"] != ATTESTATION_SCHEMA:
             raise ValueError(f"schema {attestation['schema']!r}")
-        recorded_library, recorded_module = attestation["library"], attestation["module"]
-        built_wheel = str(attestation["wheel_version"])
-        version = str(attestation["imtypeset_version"])
-        system, machine = attestation["platform"]["system"], attestation["platform"]["machine"]
-        attestation["accepted_by"], attestation["probes"], attestation["headers"]
+        for key in ("library", "module", "platform"):
+            if not isinstance(attestation[key], dict):
+                raise TypeError(f"{key!r} is not an object")
+        for key in ("wheel_version", "imtypeset_version", "accepted_by", "headers"):
+            if not isinstance(attestation[key], str):
+                raise TypeError(f"{key!r} is not a string")
+        for key in ("system", "machine"):
+            if not isinstance(attestation["platform"][key], str):
+                raise TypeError(f"platform.{key} is not a string")
+        rows = attestation["probes"]
+        if not isinstance(rows, list) or not rows or not all(
+            isinstance(row, list) and len(row) == 3 and isinstance(row[0], str)
+            and isinstance(row[1], bool) and isinstance(row[2], str)
+            for row in rows
+        ):
+            raise TypeError("'probes' is not a list of [name, passed, detail]")
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise refusal(
             "damaged",
@@ -1140,6 +1429,36 @@ def precheck(library_path: str, route: str):
             "read. Install imtypeset again.",
             f"{where!r}: {type(exc).__name__}: {exc}",
         ) from exc
+    return attestation
+
+
+def precheck(library_path: str, route: str):
+    """Everything that is decided BEFORE the library is mapped into this
+    process. Returns (attestation, None) or (None, the child's report);
+    ImportError otherwise.
+
+    With an attestation: the library file, then the wheel's module file, are
+    hashed and held to it. The module's file is found without importing
+    imgui_bundle (`module_file`); only when it is the attested one is
+    imgui_bundle imported, and the module that import brought is then held to
+    the file that was hashed. Where the file cannot be found without the
+    import (an importer that keeps extension modules somewhere it does not
+    say), the import comes first, and `_module_found` in what is returned is
+    "by importing". Nothing is read through an offset.
+
+    Without one (a development checkout only): the library is loaded and
+    probed in a child interpreter, here, before anything else (`mode` says
+    when that is allowed).
+    """
+    import platform
+
+    where = attestation_file(library_path, route)
+    if mode(route, where is not None) == "probe":
+        return None, probe_in_child(library_path)
+    attestation = _read_attestation(where)
+    recorded_library, recorded_module = attestation["library"], attestation["module"]
+    built_wheel, version = attestation["wheel_version"], attestation["imtypeset_version"]
+    system, machine = attestation["platform"]["system"], attestation["platform"]["machine"]
 
     here = (platform.system(), platform.machine())
     if (system, machine) != here:
@@ -1158,46 +1477,73 @@ def precheck(library_path: str, route: str):
             f"{library_path!r} is not sha256 {recorded_library.get('sha256')} nor "
             f"{recorded_library.get('image_sha256')} ({where!r})",
         )
-    bundle = _import_bundle(built_wheel)
-    running = str(getattr(bundle, "__version__", "unknown"))
-    module_match = same_content(recorded_module, _module_file())
-    if module_match is None:
-        if running != built_wheel:
+
+    def held(module: str):
+        match = same_content(recorded_module, module)
+        if match is not None:
+            return match
+        running = _running_bundle_version()
+        if running is not None and running != built_wheel:
             sentence = (
                 f"imtypeset {version} was built for imgui-bundle {built_wheel}, and this "
                 f"application has imgui-bundle {running}. The two are updated together: install "
                 f"imgui-bundle {built_wheel}, or the imtypeset built for imgui-bundle {running}."
             )
+        elif running is None:
+            sentence = (
+                f"imtypeset {version} was built for imgui-bundle {built_wheel}, and this "
+                "application has another imgui-bundle, or a damaged one. The two are updated "
+                f"together: install imgui-bundle {built_wheel} again, or the imtypeset built for "
+                "the imgui-bundle that is here."
+            )
         else:
             sentence = (
                 f"imtypeset {version} was built for another build of imgui-bundle {built_wheel} "
-                "than the one in this application (another Python version, or a wheel that is "
-                "not the released one). Install the imtypeset built for this one."
+                "than the one in this application (another Python version, a wheel that is "
+                "not the released one, or a damaged file). Install the imtypeset built for this "
+                "one."
             )
         raise refusal(
             "bundle-mismatch",
             sentence,
-            f"{_module_file()!r} is not sha256 {recorded_module.get('sha256')} nor "
+            f"{module!r} is not sha256 {recorded_module.get('sha256')} nor "
             f"{recorded_module.get('image_sha256')} ({where!r})",
         )
+
+    module = module_file()
+    found = "before importing imgui_bundle"
+    if module is None:
+        _import_bundle(built_wheel)
+        module = module_file()
+        found = "by importing imgui_bundle"
+        if module is None:
+            raise _bundle_missing(built_wheel)
+    module_match = held(module)
+    _import_bundle(built_wheel)
+    imported = module_file()
+    if imported is None:
+        raise _bundle_missing(built_wheel)
+    if os.path.realpath(imported) != os.path.realpath(module):
+        # The import found another file than the import system said it would.
+        module, module_match = imported, held(imported)
     if attestation.get("run_path") == "$ORIGIN/../imgui_bundle":
         # A library linked by name finds the wheel's module beside its own
         # package, and nowhere else.
         beside = os.path.join(
             os.path.dirname(os.path.dirname(library_path)), "imgui_bundle",
-            os.path.basename(_module_file()),
+            os.path.basename(module),
         )
-        if not os.path.exists(beside) or not os.path.samefile(beside, _module_file()):
+        if not os.path.exists(beside) or not os.path.samefile(beside, module):
             raise refusal(
                 "layout",
                 "imtypeset and imgui-bundle are installed in two different places, and imtypeset "
                 "finds imgui-bundle only beside itself. Install both into the same environment.",
-                f"the library looks for {beside!r}; imgui_bundle was imported from "
-                f"{_module_file()!r}",
+                f"the library looks for {beside!r}; imgui_bundle was imported from {module!r}",
             )
     attestation["_file"] = where
     attestation["_matched_by"] = {"library": library_match, "module": module_match}
-    return attestation
+    attestation["_module_found"] = found
+    return attestation, None
 
 
 _CHILD = """
@@ -1205,25 +1551,58 @@ import importlib.util, json, sys
 spec = importlib.util.spec_from_file_location("_bundle", sys.argv[1])
 gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
-library, preload = gate.open_library(sys.argv[2], bundle_first=True)
-report = gate.check(library)
-report["preload"] = preload
-print("IMTYPESET-GATE " + json.dumps(report))
+try:
+    have = gate.module_file() is not None
+    if have:
+        try:
+            import imgui_bundle
+        except Exception:
+            have = False  # a library with its own Dear ImGui needs none
+    library, preload = gate.open_library(sys.argv[2], bundle_first=have)
+    print("IMTYPESET-GATE-LOADED", flush=True)
+    if hasattr(library, "ImTypesetBundle_LayoutFacts"):
+        gate._import_bundle()
+        report = gate.check(library)
+        report["kind"] = "imgui_bundle"
+    else:
+        hosted = hasattr(library, "ImTypesetHost_GetInfo")
+        report = {"kind": "self-hosted" if hosted else "unknown"}
+    report["preload"] = preload
+except ImportError as refused:
+    if not hasattr(refused, "kind"):
+        raise
+    print("IMTYPESET-GATE-REFUSED " + json.dumps(
+        {"kind": refused.kind, "sentence": refused.sentence, "detail": refused.detail}))
+else:
+    print("IMTYPESET-GATE " + json.dumps(report))
 """
 
 
 def probe_in_child(library_path: str) -> dict:
-    """check()'s whole report, from a child interpreter. A probe at a wrong
-    offset can read through a wild pointer, and then the process dies instead
-    of raising; in a child, that is an answer. Needs `sys.executable` to be a
-    Python interpreter: development and wheel builds, never an application."""
+    """What a child interpreter found on LOADING this library and, when it is
+    a sidecar for Dear ImGui Bundle, check()'s whole report ("kind":
+    "imgui_bundle"). A library with a Dear ImGui of its own, or with neither,
+    is only loaded there: {"kind": "self-hosted" or "unknown"}.
+
+    A truncated file can kill the process that maps it, and a probe at a wrong
+    offset can read through a wild pointer; in a child, either is an answer.
+    Needs `child_interpreter()`: development and wheel builds, never an
+    application."""
     import json
     import subprocess
-    import sys
 
+    python, why_not = child_interpreter()
+    if python is None:
+        raise refusal(
+            "unchecked",
+            "imtypeset could not start the check of its library against imgui-bundle: this is "
+            "not a Python interpreter that can start another. Install a released imtypeset "
+            "wheel, which is checked when it is built.",
+            f"The library is not loaded unchecked. No child interpreter: {why_not}.",
+        )
     try:
         child = subprocess.run(
-            [sys.executable, "-P", "-B", "-c", _CHILD, os.path.abspath(__file__), library_path],
+            [python, "-P", "-B", "-c", _CHILD, os.path.abspath(__file__), library_path],
             capture_output=True, text=True, timeout=300,
         )
     except (OSError, subprocess.SubprocessError) as exc:
@@ -1231,22 +1610,44 @@ def probe_in_child(library_path: str) -> dict:
             "unchecked",
             "imtypeset could not start the check of its library against imgui-bundle. Install a "
             "released imtypeset wheel, which is checked when it is built.",
-            f"the full probe needs a child interpreter; {sys.executable!r}: "
+            f"the full probe needs a child interpreter; {python!r}: "
             f"{type(exc).__name__}: {exc}",
         ) from exc
-    lines = [l for l in child.stdout.splitlines() if l.startswith("IMTYPESET-GATE ")]
-    if child.returncode != 0 or not lines:
+    lines = child.stdout.splitlines()
+    for line in lines:
+        if line.startswith("IMTYPESET-GATE-REFUSED "):
+            try:
+                said = json.loads(line[len("IMTYPESET-GATE-REFUSED "):])
+                raise refusal(str(said["kind"]), str(said["sentence"]), str(said["detail"]))
+            except (ValueError, KeyError, TypeError):
+                break
+    reports = [l for l in lines if l.startswith("IMTYPESET-GATE ")]
+    status = (f"a child interpreter that ended with status {child.returncode} (negative: a "
+              "signal). " + child.stderr.strip()[-400:])
+    if "IMTYPESET-GATE-LOADED" not in lines:
+        raise refusal(
+            "not-a-library",
+            "The imtypeset library cannot be loaded: it is damaged, or it was built for another "
+            "system or another imgui-bundle. Build it again.",
+            f"loading {library_path!r} was tried in {status}",
+        )
+    report = None
+    if child.returncode == 0 and reports:
+        try:
+            report = json.loads(reports[-1][len("IMTYPESET-GATE "):])
+            if report.get("kind") == "imgui_bundle":
+                report["probes"] = [tuple(p) for p in report["probes"]]
+                report["enumerators"] = tuple(report["enumerators"])
+        except (ValueError, KeyError, TypeError, AttributeError):
+            report = None
+    if report is None:
         raise refusal(
             "refused",
             "The imtypeset library does not fit the imgui-bundle in this application: it was "
             "built for another one. Install the imtypeset built for this imgui-bundle.",
-            f"checking {library_path!r} against the Dear ImGui of the installed imgui_bundle ended "
-            f"a child interpreter with status {child.returncode} (negative: a signal). Rebuild "
-            "with python/host/build_bundle_library.sh. " + child.stderr.strip()[-400:],
+            f"checking {library_path!r} against the Dear ImGui of the installed imgui_bundle "
+            f"was done in {status} Rebuild with python/host/build_bundle_library.sh.",
         )
-    report = json.loads(lines[-1][len("IMTYPESET-GATE "):])
-    report["probes"] = [tuple(p) for p in report["probes"]]
-    report["enumerators"] = tuple(report["enumerators"])
     return report
 
 
@@ -1284,8 +1685,10 @@ def _refuse_report(library_path: str, report: dict, how: str):
 
 
 def gate(lib, library_path: str, route: str = "IMTYPESET_LIBRARY", attestation=None,
-         preload: str = "none") -> dict:
+         preload: str = "none", child_report=None) -> dict:
     """The report for an accepted pairing; ImportError, with the reason, otherwise.
+    `attestation` or `child_report` is what precheck() returned, before the
+    library was loaded.
 
     With an attestation (precheck() has already held the library and the
     wheel's module to it, by content): the checks that read nothing through an
@@ -1293,14 +1696,23 @@ def gate(lib, library_path: str, route: str = "IMTYPESET_LIBRARY", attestation=N
     records; the field probe's rows are the attestation's, from the build. No
     child interpreter, no Dear ImGui context, no font, and nothing is written.
 
-    Without one (precheck() returned None): the whole of check() in a child
-    interpreter, every time. Nothing is remembered: what remembers a verdict is
-    an attestation, and tools/bundle_route/attest.py writes one.
+    With a child's report: that report is the verdict, made in the child
+    before this process loaded the library. Nothing is remembered: what
+    remembers a verdict is an attestation, and tools/bundle_route/attest.py
+    writes one.
     """
     second = _same_module(library_path)
     if attestation is None:
-        mode(route, False)  # raises where no child interpreter may be started
-        report = probe_in_child(library_path)
+        if not isinstance(child_report, dict) or child_report.get("kind") != "imgui_bundle":
+            raise refusal(
+                "unchecked",
+                "This copy of imtypeset carries no record that it was checked against the "
+                "imgui-bundle it is running beside, and it is not checked here. Install a "
+                "released imtypeset wheel.",
+                f"{library_path!r} was loaded with neither an attestation nor a child "
+                "interpreter's report of the full probe.",
+            )
+        report = dict(child_report)
         report["checked_in"] = "child"
         report["attestation"] = None
     else:
@@ -1325,6 +1737,7 @@ def gate(lib, library_path: str, route: str = "IMTYPESET_LIBRARY", attestation=N
         report["attestation"] = {
             "file": attestation["_file"],
             "matched_by": attestation["_matched_by"],
+            "module_found": attestation.get("_module_found"),
             "attested_by": attestation.get("attested_by"),
             "attested_on": attestation.get("attested_on"),
             "attested_where": attestation.get("attested_where"),
@@ -1359,13 +1772,23 @@ def attest(library_path: str, out_path: str = "", extra=None) -> dict:
 
     library_path = os.path.abspath(library_path)
     report = probe_in_child(library_path)
+    if report.get("kind") != "imgui_bundle":
+        raise refusal(
+            "not-a-library",
+            "This library is not a sidecar for Dear ImGui Bundle, and only such a library is "
+            "attested.",
+            f"{library_path!r} does not export ImTypesetBundle_LayoutFacts ({report.get('kind')})",
+        )
     ok, how = accepted(report)
     if not ok:
         _refuse_report(library_path, report, how)
+    module = module_file()
+    if module is None:
+        raise _bundle_missing()
     attestation = {
         "schema": ATTESTATION_SCHEMA,
         "library": identity(library_path),
-        "module": identity(_module_file()),
+        "module": identity(module),
         "wheel_version": report["wheel_version"],
         "wheel_imgui_version": report["wheel_imgui_version"],
         "headers": report["headers"],
@@ -1385,6 +1808,14 @@ def attest(library_path: str, out_path: str = "", extra=None) -> dict:
         "distribution_version": "",
     }
     attestation.update(extra or {})
+    for key in ("library", "module"):
+        if attestation[key]["image_sha256"] is None:
+            raise refusal(
+                "not-a-library",
+                "A file of the pair does not read as an ELF or Mach-O image that is as long as "
+                "its headers say, and is not attested.",
+                f"{attestation[key]['file']!r}",
+            )
     out_path = out_path or library_path + ".attestation.json"
     with open(out_path, "w", encoding="utf-8") as handle:
         json.dump(attestation, handle, indent=1, sort_keys=True)

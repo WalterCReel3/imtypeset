@@ -1,0 +1,14 @@
+       the atlas after it: 512 x 128 texels
+  1.5  host     quads  56  texels/device px 1.000..1.000  off the device grid   0  rects 0 (off 0)  ink 1082.5 px^2  solid 38.8 %
+  1.5  prose    quads  56  texels/device px 1.000..1.000  off the device grid   0  rects 0 (off 0)  ink 1082.5 px^2  solid 38.8 %
+  1.5  formula  quads  33  texels/device px 1.000..1.000  off the device grid   0  rects 2 (off 0)  ink 463.9 px^2  solid 37.8 %
+       the atlas after it: 512 x 128 texels
+  2.0  host     quads  56  texels/device px 1.000..1.000  off the device grid   0  rects 0 (off 0)  ink 1115.4 px^2  solid 61.2 %
+  2.0  prose    quads  56  texels/device px 1.000..1.000  off the device grid   0  rects 0 (off 0)  ink 1115.4 px^2  solid 61.2 %
+  2.0  formula  quads  33  texels/device px 1.000..1.000  off the device grid   0  rects 2 (off 0)  ink 461.3 px^2  solid 58.4 %
+       the atlas after it: 512 x 128 texels
+  3.0  host     quads  56  texels/device px 1.000..1.000  off the device grid   0  rects 0 (off 0)  ink 1121.5 px^2  solid 70.7 %
+  3.0  prose    quads  56  texels/device px 1.000..1.000  off the device grid   0  rects 0 (off 0)  ink 1121.5 px^2  solid 70.7 %
+  3.0  formula  quads  33  texels/device px 1.000..1.000  off the device grid   0  rects 2 (off 0)  ink 482.8 px^2  solid 69.2 %
+       the atlas after it: 512 x 128 texels
+ok: 10 test(s), 37123 check(s), 0 failed check(s) in 0 test(s)

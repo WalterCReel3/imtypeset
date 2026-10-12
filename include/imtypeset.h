@@ -2,7 +2,8 @@
 //
 // ImGui draws text; this typesets it. The model is TeX's: boxes, glue, kerns
 // and penalties, broken into lines by total fit and shipped out as glyph
-// positions, drawn through ImGui's own font atlas on whole pixels.
+// positions, drawn through ImGui's own font atlas on whole pixels of the
+// framebuffer.
 //
 //     ImGui::CreateContext();
 //     IMTYPESET_CHECKVERSION();
@@ -35,6 +36,21 @@
 //
 // UNITS. Every length here is in pixels, as ImGui's are. Layout itself is done
 // in TeX's scaled points; ImTypesetStyle::PixelsPerInch is the bridge.
+//
+// DISPLAY DENSITY. ImGui's pixel is a unit of its coordinates, and on a display
+// whose framebuffer is denser than its window coordinates (macOS Retina:
+// io.DisplayFramebufferScale is 2) one unit is several pixels of the
+// framebuffer. Nothing is asked of the host for that. Every length, size,
+// position and rectangle here stays in ImGui's units and layout is the same on
+// every display; each draw reads io.DisplayFramebufferScale.x and puts its
+// glyphs, rules and rectangles on the FRAMEBUFFER's pixels, with the glyphs
+// rasterised at the framebuffer's size, as ImGui's own text is. So the ink is
+// within a framebuffer pixel of where layout has it, and a vertex can be at a
+// fraction of a unit. A scale that is not above 1 is taken as 1.
+// The other kind of scaling is the host's to ask for: where the platform makes
+// everything larger in ImGui's own units (Windows and Linux at 150 %, which a
+// runner passes on as ImGui's style.FontScaleDpi), a host that wants typeset
+// text to follow says so in the style, as a larger size or as PixelsPerInch.
 //
 // POSITIONS IN TEXT are byte offsets into the UTF-8 text the host gave,
 // everywhere: style runs, hit tests, ranges, lines, formulas, error places. A
@@ -379,7 +395,9 @@ struct ImTypesetStyle {
     ImTypesetLineBreak LineBreak;
     // What turns pixels into points (72.27 to the inch). 0 is 96, one CSS
     // pixel per pixel; a host drawing at twice that scale says 192, and the
-    // line-breaking tolerances, which are in points, keep their meaning.
+    // line-breaking tolerances, which are in points, keep their meaning. It
+    // makes the text larger in ImGui's units; it is not the display's density
+    // (DISPLAY DENSITY above), which is read from ImGui and changes no size.
     float PixelsPerInch;
     // Ink. 0 uses ImGuiCol_Text. Either way it is multiplied by ImGui's
     // style.Alpha when drawn, so ImGui::BeginDisabled() dims it.
@@ -452,8 +470,8 @@ struct ImTypesetTextRange {
 
 // One line of a paragraph as it was last laid out. Coordinates are relative
 // to the paragraph's top-left corner and are layout's own: drawing then snaps
-// each baseline and each word to whole pixels, so ink sits within a pixel of
-// them.
+// each baseline and each word to whole pixels of the framebuffer (DISPLAY
+// DENSITY above), so ink sits within a pixel of them.
 struct ImTypesetLine {
     // The line's box: horizontally from where its content starts to where
     // it ends (not the full width of a ragged line), vertically its own

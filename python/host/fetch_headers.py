@@ -3,6 +3,7 @@
     python3 -I -B python/host/fetch_headers.py --bundle-version 1.92.900
         [--kind fork|stand-in] [--cache DIR] [--pins FILE]
         [--imgui-source URL-OR-PATH] [--bundle-checkout DIR] [--config-url TEMPLATE]
+        [--require-recorded]
 
 A wheel ships no headers. What it was built from is recorded per wheel version
 in bundle_pins.toml, beside this file, and this script fetches exactly that:
@@ -30,9 +31,27 @@ version bundle_pins.toml does not know; 1 for anything that could not be
 fetched or did not match what is recorded. Nothing is guessed and nothing is
 substituted: a failure names what was wanted and from where.
 
-A result is kept under --cache (default build/bundle-headers in this
-repository, or IMTYPESET_HEADER_CACHE) and used again when every file in it
-still has the sha256 SOURCE.json recorded and the pins have not changed.
+WHAT IS RECORDED, AND WHAT A CACHE IS HELD TO. A fetch is checked by the
+commit id (git's own hash of everything fetched) and by config_sha256. Beside
+those, bundle_pins.toml records sha256 values of the fetched headers
+themselves, which need no git to check:
+
+  imgui_h_sha256           the fork's imgui.h
+  imgui_headers_sha256     every file fetched from the fork (`headers_digest`)
+  standin_headers_sha256   every file fetched from upstream, for stand-in
+
+A recorded value is always checked. A result is kept under --cache (default
+build/bundle-headers in this repository, or IMTYPESET_HEADER_CACHE) and used
+again ONLY when the files in it hash to what THE PINS record: the cache's own
+SOURCE.json says where the files came from and vouches for nothing. So a kind
+whose values are not recorded yet is fetched again every time.
+
+The fork's two values are not recorded until a machine has fetched the fork.
+The first fetch that does prints them as the lines to add to
+bundle_pins.toml, and writes the same to $GITHUB_STEP_SUMMARY when that is
+set (the first run of the workflows does this). --require-recorded, or
+IMTYPESET_HEADERS_REQUIRE_RECORDED=1, refuses a fetch whose values are not
+recorded: a release build sets it (tools/wheel/build_wheel.py --release).
 
 Needs Python 3.11 (tomllib) and git. Standard library only.
 """
@@ -62,6 +81,11 @@ CONFIG_URL = "https://raw.githubusercontent.com/pthom/imgui_bundle/{commit}/{pat
 
 REQUIRED = ("bundle_tag", "bundle_commit", "imgui_version", "imgui_commit", "config_sha256",
             "standin_tag", "standin_commit")
+# The recorded sha256 values of the headers themselves, per kind: (key, what of).
+RECORDED = {
+    "fork": (("imgui_h_sha256", "imgui.h"), ("imgui_headers_sha256", None)),
+    "stand-in": (("standin_headers_sha256", None),),
+}
 
 
 class FetchError(Exception):
@@ -170,28 +194,81 @@ def read_config(pin: dict, bundle_checkout: str | None, url_template: str) -> tu
     return fetch_url(url, pin["config_sha256"]), url
 
 
-def _cached(directory: str, expect: dict) -> bool:
-    """True when `directory` is a finished fetch of exactly `expect` and no file
-    in it has changed since."""
+def headers_digest(sums: dict) -> str:
+    """One sha256 for a set of fetched files, {name: sha256}: of the lines
+    "<sha256>  <name>" in name order, which is what `sha256sum` prints for
+    them in the imgui directory, so `sha256sum $(ls | LC_ALL=C sort) | sha256sum`
+    gives it again by hand."""
+    return sha256("".join(f"{value}  {name}\n" for name, value in sorted(sums.items())).encode("utf-8"))
+
+
+def _sums_of(directory: str) -> dict:
+    """{name: sha256} of the header files in a fetched imgui directory."""
+    sums = {}
+    for name in sorted(os.listdir(directory)):
+        with open(os.path.join(directory, name), "rb") as handle:
+            sums[name] = sha256(handle.read())
+    return sums
+
+
+def recorded_problems(pin: dict, kind: str, sums: dict) -> tuple:
+    """(what the pins record for this kind and the files do not have; the
+    lines to add to the pins for what they do not record yet)."""
+    wrong, unrecorded = [], []
+    for key, name in RECORDED[kind]:
+        have = sums.get(name, "") if name else headers_digest(sums)
+        if not pin.get(key):
+            unrecorded.append(f'{key} = "{have}"')
+        elif pin[key] != have:
+            wrong.append(f"{key}: {name or 'the fetched headers'} hash to {have}, and "
+                         f"{pin[key]} is recorded")
+    return wrong, unrecorded
+
+
+def _cached(directory: str, pin: dict, kind: str) -> bool:
+    """True when `directory` holds exactly what the PINS record for this kind:
+    the configuration header by config_sha256 and the headers by every value
+    of RECORDED. False when a value is not recorded: nothing would vouch for
+    the files but the cache itself."""
     try:
-        with open(os.path.join(directory, "SOURCE.json"), encoding="utf-8") as handle:
-            source = json.load(handle)
-        if any(source.get(key) != value for key, value in expect.items()):
+        with open(os.path.join(directory, "imgui_bundle_config.h"), "rb") as handle:
+            if sha256(handle.read()) != pin["config_sha256"]:
+                return False
+        sums = _sums_of(os.path.join(directory, "imgui"))
+        if "imgui.h" not in sums or "imconfig.h" not in sums:
             return False
-        for relative, recorded in source["sha256"].items():
-            with open(os.path.join(directory, relative), "rb") as handle:
-                if sha256(handle.read()) != recorded:
-                    return False
-        return bool(source["sha256"])
+        wrong, unrecorded = recorded_problems(pin, kind, sums)
+        return not wrong and not unrecorded
     except (OSError, ValueError, KeyError, TypeError):
         return False
 
 
+def _announce(version: str, lines: list, log) -> None:
+    """Says which values bundle_pins.toml does not record yet, as the lines to
+    add to it; in a workflow, on the job's summary page as well."""
+    text = [f"bundle_pins.toml does not record these for imgui-bundle {version} yet. They are what "
+            "was just fetched by commit id; add them under",
+            f'[bundle."{version}"] in python/host/bundle_pins.toml:'] + ["    " + line for line in lines]
+    for line in text:
+        log(line)
+    summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+    if summary:
+        try:
+            with open(summary, "a", encoding="utf-8") as handle:
+                handle.write("\n### Header checksums to record\n\n```\n" + "\n".join(text) + "\n```\n")
+        except OSError as exc:
+            log(f"(could not write the job summary: {exc})")
+
+
 def fetch(version: str, kind: str = "fork", cache: str | None = None, pins_path: str = PINS,
           imgui_sources: list | None = None, bundle_checkout: str | None = None,
-          config_url: str = CONFIG_URL, log=lambda line: None) -> dict:
+          config_url: str = CONFIG_URL, log=lambda line: None,
+          require_recorded: bool | None = None) -> dict:
     """Fetches (or finds in the cache) the headers for one wheel version.
-    {"dir", "label", "kind", "from_cache", "source"}. Raises FetchError."""
+    {"dir", "label", "kind", "from_cache", "source", "unrecorded"}; "unrecorded"
+    is the lines the pins lack. Raises FetchError."""
+    if require_recorded is None:
+        require_recorded = os.environ.get("IMTYPESET_HEADERS_REQUIRE_RECORDED", "") not in ("", "0")
     if kind not in ("fork", "stand-in"):
         raise FetchError(f"--kind is 'fork' or 'stand-in', not {kind!r}")
     pin = load_pin(version, pins_path)
@@ -210,14 +287,18 @@ def fetch(version: str, kind: str = "fork", cache: str | None = None, pins_path:
         REPO, "build", "bundle-headers")
     directory = os.path.join(os.path.abspath(cache), version, kind)
     expect = {"bundle_version": version, "kind": kind, "imgui_commit": commit,
-              "bundle_commit": pin["bundle_commit"], "config_sha256": pin["config_sha256"],
-              "imgui_h_sha256": pin.get("imgui_h_sha256", "")}
-    if _cached(directory, expect):
-        log(f"headers for imgui-bundle {version} ({label}): cached in {directory}")
-        with open(os.path.join(directory, "SOURCE.json"), encoding="utf-8") as handle:
-            source = json.load(handle)
+              "bundle_commit": pin["bundle_commit"], "config_sha256": pin["config_sha256"]}
+    expect.update({key: pin.get(key, "") for key, _ in RECORDED[kind]})
+    if _cached(directory, pin, kind):
+        log(f"headers for imgui-bundle {version} ({label}): cached in {directory}, and every "
+            "file is what the pins record")
+        try:
+            with open(os.path.join(directory, "SOURCE.json"), encoding="utf-8") as handle:
+                source = json.load(handle)
+        except (OSError, ValueError):
+            source = dict(expect, label=label)  # it says where from, and vouches for nothing
         return {"dir": directory, "label": label, "kind": kind, "from_cache": True,
-                "source": source}
+                "source": source, "unrecorded": []}
 
     os.makedirs(os.path.dirname(directory), exist_ok=True)
     work = tempfile.mkdtemp(prefix=kind + ".", dir=os.path.dirname(directory))
@@ -237,11 +318,17 @@ def fetch(version: str, kind: str = "fork", cache: str | None = None, pins_path:
                 f"the {kind} headers for imgui-bundle {version} (Dear ImGui commit {commit}) "
                 "could not be fetched: " + " | ".join(refusals)
             )
-        recorded = pin.get("imgui_h_sha256", "")
-        if kind == "fork" and recorded and sums["imgui.h"] != recorded:
-            raise FetchError(
-                f"imgui.h at {commit} has sha256 {sums['imgui.h']}, and {recorded} is recorded"
-            )
+        wrong, unrecorded = recorded_problems(pin, kind, sums)
+        if wrong:
+            raise FetchError(f"{used} at {commit}: " + "; ".join(wrong))
+        if unrecorded:
+            _announce(version, unrecorded, log)
+            if require_recorded:
+                raise FetchError(
+                    f"the {kind} headers for imgui-bundle {version} were fetched, and "
+                    f"{pins_path} does not record their checksums ({', '.join(u.split(' ')[0] for u in unrecorded)}): "
+                    "a release is built only from recorded headers. Add the lines above."
+                )
         config, config_from = read_config(pin, bundle_checkout, config_url)
         with open(os.path.join(work, "imgui_bundle_config.h"), "wb") as handle:
             handle.write(config)
@@ -258,7 +345,8 @@ def fetch(version: str, kind: str = "fork", cache: str | None = None, pins_path:
         shutil.rmtree(work, ignore_errors=True)
     for relative, value in sorted(files.items()):
         log(f"  {value}  {relative}")
-    return {"dir": directory, "label": label, "kind": kind, "from_cache": False, "source": source}
+    return {"dir": directory, "label": label, "kind": kind, "from_cache": False, "source": source,
+            "unrecorded": unrecorded}
 
 
 def main(argv: list) -> int:
@@ -275,6 +363,9 @@ def main(argv: list) -> int:
                              "header (and the fork, if its submodule is there) from")
     parser.add_argument("--config-url", default=CONFIG_URL,
                         help="where the configuration header is, with {commit} and {path}")
+    parser.add_argument("--require-recorded", action="store_true", default=None,
+                        help="refuse headers whose checksums bundle_pins.toml does not record "
+                             "(also IMTYPESET_HEADERS_REQUIRE_RECORDED=1)")
     options = parser.parse_args(argv)
 
     def log(line: str) -> None:
@@ -282,7 +373,8 @@ def main(argv: list) -> int:
 
     try:
         result = fetch(options.bundle_version, options.kind, options.cache, options.pins,
-                       options.imgui_source, options.bundle_checkout, options.config_url, log)
+                       options.imgui_source, options.bundle_checkout, options.config_url, log,
+                       options.require_recorded)
     except UnknownVersion as exc:
         log(str(exc))
         return 2

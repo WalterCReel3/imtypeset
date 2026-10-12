@@ -14,12 +14,18 @@ For every wheel:
     one `Requires-Dist: imgui-bundle==X`, which is the wheel the attestation is of;
   - the library in the archive is the file the attestation is about (sha256,
     and the sha256 of what the loader maps of it);
-  - a build against stand-in headers says so in its version (+standin), and
-    nothing else does.
+  - a build against stand-in headers says so in its version (.dev0+standin,
+    a development release, which orders below the release of its line), and
+    nothing else does;
+  - the metadata is version 2.4, names its two notices as License-File, and
+    names no licence (none has been chosen);
+  - on Linux, the platform tag claims no more than the library in the archive
+    supports, measured here again with objdump (build_wheel.measured_linux_tag).
 
 --release adds: no stand-in headers, accepted by Dear ImGui's own layout check
-and not by the field probe alone, no local version segment; and --tag: the
-library version is the tag's. This is the step that keeps a development build
+and not by the field probe alone, no development or local version segment, the
+platform tag measured (so objdump must be there); and --tag: the library
+version is the tag's. This is the step that keeps a development build
 out of a release (.github/workflows/wheels.yml, tools/release.sh).
 
 Exit 0 when every wheel passes.
@@ -31,12 +37,16 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
+sys.path.insert(0, HERE)
+import build_wheel  # noqa: E402
+
 MODULES = {"__init__.py", "_bundle.py", "_capi.py", "demo.py"}
 LIBRARIES = {"libimtypeset_bundle.so", "libimtypeset_bundle.dylib"}
 
@@ -113,14 +123,23 @@ def check(path: str, release: bool, tag: str, gate) -> list:
     if fields.get("Requires-Python") != [f"=={python_tag[2]}.{python_tag[3:]}.*"]:
         problems.append(f"Requires-Python {fields.get('Requires-Python')} is not the tag's CPython")
 
-    public, _, local = version.partition("+")
     stand_in = bool(attestation.get("stand_in"))
     library_version = str(attestation.get("imtypeset_version"))
-    if public != f"{library_version}.{bundle_line(wheel_version)}":
-        problems.append(f"version {public} is not {library_version}.{bundle_line(wheel_version)} "
+    release_version = f"{library_version}.{bundle_line(wheel_version)}"
+    suffix = version[len(release_version):] if version.startswith(release_version) else None
+    if suffix is None:
+        problems.append(f"version {version} does not begin {release_version} "
                         f"(library version, line of imgui-bundle {wheel_version})")
-    if local not in ("", "standin") or (local == "standin") != stand_in:
-        problems.append(f"local version {local!r} with stand_in {stand_in}")
+    elif suffix not in ("", build_wheel.STAND_IN_SUFFIX) or (suffix != "") != stand_in:
+        problems.append(f"version {version} with stand_in {stand_in}: a stand-in build is "
+                        f"{release_version}{build_wheel.STAND_IN_SUFFIX} and nothing else is")
+    if fields.get("Metadata-Version") != ["2.4"]:
+        problems.append(f"Metadata-Version {fields.get('Metadata-Version')}: License-File needs 2.4")
+    if sorted(fields.get("License-File", [])) != ["NOTICE.txt", "THIRD-PARTY.md"]:
+        problems.append(f"License-File {fields.get('License-File')} is not the two notices")
+    if "License" in fields or "License-Expression" in fields or any(
+            c.startswith("License ::") for c in fields.get("Classifier", [])):
+        problems.append("the metadata names a licence, and none has been chosen")
     if stand_in != str(attestation.get("headers", "")).startswith("stand-in:"):
         problems.append("the attestation's stand_in and headers disagree")
     for key, want in (("distribution_version", version), ("wheel_version", wheel_version),
@@ -138,6 +157,25 @@ def check(path: str, release: bool, tag: str, gate) -> list:
         with open(copy, "wb") as handle:
             handle.write(library_bytes)
         now = gate.identity(copy)
+        measured = None
+        if platform_tag.startswith(("manylinux", "linux_")) and shutil.which("objdump"):
+            machine = str(attestation.get("platform", {}).get("machine"))
+            try:
+                measured = build_wheel.measured_linux_tag(machine, copy, str(attestation.get("module", {}).get("file")))
+            except build_wheel.Failed as failure:
+                problems.append(f"the library's needs could not be measured: {failure}")
+    if platform_tag.startswith(("manylinux", "linux_")):
+        if measured is None:
+            if release:
+                problems.append("NOT A RELEASE: the platform tag was not measured (no objdump here)")
+            else:
+                print(f"note {name}: the platform tag was not measured (no objdump here)")
+        else:
+            claimed, supported = build_wheel.manylinux_level(platform_tag), build_wheel.manylinux_level(measured[0])
+            if platform_tag != measured[0] and not platform_tag.startswith("linux_") and not (
+                    claimed and supported and claimed >= supported):
+                problems.append(f"the platform tag {platform_tag} claims more than the library supports: "
+                                f"{measured[0]} ({measured[1]})")
     for key in ("sha256", "image_sha256", "size"):
         if now[key] != attestation.get("library", {}).get(key):
             problems.append(f"the library's {key} is not the attestation's")
@@ -145,7 +183,7 @@ def check(path: str, release: bool, tag: str, gate) -> list:
         problems.append("the library does not read as an ELF or Mach-O image")
 
     if release:
-        if stand_in or local:
+        if stand_in or suffix != "":
             problems.append("NOT A RELEASE: built against stand-in headers")
         if attestation.get("accepted_by") != "imgui-check+probe" or not attestation.get("imgui_check"):
             problems.append(f"NOT A RELEASE: accepted by {attestation.get('accepted_by')!r}, and a "

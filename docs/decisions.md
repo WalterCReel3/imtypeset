@@ -3687,3 +3687,130 @@ one place the version is written; `tools/version.py --check` holds the five copi
 
 **Decided: a stand-in wheel is marked `+standin` and no release path accepts one.** Both wheels
 built here are such wheels; none against the wheel's own headers has been built anywhere.
+
+## D72. On a dense display the pixel grid is the framebuffer's (task `hidpi`, request H19, 2026-10-12)
+
+Agent decisions, taken with nobody to ask. There is no Mac here: everything *measured* below was
+measured on Linux x86-64, by setting `io.DisplayFramebufferScale` in a headless frame and
+rasterising the draw data with `tests/support/soft_raster.h`, which projects positions and scissor
+rectangles by `ImDrawData::FramebufferScale` as the GPU backends do. What a Retina display shows is
+in the *not measured* list, with the script a person at one runs.
+
+**Read** (`.deps/imgui`, v1.92.9; `../hello_imgui` at `v1.92.900-98-g3989373` and its tag
+`v1.92.900`):
+
+- With `ImGuiBackendFlags_RendererHasTextures`, ImGui sets its font density from the viewport's
+  framebuffer scale each time a window becomes current (`SetCurrentWindow`), and
+  `UpdateCurrentFontSize` copies it into `ImFont::CurrentRasterizerDensity` **of the font that is
+  current**, and of no other. `ImFont::GetFontBaked(size)` with no density uses that field. A font
+  that is never pushed keeps the density its `ImFontConfig` was added with. `ImFontConfig::
+  RasterizerDensity` is marked legacy and multiplies the baked density; 1.0 is right for it.
+- `GetRoundedFontSize` rounds a baked size to a whole **unit**, whatever the density.
+- The FreeType loader keeps a baked ascent to a whole framebuffer pixel
+  (`FT_CEIL(ascender) / density`); the stb_truetype loader to a whole unit (`ImCeil`), and hangs
+  bitmaps from `IM_ROUND(Ascent)`. So where a glyph's bitmap lands on the framebuffer depends on
+  the loader as soon as the density is not a whole number.
+- hello_imgui adds a font at its nominal size with the config it is given and sets
+  `style.FontScaleDpi = dpiWindowSizeFactor`, which is 1 on macOS
+  (`GlfwWindowHelper::GetWindowSizeDpiScaleFactor`) and the monitor's content scale elsewhere.
+  On macOS density is therefore ImGui's own business, through the backend's
+  `io.DisplayFramebufferScale`; on Windows and Linux the framebuffer scale is 1 and text is
+  made larger in units.
+
+**Measured, before this entry's change** (`tests/test_hidpi.cpp`, `hidpi_report`; FreeType
+2.12.1; Roboto Regular at a 16-unit pixel height; the host's line is `ImGui::TextUnformatted` in
+the same face added by `AddFontFromFileTTF(path, 16)` with a default config):
+
+| density | texels per framebuffer pixel, host / library | ink in pixels at least 98 % black, host / library |
+|---|---|---|
+| 1 | 1.000 / 1.000 | 24.5 % / 24.5 % |
+| 1.5 | 1.000 / 0.667 | 38.8 % / 0.0 % |
+| 2 | 1.000 / 0.500 | 61.2 % / 0.0 % |
+| 3 | 1.000 / 0.333 | 70.7 % / 7.3 % |
+
+The library's glyphs were the bitmaps of density 1, stretched: the draw loop asks
+`GetFontBaked(size)` of fonts it never makes current. Every position was a whole unit, so at
+density 2 every bound the draw rules state (D47, D48, D50) was twice as many framebuffer pixels;
+at 1.5, 53 of 56 glyph quads were off the framebuffer's grid. The pictures were looked at: the
+library's line soft and its letters crowded beside a sharp host line.
+*Measured in the stock wheel as well* (imgui-bundle 1.92.900, stand-in headers, a sidecar built
+from commit `4ba28cf`): `examples/python/hidpi_check.py --assume-density 2` reads 0.500 texels
+per framebuffer pixel off the library's vertices. An application that had pushed the library's
+font for its own text would have seen something else, by accident: the push leaves the display's
+density in the font.
+
+**Decided: `DrawRules::device_pixels`, on in `product()`: the whole of placement is done in
+framebuffer pixels.** The origin and every length are multiplied by the density, each face is
+baked at its size in framebuffer pixels at ImGui's density 1, the rules of `src/draw.h` are
+applied to those numbers as they stand, and the ops are divided by the density when the list is
+done. Layout is untouched and stays in units; sizes, lines, hit tests and selection rectangles
+answer what they answered. `reference()` has the rule off and knows one kind of pixel. At
+density 1 every product is with exactly 1 and the bake call is the one it was: the vertices are
+the same floats (*measured*: positions, texture coordinates and colours of two paragraphs, with
+and without the rule).
+
+- *Why in framebuffer pixels throughout, and not units snapped to halves.* It is one
+  transformation and no new rule: a list placed at density d is, number for number, the list
+  placed at d times the pixels per inch with the origin multiplied by d (*measured*, exactly, for
+  prose and formulas at three sizes and four densities). So everything `tests/test_word_gaps.cpp`
+  and `tests/test_harden.cpp` establish about the product's rules holds in framebuffer pixels
+  without being proved again, and `docs/vector-output.md` had already measured that such a list is
+  the layout drawn larger.
+- *Why bake at density 1 at the framebuffer size, and not at the unit size with density d.* The
+  bitmaps are the same where both exist (*measured*: the library's line has the host's ink to
+  0.1 square pixel at each density under FreeType). But the size is then rounded to a framebuffer
+  pixel and not to a unit, which halves the mismatch between a glyph's size and its laid-out
+  advance at density 2; and bitmaps hang from whole framebuffer pixels under either loader,
+  where a density-1.5 bake under stb_truetype would stand half a pixel off (read, above).
+  *Measured under stb_truetype too*: on the grid and texel for pixel at 1, 1.5, 2 and 3.
+- *The bounds.* Half a pixel for a word's width, a pixel and a half between neighbours, a pixel
+  between two parts of a formula, a rule within a pixel of its laid-out thickness and never under
+  one: all in **framebuffer** pixels (*measured* at 1, 1.5, 2 and 3 over 2,000 words; and with the
+  rule off at density 2 a word is up to a whole framebuffer pixel out, which the test holds as
+  the contrast). A hairline is one framebuffer pixel: at density 2 a fraction's bar is half a unit
+  thick. `CULL_MARGIN_PX` and the document's window margin stay in units, which at a density of 1
+  or more is at least as many framebuffer pixels.
+
+**Decided: the density is read at draw time from `io.DisplayFramebufferScale.x`, and there is no
+new API.** Weighed:
+
+- `ImTypesetStyle::PixelsPerInch` is **not** the knob. It is a layout quantity: at 192 the text is
+  twice as large in units and breaks into other lines. That is right for the other kind of
+  scaling (Windows and Linux at 150 %, where a runner sets `style.FontScaleDpi` and the
+  framebuffer scale stays 1) and wrong for a Retina display, where a unit is already the size
+  the user expects.
+- A density argument on each draw would be one more thing for a binding to pass and for a host
+  to forget, and what it would pass is this field. `DrawArgs::density` exists inside for tests;
+  zero is the display's.
+- ImGui's own value is `GImGui->FontRasterizerDensity`, per viewport. It is behind
+  `imgui_internal.h` in a struct the sidecar's field probe cannot check against a wheel that
+  ships no headers. `io.DisplayFramebufferScale` is public, is what ImGui copies to the main
+  viewport every frame, and is probed (`ImGuiIO.DisplayFramebufferScale`, the 25th row).
+  **What that gives up:** with multi-viewports on and two displays of different density, text in
+  a platform window on the other display is placed for the main one's. hello_imgui has
+  multi-viewports off by default.
+- A scale that is not above 1, above 16, or not a number is 1. Only `.x` is read, as ImGui does.
+
+**What this costs.** A unit of text at density d is d² texels of atlas. A host that pushes one of
+the library's fonts for its own `ImGui::Text` gets that face baked twice at density 2 (ImGui's
+bake at the unit size and density 2, ours at the framebuffer size and density 1: the same
+bitmaps under two keys). The ops are divided by the density in one more pass over them when it is
+not 1. At 1.5 and 3 a vertex is the float32 nearest a third of a unit, a few millionths of a
+framebuffer pixel off.
+
+**Not decided here, left as it is:** a face with no font bound is drawn in ImGui's current font
+as ImGui has it baked, with only its pen on the framebuffer's grid. The demo window's own
+chrome is ImGui's.
+
+**Not measured:**
+
+- **Anything on macOS, on a GPU, or on a Retina panel.** `examples/python/hidpi_check.py` is the
+  check: it prints the density ImGui reports and texels per framebuffer pixel off the library's
+  own vertices, and shows the host's line beside the library's. It has run here at density 1 in
+  the stock 1.92.900 wheel on Xvfb, and with `--assume-density 2` and `1.5`, where it passes on
+  this tree and fails (0.500) on a sidecar built from `4ba28cf`.
+- Whether hello_imgui's GLFW backend reports 2 on the Macs in question. Read, not run.
+- A window dragged between displays of different density; multi-viewports.
+- The draw's cost at density 1 against the commit before. The path differs by a product with one
+  per coordinate and one comparison per call; `bench_draw` was not run for it.
+- The sidecar under the fork's own headers (built here with stand-in headers, as before).

@@ -43,8 +43,12 @@ before anything else can be called.
 WHERE THE LIBRARY IS. An installed wheel of this distribution carries it
 inside the package and needs no environment variable; it is pinned to the one
 imgui-bundle it was built for and refuses any other with a sentence
-(docs/sidecar.md, sections 8 and 9). IMTYPESET_LIBRARY, when set, names a
-library and wins: the development override.
+(docs/sidecar.md, sections 8 and 9). It reads no environment variable: what
+an installed package loads is what is in its own directory, and
+`host_info()["ignored_environment"]` names any IMTYPESET_LIBRARY,
+IMTYPESET_GATE or IMTYPESET_PRELOAD_BUNDLE that was set and not read. In a
+source checkout, which carries no library, IMTYPESET_LIBRARY names one: the
+development route.
 """
 
 from __future__ import annotations
@@ -553,21 +557,54 @@ class _HostFacts(_C.Structure):
 
 
 def _load():
+    """_load_checked(), with whatever it raises brought to the one thing a
+    refused import raises: an ImportError carrying `kind`."""
+    from . import _bundle
+
+    try:
+        return _load_checked()
+    except ImportError as refused:
+        if hasattr(refused, "kind"):
+            raise
+        escaped = refused
+    except Exception as exc:
+        escaped = exc
+    raise _bundle.refusal(
+        "unchecked",
+        "imtypeset could not finish checking its library against the imgui-bundle in this "
+        "application, and does not use a library it has not checked. Install imtypeset again.",
+        f"the check ended in {type(escaped).__name__}: {escaped}",
+    ) from escaped
+
+
+def _load_checked():
     from . import _bundle
 
     path, route = _capi.library_route()
+    installed = route == "installed"
 
     def refuse(kind, sentence, detail=""):
         return _bundle.refusal(kind, sentence, f"{path!r}" + (": " + detail if detail else ""))
 
     together = "The library and the package are installed together, from one release."
 
-    # Where an attestation vouches for the library (an installed distribution;
-    # a development build that has one), the library and the wheel's module
-    # are held to it by content BEFORE the library is loaded: a truncated or
-    # half-updated file is refused here and never mapped.
-    attestation = _bundle.precheck(path, route)
-    lib = _capi.load(path, bundle_first=attestation is not None)
+    # Nothing is mapped into this process before this returns. Where an
+    # attestation vouches for the library (an installed distribution; a
+    # development build that has one), the library and the wheel's module are
+    # held to it by content: a truncated or half-updated file is refused here
+    # and never loaded. Where none does (a development checkout only), the
+    # library is loaded and probed in a child interpreter first.
+    attestation, child_report = _bundle.precheck(path, route)
+    for_bundle = attestation is not None or child_report.get("kind") == "imgui_bundle"
+    lib = _capi.load(path, bundle_first=for_bundle, environment=not installed)
+    if for_bundle != hasattr(lib, "ImTypesetBundle_LayoutFacts"):
+        raise refuse(
+            "not-a-library",
+            "The imtypeset library is not the kind of library that was checked: "
+            + ("it is not a library for imgui-bundle." if for_bundle
+               else "it changed between the check and the load.")
+            + " Install imtypeset again.",
+        )
     raw = _capi.BuildInfo()
     whole = lib.ImTypeset_GetBuildInfo(_C.byref(raw), _C.sizeof(raw))
     if whole < _C.sizeof(raw) or raw.StructSize != whole:
@@ -626,11 +663,32 @@ def _load():
         # Bundle's module. _bundle.gate() raises ImportError unless that ImGui
         # is laid out the way the library was compiled to expect.
         host = "imgui_bundle"
-        bundle_report = _bundle.gate(lib, path, route, attestation, lib.preload)
+        bundle_report = _bundle.gate(lib, path, route, attestation, lib.preload, child_report)
         layout_checked = True
     else:
         host = "unknown"
         layout_checked = False
+    if host == "imgui_bundle":
+        checked_by = (
+            "the attestation: both files by content, then the checks that read nothing through "
+            "an offset" if attestation is not None
+            else "the full field probe, in a child interpreter, before the library was loaded here"
+        )
+    else:
+        # A library that is not a sidecar is reached on the development route
+        # only (the branch above refuses it under an attestation), and after a
+        # child interpreter loaded it. What accepts it is its account of its
+        # own build: ImTypeset_GetBuildInfo's size and C ABI revision above,
+        # for a self-hosted library that the Dear ImGui inside it is the
+        # version imtypeset was compiled against, and the struct sizes below.
+        # No Dear ImGui outside the library is involved, so there is no pair
+        # to probe.
+        route += " (build-info check only)"
+        checked_by = (
+            "a child interpreter loaded it; then its own build information: C ABI revision, "
+            + ("the version of the Dear ImGui inside it, " if host == "self-hosted" else "")
+            + "struct sizes"
+        )
 
     def checked(ok, what):
         if ok:
@@ -677,19 +735,22 @@ def _load():
         ),
         "'s column structs",
     )
-    return lib, path, info, host, layout_checked, bundle_report, route
+    ignored = _bundle.ignored_environment("installed" if installed else route)
+    return lib, path, info, host, layout_checked, bundle_report, route, checked_by, ignored
 
 
 # True when this is importlib.reload() of a package that had loaded: the names
 # below are then already bound, to what the load before answered.
 _reloading = "_lib" in globals()
 try:
-    _lib, _path, _build, _host, _layout_checked, _bundle_report, _route = _load()
+    (_lib, _path, _build, _host, _layout_checked, _bundle_report, _route, _checked_by,
+     _ignored_environment) = _load()
 except BaseException:
     # A refused import leaves no module of this package behind. Python takes
     # the package itself out of sys.modules and not the submodules it had
     # already imported, and a second attempt -- after IMTYPESET_LIBRARY was
-    # set right, or with another copy of the package in front on sys.path --
+    # set right in a checkout, or with another copy of the package in front on
+    # sys.path --
     # would otherwise be made with the first attempt's `_capi`. (So a refusal
     # is a plain ImportError carrying `kind`, `sentence` and `detail`, and not
     # a class of this package: _bundle.refusal.) What cannot
@@ -733,9 +794,19 @@ def host_info() -> dict:
     return {
         "host": _host,  # "self-hosted", "imgui_bundle" or "unknown"
         "library": _path,
-        # How the library was found: "installed" (it is inside this package, as
-        # a wheel puts it) or "IMTYPESET_LIBRARY" (the development override).
+        # How the library was found, which is also what was allowed to decide:
+        # "installed" (it is inside this package, as a wheel puts it; no
+        # environment variable was read), "IMTYPESET_LIBRARY" (a source
+        # checkout, a sidecar the variable names), or "IMTYPESET_LIBRARY
+        # (build-info check only)" (a source checkout, a library that is not a
+        # sidecar: self-hosted, or with no Dear ImGui at all).
         "route": _route,
+        # What accepted the library, in words.
+        "checked_by": _checked_by,
+        # The variables among IMTYPESET_LIBRARY, IMTYPESET_PYTHON,
+        # IMTYPESET_GATE and IMTYPESET_PRELOAD_BUNDLE that were set and NOT
+        # read, because this is an installed distribution. Empty otherwise.
+        "ignored_environment": list(_ignored_environment),
         # The distribution's version (the library's version and the
         # imgui-bundle line it was built for); None for a development build.
         "distribution_version": (

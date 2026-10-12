@@ -185,6 +185,7 @@ IMTYPESET_BUNDLE_EXPORT int ImTypesetBundle_LayoutFacts(char* out, int out_size)
         SIZE(ImTextureID),
         FACT(ImGuiIO, BackendFlags),
         FACT(ImGuiIO, BackendRendererName),
+        FACT(ImGuiIO, DisplayFramebufferScale),
         FACT(ImGuiIO, Fonts),
         FACT(ImGuiIO, FontDefault),
         FACT(ImGuiStyle, Alpha),

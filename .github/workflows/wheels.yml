@@ -8,10 +8,19 @@
 # Every step is a script under tools/ci that also runs on a developer's
 # machine; this file only says where and in what order.
 #
-# NEVER RUN. The runner labels and action versions are those of
-# sidecar-probe.yml, with actions/download-artifact read the same way on
-# 2026-10-11 (a summarising fetch of its releases page). Nothing is uploaded
-# to a package index.
+# NEVER RUN. The action versions are those of sidecar-probe.yml, with
+# actions/download-artifact read the same way on 2026-10-11 (a summarising
+# fetch of its releases page). Each action is named by the commit its tag
+# pointed at on 2026-10-12, the tag in a comment: read from api.github.com
+# (repos/actions/<name>/git/ref/tags/<tag> and .../commits/<tag>, which
+# agreed) through a summarising fetch, not by git. Nothing is uploaded to a
+# package index.
+#
+# Linux wheels are built on ubuntu-22.04 and not ubuntu-latest: the platform
+# tag is measured from the library (tools/wheel/build_wheel.py), and a library
+# compiled against a newer C library can need more of it than the systems the
+# wheel is for have. That the label exists and what the measurement gives
+# there are both unknown until the first run.
 name: wheels
 
 on:
@@ -19,7 +28,7 @@ on:
     inputs:
       linux_runner:
         description: Runner label for Linux x86-64
-        default: ubuntu-latest
+        default: ubuntu-22.04
       macos_arm64_runner:
         description: Runner label for macOS on Apple Silicon
         default: macos-14
@@ -58,7 +67,7 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: matrix
         env:
           IMTYPESET_CI_LINUX: ${{ github.event.inputs.linux_runner }}
@@ -74,8 +83,8 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-python@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
       - name: System libraries the wheel's module links
@@ -84,10 +93,11 @@ jobs:
         env:
           IMTYPESET_BUNDLE_HEADERS: ${{ github.event.inputs.headers }}
           IMTYPESET_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
-        run: sh tools/ci/wheel_build.sh "${{ matrix.bundle }}" wheel-out python
+          IMTYPESET_WHEEL_BUNDLE: ${{ matrix.bundle }}
+        run: sh tools/ci/wheel_build.sh "$IMTYPESET_WHEEL_BUNDLE" wheel-out python
       - name: The wheel, and the build's log
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wheel-${{ matrix.id }}
           path: |
@@ -107,12 +117,15 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/download-artifact@v8.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: released
           pattern: wheel-*
       - name: Refuse anything that is not this release, then create it
+        # The tag's name reaches the shell as a variable's value, never as
+        # text of the command: a ref name may hold characters a shell acts on.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: sh tools/ci/wheel_release.sh "${{ github.ref_name }}" released
+          IMTYPESET_RELEASE_TAG: ${{ github.ref_name }}
+        run: sh tools/ci/wheel_release.sh "$IMTYPESET_RELEASE_TAG" released

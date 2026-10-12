@@ -26,7 +26,10 @@
 #                    resumes in the same output directory.
 #   IMTYPESET_BUNDLE_OUT      output directory, default build/py-host-bundle.
 #   IMTYPESET_HEADER_CACHE    where fetched headers are kept, default
-#                    build/bundle-headers.
+#                    build/bundle-headers. A kept copy is used only when it
+#                    hashes to what python/host/bundle_pins.toml records.
+#   IMTYPESET_HEADERS_REQUIRE_RECORDED  1: refuse headers whose checksums the
+#                    pins do not record yet (a release build sets it).
 #   IMTYPESET_IMGUI_FORK_SOURCE  a git URL or local repository to take the
 #                    fork from, in place of https://github.com/pthom/imgui.git.
 #   IMTYPESET_IMGUI_CLONE     a local clone of ocornut/imgui to take stand-in

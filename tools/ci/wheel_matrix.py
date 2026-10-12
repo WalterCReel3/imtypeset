@@ -20,7 +20,9 @@ import sidecar_matrix  # noqa: E402
 
 
 def matrix(environ=os.environ) -> dict:
-    linux = environ.get("IMTYPESET_CI_LINUX") or "ubuntu-latest"
+    # Not ubuntu-latest: an older C library to compile against, so that the
+    # measured platform tag stays low (.github/workflows/wheels.yml).
+    linux = environ.get("IMTYPESET_CI_LINUX") or "ubuntu-22.04"
     arm64 = environ.get("IMTYPESET_CI_MACOS_ARM64") or "macos-14"
     include = []
     for os_label, short in ((linux, "linux-x86_64"), (arm64, "macos-arm64")):

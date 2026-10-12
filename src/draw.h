@@ -56,6 +56,10 @@
 //     on to 65,532. The vertices and triangles are the same.
 //   - Optional culling by line (`LineIndex`), which the reference leaves to its
 //     views.
+//   - Under DrawRules::product(), "pixel" in every rule above is a pixel of
+//     the framebuffer and not a unit of ImGui's coordinates, which on a dense
+//     display (macOS: two framebuffer pixels to the unit) are not the same
+//     thing: see DrawRules::device_pixels. The reference knows one kind.
 //   - The per-call memo is kept as reusable scratch in a `Drawer`. It is still
 //     rebuilt on every call and nothing of ImGui's is held between calls: an
 //     ImFontBaked is only good for a frame.
@@ -385,6 +389,48 @@ struct DrawRules {
     // with its cell while a row or two of its bitmap is inside.
     bool quads_off_clip_dropped = false;
 
+    // The pixel grid is the framebuffer's. With DENSITY framebuffer pixels to
+    // a unit of ImGui's coordinates (DrawArgs::density; ImGui's
+    // io.DisplayFramebufferScale, 2 on a macOS Retina display and 1 on most
+    // others), the whole of placement is done in framebuffer pixels: the
+    // origin and every length are multiplied by the density, each face is
+    // baked at its size in framebuffer pixels (at ImGui's rasteriser density
+    // 1, so that the rasteriser is asked for the same bitmap whichever of
+    // ImGui's loaders it is and the size is rounded to a framebuffer pixel
+    // and not to a unit), and every rule of this file is applied to those
+    // numbers as it stands. What is written to the draw list is the result
+    // divided by the density. So a glyph's bitmap meets the framebuffer texel
+    // for pixel, a gap is rounded to a framebuffer pixel, a hairline is one
+    // framebuffer pixel thick, and every bound stated in pixels — half a
+    // pixel for a word's width, a pixel and a half between neighbours, half a
+    // pixel for a part of a formula — is that many FRAMEBUFFER pixels, which
+    // at density 2 is half as far on the glass. At density 1 nothing is
+    // multiplied by anything but one and the output is the same to the bit.
+    //
+    // Layout does not change: lines break where they broke, and sizes, hit
+    // tests and selection rectangles are in ImGui's units as before. What is
+    // drawn differs from layout by no more than the bounds above, in
+    // framebuffer pixels.
+    //
+    // A density that is not above 1, or is above MAX_DENSITY, or is not a
+    // number, is 1. At a density that is not a power of two (1.5, 3) a
+    // position on the framebuffer's grid is not a float32 in ImGui's units: a
+    // vertex is the nearest float32 to it, within a few millionths of a
+    // pixel at any coordinate a display has.
+    //
+    // A face with no font bound is drawn in ImGui's current font as ImGui
+    // has it baked, whatever density that is; only its pen is on the
+    // framebuffer's grid.
+    //
+    // The reference has one kind of pixel. Without this rule the rules above
+    // are applied in ImGui's units, and a font this library added is baked
+    // at density 1 for a size in units, because ImGui raises a font's
+    // density to the display's only while that font is the current one
+    // (ImGui::PushFont), which this loop never makes it: measured at density
+    // 2, half a texel to the framebuffer pixel, where ImGui's own text in
+    // the same window has one (tests/test_hidpi.cpp).
+    bool device_pixels = false;
+
     static constexpr DrawRules reference() { return DrawRules(); }
     static constexpr DrawRules product()
     {
@@ -393,6 +439,7 @@ struct DrawRules {
         rules.word_width_held = true;
         rules.word_spaces_led = true;
         rules.quads_off_clip_dropped = true;
+        rules.device_pixels = true;
         return rules;
     }
 };
@@ -401,10 +448,20 @@ struct DrawRules {
 // DrawRules::word_width_held.
 constexpr double WORD_WIDTH_BOUND_PX = 0.5;
 
+// The most framebuffer pixels to a unit of ImGui's coordinates that
+// DrawRules::device_pixels follows.
+constexpr double MAX_DENSITY = 16.0;
+
 struct DrawArgs {
-    // Where the commands' (0, 0) goes, in screen pixels.
+    // Where the commands' (0, 0) goes, in ImGui's coordinates.
     ImVec2 origin = ImVec2(0.0f, 0.0f);
+    // Units of ImGui's coordinates to the inch: what layout was done at.
     double px_per_inch = DEFAULT_PX_PER_INCH;
+    // Framebuffer pixels to a unit of ImGui's coordinates, read under
+    // DrawRules::device_pixels alone. Zero is the display's as ImGui has it,
+    // io.DisplayFramebufferScale.x of the current context, and 1 with no
+    // context.
+    double density = 0.0;
     DrawRules rules;
     Palette palette;
     // If not zero, the colour of a rule that is no formula's (the rule under
@@ -459,9 +516,10 @@ public:
     // codepoint can be asked of the atlas at all. Not asked for UNKNOWN keys.
     virtual bool has_glyph(uint32_t glyph_slot, uint32_t key_slot, uint32_t codepoint) = 0;
     // The size the key's glyphs are drawn at and the ascent they hang from,
-    // as the rasteriser baked them. Asked when the key first has a glyph to
-    // draw. False if the key cannot be drawn at all, which makes its glyphs
-    // missing.
+    // as the rasteriser baked them, in the pixels placement is done in:
+    // framebuffer pixels (Drawer::density_of). Asked when the key first has a
+    // glyph to draw. False if the key cannot be drawn at all, which makes its
+    // glyphs missing.
     virtual bool bake(uint32_t key_slot, FontKey key, float* size, float* ascent) = 0;
 };
 
@@ -558,7 +616,9 @@ public:
 
     // Places the runs: fills ops() with the calls, in order, and glyphs() and
     // keys() with what they refer to. `cull_clip` is the rectangle
-    // args.cull_lines tests against; null disables culling.
+    // args.cull_lines tests against; null disables culling. The ops are in
+    // ImGui's coordinates whatever the density; a key's size and ascent are
+    // as the binder answered them.
     DrawStats place(const DrawRun* runs, size_t run_count, const DrawArgs& args, FontBinder& binder,
                     const ImVec4* cull_clip = nullptr);
 
@@ -584,6 +644,10 @@ public:
 
     static constexpr float MAX_BAKED_SIZE_PX = 2048.0f;
 
+    // The density a call with these arguments places at: 1 without
+    // DrawRules::device_pixels, and for a density that rule does not follow.
+    static double density_of(const DrawArgs& args);
+
 private:
     class ImGuiBinder;
     struct Span;
@@ -594,6 +658,7 @@ private:
                         FontBinder& binder, DrawStats& stats);
     void push_area(OpType type, Scaled x, Scaled y, Scaled width, Scaled height, ImU32 colour,
                    const DrawArgs& args);
+    void ops_to_units();
     double settle_word(size_t word_op, double drift);
 
     template<class Sink>
@@ -612,6 +677,8 @@ private:
     std::vector<Other> _others;
     size_t _other_count = 0;
     uint32_t _last_key = 0;
+    // The density of the call being placed or emitted.
+    double _density = 1.0;
     ImGuiBinder* _binder;
 };
 

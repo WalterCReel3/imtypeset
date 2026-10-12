@@ -216,28 +216,39 @@ struct BufferSink {
 constexpr size_t MOST_QUADS_PER_OP = 4;
 
 // The frame of a RECT op: the pixels of the rectangle that touch its edge. A
-// rectangle two pixels or less across either way is all edge.
+// rectangle two pixels or less across either way is all edge. `pixel` is one
+// pixel of the grid the op was placed on, in the op's units.
 template<class Sink>
-void write_frame(Sink& sink, typename Sink::Position& at, const DrawOp& op)
+void write_frame(Sink& sink, typename Sink::Position& at, const DrawOp& op, float pixel)
 {
     if (!(op.x1 > op.x0 && op.y1 > op.y0))
         return;
-    if (!(op.x1 - op.x0 > 2.0f && op.y1 - op.y0 > 2.0f)) {
+    if (!(op.x1 - op.x0 > 2.0f * pixel && op.y1 - op.y0 > 2.0f * pixel)) {
         sink.rect(at, op.x0, op.y0, op.x1, op.y1, op.colour);
         return;
     }
-    sink.rect(at, op.x0, op.y0, op.x1, op.y0 + 1.0f, op.colour);
-    sink.rect(at, op.x0, op.y1 - 1.0f, op.x1, op.y1, op.colour);
-    sink.rect(at, op.x0, op.y0 + 1.0f, op.x0 + 1.0f, op.y1 - 1.0f, op.colour);
-    sink.rect(at, op.x1 - 1.0f, op.y0 + 1.0f, op.x1, op.y1 - 1.0f, op.colour);
+    sink.rect(at, op.x0, op.y0, op.x1, op.y0 + pixel, op.colour);
+    sink.rect(at, op.x0, op.y1 - pixel, op.x1, op.y1, op.colour);
+    sink.rect(at, op.x0, op.y0 + pixel, op.x0 + pixel, op.y1 - pixel, op.colour);
+    sink.rect(at, op.x1 - pixel, op.y0 + pixel, op.x1, op.y1 - pixel, op.colour);
 }
 
 // A LINE_SEGMENT op, which is horizontal: the row of pixels below its y.
 template<class Sink>
-void write_segment(Sink& sink, typename Sink::Position& at, const DrawOp& op)
+void write_segment(Sink& sink, typename Sink::Position& at, const DrawOp& op, float pixel)
 {
     if (op.x1 > op.x0)
-        sink.rect(at, op.x0, op.y0, op.x1, op.y0 + 1.0f, op.colour);
+        sink.rect(at, op.x0, op.y0, op.x1, op.y0 + pixel, op.colour);
+}
+
+// One axis of a document coordinate on the grid placement is done on, which
+// has `density` pixels to a unit of ImGui's coordinates: the origin and the
+// length both in those pixels, summed in double and rounded to float32. At
+// density 1 it is device_coordinate, to the bit: a product with one is exact.
+double placed_coordinate(float origin, Scaled length, double px_per_inch, double density)
+{
+    return static_cast<float>(static_cast<double>(origin) * density +
+                              px_from_sp(length, px_per_inch * density));
 }
 
 } // namespace
@@ -376,17 +387,22 @@ public:
         const FaceData* data = nullptr;
         ImFontBaked* baked = nullptr;
         FontSpec spec;
-        // The size a glyph is drawn at, and that size over the baked one:
-        // exactly 1 for a bound face.
+        // The size a glyph is drawn at in ImGui's units, and that size over
+        // the baked one: for a bound face one over the density, which at
+        // density 1 is exactly 1.
         float size = 0.0f;
         float scale = 1.0f;
     };
 
-    void configure(const FaceFonts& fonts, MetricsResolver metrics, double px_per_inch)
+    // `density` is the framebuffer pixels to a unit that the call places at
+    // (Drawer::density_of), and `px_per_inch` the layout's, in units.
+    void configure(const FaceFonts& fonts, MetricsResolver metrics, double px_per_inch,
+                   double density)
     {
         _fonts = &fonts;
         _metrics = metrics;
         _px_per_inch = px_per_inch;
+        _density = density;
     }
 
     void begin() override
@@ -450,24 +466,41 @@ public:
             if (state.baked == nullptr || !(state.baked->Size > 0.0f))
                 return false;
             state.scale = state.size / state.baked->Size;
-        } else {
-            // Our em size, corrected to the pixel height ImGui scales by, then
-            // rounded by ImGui itself.
-            const double nominal = px_from_sp(state.spec.size, _px_per_inch);
-            double requested = nominal;
-            if (const FontMetrics* ours = _metrics(key))
-                requested = baked_size_px(nominal, ours->ascent(), ours->descent(), ours->em());
-            if (!(requested >= 0.5 && requested <= static_cast<double>(MAX_BAKED_SIZE_PX)))
-                return false;
+            // ImGui's own bake, at whatever density it has it: its size and
+            // ascent are in units.
+            *size = static_cast<float>(static_cast<double>(state.size) * _density);
+            *ascent = static_cast<float>(static_cast<double>(state.baked->Ascent) * _density);
+            return true;
+        }
+        // Our em size in the pixels placement is done in, corrected to the
+        // pixel height ImGui scales by, then rounded by ImGui itself.
+        const double nominal = px_from_sp(state.spec.size, _px_per_inch * _density);
+        double requested = nominal;
+        if (const FontMetrics* ours = _metrics(key))
+            requested = baked_size_px(nominal, ours->ascent(), ours->descent(), ours->em());
+        if (!(requested >= 0.5 && requested <= static_cast<double>(MAX_BAKED_SIZE_PX)))
+            return false;
+        if (_density == 1.0) {
             state.baked = state.font->GetFontBaked(static_cast<float>(requested));
             if (state.baked == nullptr)
                 return false;
-            // The baked size and not the one asked for: the same raster, drawn
-            // one texel to one pixel.
+            // The baked size and not the one asked for: the same raster,
+            // drawn one texel to one pixel.
             state.size = state.baked->Size;
             state.scale = 1.0f;
+        } else {
+            // The size is already in framebuffer pixels, so the bake is at
+            // ImGui's density 1, said outright: a font's own density is
+            // whatever the display's was when it was last the current font.
+            // A texel is then a framebuffer pixel, and one over the density
+            // of a unit.
+            state.baked = state.font->GetFontBaked(static_cast<float>(requested), 1.0f);
+            if (state.baked == nullptr)
+                return false;
+            state.scale = static_cast<float>(1.0 / _density);
+            state.size = state.baked->Size * state.scale;
         }
-        *size = state.size;
+        *size = state.baked->Size;
         *ascent = state.baked->Ascent;
         return true;
     }
@@ -515,8 +548,8 @@ public:
                 if (pass == 0 || found == nullptr || !found->Visible)
                     continue;
                 // The offsets are scaled here, in float, as ImFont::RenderText
-                // scales them before adding the pen. For a bound face the
-                // scale is 1.
+                // scales them before adding the pen. For a bound face at
+                // density 1 the scale is 1.
                 Box& box = boxes[i];
                 box.x0 = found->X0 * key.scale;
                 box.y0 = found->Y0 * key.scale;
@@ -558,6 +591,7 @@ private:
     const FaceFonts* _fonts = nullptr;
     MetricsResolver _metrics;
     double _px_per_inch = DEFAULT_PX_PER_INCH;
+    double _density = 1.0;
     std::vector<uint8_t> _wanted;
 };
 
@@ -660,10 +694,11 @@ void Drawer::push_area(OpType type, Scaled x, Scaled y, Scaled width, Scaled hei
 {
     // The two corners pass through float32, as the reference's ImVec2s do,
     // and are snapped from there; `snap_span` compares the float32 values.
-    const double near_x = device_coordinate(args.origin.x, x, args.px_per_inch);
-    const double near_y = device_coordinate(args.origin.y, y, args.px_per_inch);
-    const double far_x = device_coordinate(args.origin.x, wrap_add(x, width), args.px_per_inch);
-    const double far_y = device_coordinate(args.origin.y, wrap_add(y, height), args.px_per_inch);
+    const double ppi = args.px_per_inch;
+    const double near_x = placed_coordinate(args.origin.x, x, ppi, _density);
+    const double near_y = placed_coordinate(args.origin.y, y, ppi, _density);
+    const double far_x = placed_coordinate(args.origin.x, wrap_add(x, width), ppi, _density);
+    const double far_y = placed_coordinate(args.origin.y, wrap_add(y, height), ppi, _density);
     double left = 0.0, right = 0.0, top = 0.0, bottom = 0.0;
     snap_span(near_x, far_x, &left, &right);
     snap_span(near_y, far_y, &top, &bottom);
@@ -786,7 +821,16 @@ double Drawer::settle_word(size_t word_op, double drift)
 void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const DrawArgs& args,
                             FontBinder& binder, DrawStats& stats)
 {
-    const double px_per_inch = args.px_per_inch;
+    // Everything below is in the pixels of the grid placement is done on,
+    // `density` of them to a unit of ImGui's coordinates
+    // (DrawRules::device_pixels): `at` is where a coordinate of the commands
+    // goes on it and `px` how long a length is. place() turns the ops into
+    // units when the list is done.
+    const double density = _density;
+    const double px_per_inch = args.px_per_inch * density;
+    const auto at = [&args, density](float origin, Scaled length) {
+        return placed_coordinate(origin, length, args.px_per_inch, density);
+    };
     // px_from_sp with its resolution ratio formed once for the list: the same
     // three operations in the same order, so the same double.
     const double ratio = px_per_inch / PT_PER_INCH;
@@ -906,8 +950,8 @@ void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const 
             }
             const double ascent = static_cast<double>(key.ascent);
             if (!span.open) {
-                const double x = device_coordinate(args.origin.x, cmd.x, px_per_inch);
-                const double y = device_coordinate(args.origin.y, cmd.y, px_per_inch);
+                const double x = at(args.origin.x, cmd.x);
+                const double y = at(args.origin.y, cmd.y);
                 span.open = true;
                 span.y = cmd.y;
                 span.ascent = ascent;
@@ -957,8 +1001,7 @@ void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const 
                         // rounded once; and, when words are led, is kept
                         // beside its own place as a led word is. The gap
                         // before it is not one of the word's.
-                        span.prev_pen = leads ? led_to(cmd.x, device_coordinate(args.origin.x,
-                                                                                cmd.x, px_per_inch))
+                        span.prev_pen = leads ? led_to(cmd.x, at(args.origin.x, cmd.x))
                                               : lead_pen + snap_px(px(wrap_sub(cmd.x, lead_x)));
                         span.prev_x = cmd.x;
                         span.word = true;
@@ -1024,10 +1067,8 @@ void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const 
                               baseline + px(wrap_sub(wrap_add(cmd.y, cmd.height), span.y)), &top,
                               &bottom);
                 } else {
-                    snap_span(
-                        device_coordinate(args.origin.y, cmd.y, px_per_inch),
-                        device_coordinate(args.origin.y, wrap_add(cmd.y, cmd.height), px_per_inch),
-                        &top, &bottom);
+                    snap_span(at(args.origin.y, cmd.y),
+                              at(args.origin.y, wrap_add(cmd.y, cmd.height)), &top, &bottom);
                 }
                 op.x0 = static_cast<float>(left);
                 op.x1 = static_cast<float>(right);
@@ -1049,7 +1090,7 @@ void Drawer::place_commands(const DrawCmd* cmds, size_t count, ImU32 ink, const 
                 // from the leader if there is one, and on the pixel nearest
                 // its own place if not. Then it is the leader, until a part
                 // of the formula stands further right.
-                const double x = device_coordinate(args.origin.x, cmd.x, px_per_inch);
+                const double x = at(args.origin.x, cmd.x);
                 formula_index = cmd.index;
                 formula_x = cmd.x;
                 formula_width = cmd.width;
@@ -1099,6 +1140,7 @@ DrawStats Drawer::place(const DrawRun* runs, size_t run_count, const DrawArgs& a
         _other_count = 0;
     }
     _last_key = 0;
+    _density = density_of(args);
     binder.begin();
 
     DrawStats stats;
@@ -1169,7 +1211,42 @@ DrawStats Drawer::place(const DrawRun* runs, size_t run_count, const DrawArgs& a
             }
         }
     }
+    ops_to_units();
     return stats;
+}
+
+double Drawer::density_of(const DrawArgs& args)
+{
+    if (!args.rules.device_pixels)
+        return 1.0;
+    double density = args.density;
+    if (!(density > 0.0)) {
+        if (ImGui::GetCurrentContext() == nullptr)
+            return 1.0;
+        density = static_cast<double>(ImGui::GetIO().DisplayFramebufferScale.x);
+    }
+    return density > 1.0 && density <= MAX_DENSITY ? density : 1.0;
+}
+
+// The ops, placed on the framebuffer's grid, as coordinates of ImGui's:
+// divided by the density, in double, and rounded to float32 once. A glyph's
+// x1 is not a coordinate (OpType::TEXT) and stays.
+void Drawer::ops_to_units()
+{
+    if (_density == 1.0)
+        return;
+    const double density = _density;
+    const auto unit = [density](float value) {
+        return static_cast<float>(static_cast<double>(value) / density);
+    };
+    for (DrawOp& op : _ops) {
+        op.x0 = unit(op.x0);
+        op.y0 = unit(op.y0);
+        if (op.type != OpType::TEXT) {
+            op.x1 = unit(op.x1);
+            op.y1 = unit(op.y1);
+        }
+    }
 }
 
 // --- Emission -------------------------------------------------------------------------
@@ -1182,6 +1259,9 @@ void Drawer::emit(Sink& sink, const ImVec4& clip, const DrawRules& rules)
 {
     const std::vector<ImGuiBinder::Box>& boxes = _binder->boxes;
     const size_t count = _ops.size();
+    // The overlay's outlines are a pixel thick on the grid the ops were
+    // placed on.
+    const float pixel = static_cast<float>(1.0 / _density);
     size_t i = 0;
     while (i < count) {
         // Everything that can fail has been done by now. Between a
@@ -1205,9 +1285,9 @@ void Drawer::emit(Sink& sink, const ImVec4& clip, const DrawRules& rules)
                 if (op.type == OpType::RECT_FILLED)
                     sink.rect(at, op.x0, op.y0, op.x1, op.y1, op.colour);
                 else if (op.type == OpType::RECT)
-                    write_frame(sink, at, op);
+                    write_frame(sink, at, op, pixel);
                 else
-                    write_segment(sink, at, op);
+                    write_segment(sink, at, op, pixel);
                 continue;
             }
             const ImGuiBinder::Box& box = boxes[op.glyph];
@@ -1242,7 +1322,7 @@ DrawStats Drawer::draw_runs(ImDrawList* draw_list, const DrawRun* runs, size_t r
     if (!IMTYPESET_CONTRACT(draw_list != nullptr, "draw_runs: no draw list"))
         return DrawStats();
     const ImVec4 clip = draw_list->_CmdHeader.ClipRect;
-    _binder->configure(fonts, metrics, args.px_per_inch);
+    _binder->configure(fonts, metrics, args.px_per_inch, density_of(args));
     const DrawStats stats = place(runs, run_count, args, *_binder, &clip);
     _binder->load(*this, clip, args.rules);
     ListSink sink(draw_list);
@@ -1254,7 +1334,7 @@ DrawStats Drawer::draw_runs(DrawBuffers& out, const ImVec4& clip, const DrawRun*
                             size_t run_count, const DrawArgs& args, const FaceFonts& fonts,
                             MetricsResolver metrics)
 {
-    _binder->configure(fonts, metrics, args.px_per_inch);
+    _binder->configure(fonts, metrics, args.px_per_inch, density_of(args));
     const DrawStats stats = place(runs, run_count, args, *_binder, &clip);
     _binder->load(*this, clip, args.rules);
     BufferSink sink(out);

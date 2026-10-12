@@ -1,0 +1,559 @@
+== python-host: Linux x86_64, CXX=unset, in /home/wreel/Source/imtypeset/build/hidpi-pyhost
+Preset CMake variables:
+
+  CMAKE_BUILD_TYPE="Debug"
+  IMTYPESET_BUILD_CONSUMER_TESTS="OFF"
+  IMTYPESET_BUILD_PYTHON_HOST="ON"
+
+-- The CXX compiler identification is GNU 12.2.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- imtypeset: Dear ImGui 19290 from /home/wreel/Source/imtypeset/.deps/imgui (.deps/imgui)
+-- imtypeset: font rasteriser FreeType 2.12.1
+-- The C compiler identification is GNU 12.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE  
+-- imtypeset python host: SDL2 from .deps/sdl2: /home/wreel/Source/imtypeset/.deps/sdl2/lib/libSDL2d.a, headers /home/wreel/Source/imtypeset/.deps/sdl2/include/SDL2
+-- imtypeset python host: test interpreter /home/wreel/Source/imgui-adv-text/.venv/bin/python
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/wreel/Source/imtypeset/build/hidpi-pyhost
+Internal ctest changing into directory: /home/wreel/Source/imtypeset/build/hidpi-pyhost
+Test project /home/wreel/Source/imtypeset/build/hidpi-pyhost
+      Start  1: test_c_api
+      Start  2: test_align
+      Start  3: test_api
+      Start  4: test_api_answers
+ 1/54 Test  #1: test_c_api .......................   Passed    0.15 sec
+      Start  5: test_api_columns
+ 2/54 Test  #4: test_api_answers .................   Passed    2.30 sec
+      Start  6: test_api_document
+ 3/54 Test  #2: test_align .......................   Passed    2.43 sec
+      Start  7: test_api_document_golden
+ 4/54 Test  #3: test_api .........................   Passed    3.90 sec
+      Start  8: test_api_handoff
+ 5/54 Test  #7: test_api_document_golden .........   Passed    3.27 sec
+      Start  9: test_api_math
+ 6/54 Test  #6: test_api_document ................   Passed    3.88 sec
+      Start 10: test_api_requests
+ 7/54 Test #10: test_api_requests ................   Passed    0.63 sec
+      Start 11: test_api_tables
+ 8/54 Test  #9: test_api_math ....................   Passed    1.42 sec
+      Start 12: test_api_tables_golden
+ 9/54 Test #12: test_api_tables_golden ...........   Passed    0.95 sec
+      Start 13: test_badness
+10/54 Test #13: test_badness .....................   Passed    0.02 sec
+      Start 14: test_blocks
+11/54 Test #11: test_api_tables ..................   Passed    3.08 sec
+      Start 15: test_c_api_map
+12/54 Test #15: test_c_api_map ...................   Passed    0.02 sec
+      Start 16: test_columns
+13/54 Test #14: test_blocks ......................   Passed    2.98 sec
+      Start 17: test_demo
+14/54 Test  #8: test_api_handoff .................   Passed    7.40 sec
+      Start 18: test_draw
+15/54 Test #18: test_draw ........................   Passed    0.80 sec
+      Start 19: test_exception_safety
+16/54 Test #19: test_exception_safety ............   Passed    0.00 sec
+      Start 20: test_font_loader
+17/54 Test #20: test_font_loader .................   Passed    0.87 sec
+      Start 21: test_font_loader_wild
+18/54 Test #16: test_columns .....................   Passed    3.32 sec
+      Start 22: test_fontlib
+19/54 Test  #5: test_api_columns .................   Passed   13.29 sec
+      Start 23: test_harden
+20/54 Test #22: test_fontlib .....................   Passed    2.12 sec
+      Start 24: test_header_pod
+21/54 Test #24: test_header_pod ..................   Passed    0.01 sec
+      Start 25: test_hidpi
+22/54 Test #25: test_hidpi .......................   Passed    2.30 sec
+      Start 26: test_linebreak
+23/54 Test #26: test_linebreak ...................   Passed    1.26 sec
+      Start 27: test_linebreak_totals
+24/54 Test #23: test_harden ......................   Passed    5.87 sec
+      Start 28: test_math_mlist
+25/54 Test #27: test_linebreak_totals ............   Passed    1.28 sec
+      Start 29: test_mathtext
+26/54 Test #17: test_demo ........................   Passed   13.14 sec
+      Start 30: test_nodes
+27/54 Test #29: test_mathtext ....................   Passed    4.60 sec
+      Start 31: test_opentype
+28/54 Test #30: test_nodes .......................   Passed    0.73 sec
+      Start 32: test_opentype_formats
+29/54 Test #32: test_opentype_formats ............   Passed    0.06 sec
+      Start 33: test_opentype_wild
+30/54 Test #28: test_math_mlist ..................   Passed    6.42 sec
+      Start 34: test_pack
+31/54 Test #34: test_pack ........................   Passed    0.36 sec
+      Start 35: test_paragraph
+32/54 Test #35: test_paragraph ...................   Passed    3.00 sec
+      Start 36: test_selection
+33/54 Test #31: test_opentype ....................   Passed    4.70 sec
+      Start 37: test_shipout
+34/54 Test #36: test_selection ...................   Passed    1.63 sec
+      Start 38: test_soft_raster
+35/54 Test #38: test_soft_raster .................   Passed    0.04 sec
+      Start 39: test_specimen
+36/54 Test #39: test_specimen ....................   Passed    0.09 sec
+      Start 40: test_stress_font
+37/54 Test #37: test_shipout .....................   Passed    1.65 sec
+      Start 41: test_stress_layout
+38/54 Test #41: test_stress_layout ...............   Passed    3.84 sec
+      Start 42: test_stress_text
+39/54 Test #21: test_font_loader_wild ............   Passed   27.84 sec
+      Start 43: test_style
+40/54 Test #43: test_style .......................   Passed    1.66 sec
+      Start 44: test_tex_rules
+41/54 Test #33: test_opentype_wild ...............   Passed   20.06 sec
+      Start 45: test_units
+42/54 Test #45: test_units .......................   Passed    0.02 sec
+      Start 46: test_vsplit
+43/54 Test #46: test_vsplit ......................   Passed    0.26 sec
+      Start 47: test_word_gaps
+44/54 Test #42: test_stress_text .................   Passed   14.32 sec
+      Start 48: smoke
+45/54 Test #48: smoke ............................   Passed    0.01 sec
+      Start 49: amalgamation
+46/54 Test #47: test_word_gaps ...................   Passed    5.17 sec
+      Start 50: example_demo_headless
+47/54 Test #44: test_tex_rules ...................   Passed   19.14 sec
+      Start 51: example_minimal
+48/54 Test #51: example_minimal ..................   Passed    0.05 sec
+      Start 52: example_specimen
+49/54 Test #52: example_specimen .................   Passed    4.52 sec
+      Start 53: python_binding
+50/54 Test #50: example_demo_headless ............   Passed   17.72 sec
+      Start 54: python_demo_sections
+51/54 Test #54: python_demo_sections .............   Passed    1.12 sec
+52/54 Test #49: amalgamation .....................   Passed   21.85 sec
+53/54 Test #40: test_stress_font .................   Passed   61.30 sec
+54/54 Test #53: python_binding ...................   Passed   26.24 sec
+
+100% tests passed, 0 tests failed out of 54
+
+Total Test time (real) =  92.43 sec
+exit 0
+== asan: Linux x86_64, CXX=unset, in /home/wreel/Source/imtypeset/build/hidpi-asan
+Preset CMake variables:
+
+  CMAKE_BUILD_TYPE="Debug"
+  CMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+  CMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+  CMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+  IMTYPESET_BUILD_CONSUMER_TESTS="OFF"
+
+-- The CXX compiler identification is GNU 12.2.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- imtypeset: Dear ImGui 19290 from /home/wreel/Source/imtypeset/.deps/imgui (.deps/imgui)
+-- imtypeset: font rasteriser FreeType 2.12.1
+-- The C compiler identification is GNU 12.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/wreel/Source/imtypeset/build/hidpi-asan
+Internal ctest changing into directory: /home/wreel/Source/imtypeset/build/hidpi-asan
+Test project /home/wreel/Source/imtypeset/build/hidpi-asan
+      Start  1: test_c_api
+      Start  2: test_align
+      Start  3: test_api
+      Start  4: test_api_answers
+ 1/52 Test  #1: test_c_api .......................   Passed    0.58 sec
+      Start  5: test_api_columns
+ 2/52 Test  #4: test_api_answers .................   Passed    7.92 sec
+      Start  6: test_api_document
+ 3/52 Test  #2: test_align .......................   Passed    9.17 sec
+      Start  7: test_api_document_golden
+ 4/52 Test  #3: test_api .........................   Passed   16.82 sec
+      Start  8: test_api_handoff
+ 5/52 Test  #7: test_api_document_golden .........   Passed   11.20 sec
+      Start  9: test_api_math
+ 6/52 Test  #9: test_api_math ....................   Passed    5.36 sec
+      Start 10: test_api_requests
+ 7/52 Test  #6: test_api_document ................   Passed   18.24 sec
+      Start 11: test_api_tables
+ 8/52 Test #10: test_api_requests ................   Passed    2.56 sec
+      Start 12: test_api_tables_golden
+ 9/52 Test #12: test_api_tables_golden ...........   Passed    3.88 sec
+      Start 13: test_badness
+10/52 Test #13: test_badness .....................   Passed    0.05 sec
+      Start 14: test_blocks
+11/52 Test #11: test_api_tables ..................   Passed   12.54 sec
+      Start 15: test_c_api_map
+12/52 Test #15: test_c_api_map ...................   Passed    0.15 sec
+      Start 16: test_columns
+13/52 Test #14: test_blocks ......................   Passed   13.31 sec
+      Start 17: test_demo
+14/52 Test  #8: test_api_handoff .................   Passed   28.74 sec
+      Start 18: test_draw
+15/52 Test #18: test_draw ........................   Passed    2.99 sec
+      Start 19: test_exception_safety
+16/52 Test #19: test_exception_safety ............   Passed    0.03 sec
+      Start 20: test_font_loader
+17/52 Test #20: test_font_loader .................   Passed    2.97 sec
+      Start 21: test_font_loader_wild
+18/52 Test #16: test_columns .....................   Passed   13.80 sec
+      Start 22: test_fontlib
+19/52 Test  #5: test_api_columns .................   Passed   59.78 sec
+      Start 23: test_harden
+20/52 Test #22: test_fontlib .....................   Passed    8.35 sec
+      Start 24: test_header_pod
+21/52 Test #24: test_header_pod ..................   Passed    0.13 sec
+      Start 25: test_hidpi
+22/52 Test #25: test_hidpi .......................   Passed    9.26 sec
+      Start 26: test_linebreak
+23/52 Test #26: test_linebreak ...................   Passed    5.16 sec
+      Start 27: test_linebreak_totals
+24/52 Test #27: test_linebreak_totals ............   Passed    5.58 sec
+      Start 28: test_math_mlist
+25/52 Test #23: test_harden ......................   Passed   25.69 sec
+      Start 29: test_mathtext
+26/52 Test #29: test_mathtext ....................   Passed   17.81 sec
+      Start 30: test_nodes
+27/52 Test #28: test_math_mlist ..................   Passed   24.80 sec
+      Start 31: test_opentype
+28/52 Test #17: test_demo ........................   Passed   60.51 sec
+      Start 32: test_opentype_formats
+29/52 Test #30: test_nodes .......................   Passed    2.33 sec
+      Start 33: test_opentype_wild
+30/52 Test #32: test_opentype_formats ............   Passed    0.24 sec
+      Start 34: test_pack
+31/52 Test #34: test_pack ........................   Passed    1.27 sec
+      Start 35: test_paragraph
+32/52 Test #35: test_paragraph ...................   Passed   10.32 sec
+      Start 36: test_selection
+33/52 Test #31: test_opentype ....................   Passed   16.60 sec
+      Start 37: test_shipout
+34/52 Test #36: test_selection ...................   Passed    6.01 sec
+      Start 38: test_soft_raster
+35/52 Test #38: test_soft_raster .................   Passed    0.19 sec
+      Start 39: test_specimen
+36/52 Test #39: test_specimen ....................   Passed    0.41 sec
+      Start 40: test_stress_font
+37/52 Test #37: test_shipout .....................   Passed    6.51 sec
+      Start 41: test_stress_layout
+38/52 Test #41: test_stress_layout ...............   Passed   12.76 sec
+      Start 42: test_stress_text
+39/52 Test #21: test_font_loader_wild ............   Passed   95.82 sec
+      Start 43: test_style
+40/52 Test #43: test_style .......................   Passed    3.66 sec
+      Start 44: test_tex_rules
+41/52 Test #33: test_opentype_wild ...............   Passed   56.70 sec
+      Start 45: test_units
+42/52 Test #45: test_units .......................   Passed    0.08 sec
+      Start 46: test_vsplit
+43/52 Test #46: test_vsplit ......................   Passed    0.59 sec
+      Start 47: test_word_gaps
+44/52 Test #40: test_stress_font .................   Passed   40.20 sec
+      Start 48: smoke
+45/52 Test #48: smoke ............................   Passed    0.10 sec
+      Start 49: amalgamation
+46/52 Test #42: test_stress_text .................   Passed   33.63 sec
+      Start 50: example_demo_headless
+47/52 Test #47: test_word_gaps ...................   Passed   13.59 sec
+      Start 51: example_minimal
+48/52 Test #51: example_minimal ..................   Passed    0.21 sec
+      Start 52: example_specimen
+49/52 Test #49: amalgamation .....................   Passed   17.57 sec
+50/52 Test #52: example_specimen .................   Passed    7.84 sec
+51/52 Test #44: test_tex_rules ...................   Passed   63.89 sec
+52/52 Test #50: example_demo_headless ............   Passed   40.00 sec
+
+100% tests passed, 0 tests failed out of 52
+
+Total Test time (real) = 215.43 sec
+exit 0
+== release: Linux x86_64, CXX=unset, in /home/wreel/Source/imtypeset/build/hidpi-release
+Preset CMake variables:
+
+  CMAKE_BUILD_TYPE="Release"
+  IMTYPESET_BUILD_CONSUMER_TESTS="OFF"
+
+-- The CXX compiler identification is GNU 12.2.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- imtypeset: Dear ImGui 19290 from /home/wreel/Source/imtypeset/.deps/imgui (.deps/imgui)
+-- imtypeset: font rasteriser FreeType 2.12.1
+-- The C compiler identification is GNU 12.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/wreel/Source/imtypeset/build/hidpi-release
+Internal ctest changing into directory: /home/wreel/Source/imtypeset/build/hidpi-release
+Test project /home/wreel/Source/imtypeset/build/hidpi-release
+      Start  1: test_c_api
+      Start  2: test_align
+      Start  3: test_api
+      Start  4: test_api_answers
+ 1/52 Test  #1: test_c_api .......................   Passed    0.04 sec
+      Start  5: test_api_columns
+ 2/52 Test  #2: test_align .......................   Passed    0.54 sec
+      Start  6: test_api_document
+ 3/52 Test  #4: test_api_answers .................   Passed    0.57 sec
+      Start  7: test_api_document_golden
+ 4/52 Test  #3: test_api .........................   Passed    0.93 sec
+      Start  8: test_api_handoff
+ 5/52 Test  #6: test_api_document ................   Passed    0.98 sec
+      Start  9: test_api_math
+ 6/52 Test  #7: test_api_document_golden .........   Passed    1.16 sec
+      Start 10: test_api_requests
+ 7/52 Test  #9: test_api_math ....................   Passed    0.31 sec
+      Start 11: test_api_tables
+ 8/52 Test #10: test_api_requests ................   Passed    0.18 sec
+      Start 12: test_api_tables_golden
+ 9/52 Test  #8: test_api_handoff .................   Passed    1.19 sec
+      Start 13: test_badness
+10/52 Test #13: test_badness .....................   Passed    0.01 sec
+      Start 14: test_blocks
+11/52 Test #12: test_api_tables_golden ...........   Passed    0.27 sec
+      Start 15: test_c_api_map
+12/52 Test #15: test_c_api_map ...................   Passed    0.01 sec
+      Start 16: test_columns
+13/52 Test #11: test_api_tables ..................   Passed    0.79 sec
+      Start 17: test_demo
+14/52 Test  #5: test_api_columns .................   Passed    3.01 sec
+      Start 18: test_draw
+15/52 Test #14: test_blocks ......................   Passed    0.94 sec
+      Start 19: test_exception_safety
+16/52 Test #19: test_exception_safety ............   Passed    0.00 sec
+      Start 20: test_font_loader
+17/52 Test #16: test_columns .....................   Passed    1.00 sec
+      Start 21: test_font_loader_wild
+18/52 Test #18: test_draw ........................   Passed    0.27 sec
+      Start 22: test_fontlib
+19/52 Test #20: test_font_loader .................   Passed    0.52 sec
+      Start 23: test_harden
+20/52 Test #22: test_fontlib .....................   Passed    0.33 sec
+      Start 24: test_header_pod
+21/52 Test #24: test_header_pod ..................   Passed    0.00 sec
+      Start 25: test_hidpi
+22/52 Test #25: test_hidpi .......................   Passed    0.58 sec
+      Start 26: test_linebreak
+23/52 Test #26: test_linebreak ...................   Passed    0.33 sec
+      Start 27: test_linebreak_totals
+24/52 Test #27: test_linebreak_totals ............   Passed    0.29 sec
+      Start 28: test_math_mlist
+25/52 Test #23: test_harden ......................   Passed    2.16 sec
+      Start 29: test_mathtext
+26/52 Test #17: test_demo ........................   Passed    3.84 sec
+      Start 30: test_nodes
+27/52 Test #28: test_math_mlist ..................   Passed    1.77 sec
+      Start 31: test_opentype
+28/52 Test #30: test_nodes .......................   Passed    0.21 sec
+      Start 32: test_opentype_formats
+29/52 Test #32: test_opentype_formats ............   Passed    0.01 sec
+      Start 33: test_opentype_wild
+30/52 Test #29: test_mathtext ....................   Passed    1.14 sec
+      Start 34: test_pack
+31/52 Test #34: test_pack ........................   Passed    0.11 sec
+      Start 35: test_paragraph
+32/52 Test #31: test_opentype ....................   Passed    0.90 sec
+      Start 36: test_selection
+33/52 Test #35: test_paragraph ...................   Passed    1.03 sec
+      Start 37: test_shipout
+34/52 Test #36: test_selection ...................   Passed    0.61 sec
+      Start 38: test_soft_raster
+35/52 Test #38: test_soft_raster .................   Passed    0.03 sec
+      Start 39: test_specimen
+36/52 Test #39: test_specimen ....................   Passed    0.03 sec
+      Start 40: test_stress_font
+37/52 Test #37: test_shipout .....................   Passed    0.51 sec
+      Start 41: test_stress_layout
+38/52 Test #41: test_stress_layout ...............   Passed    0.76 sec
+      Start 42: test_stress_text
+39/52 Test #33: test_opentype_wild ...............   Passed    4.28 sec
+      Start 43: test_style
+40/52 Test #43: test_style .......................   Passed    0.24 sec
+      Start 44: test_tex_rules
+41/52 Test #42: test_stress_text .................   Passed    2.22 sec
+      Start 45: test_units
+42/52 Test #45: test_units .......................   Passed    0.01 sec
+      Start 46: test_vsplit
+43/52 Test #46: test_vsplit ......................   Passed    0.08 sec
+      Start 47: test_word_gaps
+44/52 Test #21: test_font_loader_wild ............   Passed    8.53 sec
+      Start 48: smoke
+45/52 Test #48: smoke ............................   Passed    0.01 sec
+      Start 49: amalgamation
+46/52 Test #47: test_word_gaps ...................   Passed    0.62 sec
+      Start 50: example_demo_headless
+47/52 Test #50: example_demo_headless ............   Passed    2.44 sec
+      Start 51: example_minimal
+48/52 Test #51: example_minimal ..................   Passed    0.02 sec
+      Start 52: example_specimen
+49/52 Test #52: example_specimen .................   Passed    0.46 sec
+50/52 Test #44: test_tex_rules ...................   Passed    5.29 sec
+51/52 Test #49: amalgamation .....................   Passed   17.77 sec
+52/52 Test #40: test_stress_font .................   Passed   41.79 sec
+
+100% tests passed, 0 tests failed out of 52
+
+Total Test time (real) =  49.98 sec
+exit 0
+== python-host: Linux x86_64, CXX=unset, in /home/wreel/Source/imtypeset/build/hidpi-pyhost
+Preset CMake variables:
+
+  CMAKE_BUILD_TYPE="Debug"
+  IMTYPESET_BUILD_CONSUMER_TESTS="OFF"
+  IMTYPESET_BUILD_PYTHON_HOST="ON"
+
+-- The CXX compiler identification is GNU 12.2.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- imtypeset: Dear ImGui 19290 from /home/wreel/Source/imtypeset/.deps/imgui (.deps/imgui)
+-- imtypeset: font rasteriser FreeType 2.12.1
+-- The C compiler identification is GNU 12.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE  
+-- imtypeset python host: SDL2 from .deps/sdl2: /home/wreel/Source/imtypeset/.deps/sdl2/lib/libSDL2d.a, headers /home/wreel/Source/imtypeset/.deps/sdl2/include/SDL2
+-- imtypeset python host: test interpreter /home/wreel/Source/imgui-adv-text/.venv/bin/python
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/wreel/Source/imtypeset/build/hidpi-pyhost
+Internal ctest changing into directory: /home/wreel/Source/imtypeset/build/hidpi-pyhost
+Test project /home/wreel/Source/imtypeset/build/hidpi-pyhost
+      Start  1: test_c_api
+      Start  2: test_align
+      Start  3: test_api
+      Start  4: test_api_answers
+ 1/54 Test  #1: test_c_api .......................   Passed    0.19 sec
+      Start  5: test_api_columns
+ 2/54 Test  #4: test_api_answers .................   Passed    2.95 sec
+      Start  6: test_api_document
+ 3/54 Test  #2: test_align .......................   Passed    3.05 sec
+      Start  7: test_api_document_golden
+ 4/54 Test  #3: test_api .........................   Passed    5.12 sec
+      Start  8: test_api_handoff
+ 5/54 Test  #7: test_api_document_golden .........   Passed    4.21 sec
+      Start  9: test_api_math
+ 6/54 Test  #6: test_api_document ................   Passed    4.92 sec
+      Start 10: test_api_requests
+ 7/54 Test #10: test_api_requests ................   Passed    0.81 sec
+      Start 11: test_api_tables
+ 8/54 Test  #9: test_api_math ....................   Passed    1.76 sec
+      Start 12: test_api_tables_golden
+ 9/54 Test #12: test_api_tables_golden ...........   Passed    1.11 sec
+      Start 13: test_badness
+10/54 Test #13: test_badness .....................   Passed    0.01 sec
+      Start 14: test_blocks
+11/54 Test #11: test_api_tables ..................   Passed    3.75 sec
+      Start 15: test_c_api_map
+12/54 Test #15: test_c_api_map ...................   Passed    0.01 sec
+      Start 16: test_columns
+13/54 Test #14: test_blocks ......................   Passed    3.66 sec
+      Start 17: test_demo
+14/54 Test  #8: test_api_handoff .................   Passed    8.99 sec
+      Start 18: test_draw
+15/54 Test #18: test_draw ........................   Passed    0.89 sec
+      Start 19: test_exception_safety
+16/54 Test #19: test_exception_safety ............   Passed    0.00 sec
+      Start 20: test_font_loader
+17/54 Test #20: test_font_loader .................   Passed    1.00 sec
+      Start 21: test_font_loader_wild
+18/54 Test #16: test_columns .....................   Passed    3.73 sec
+      Start 22: test_fontlib
+19/54 Test  #5: test_api_columns .................   Passed   16.39 sec
+      Start 23: test_harden
+20/54 Test #22: test_fontlib .....................   Passed    2.43 sec
+      Start 24: test_header_pod
+21/54 Test #24: test_header_pod ..................   Passed    0.00 sec
+      Start 25: test_hidpi
+22/54 Test #25: test_hidpi .......................   Passed    2.79 sec
+      Start 26: test_linebreak
+23/54 Test #26: test_linebreak ...................   Passed    1.50 sec
+      Start 27: test_linebreak_totals
+24/54 Test #23: test_harden ......................   Passed    6.89 sec
+      Start 28: test_math_mlist
+25/54 Test #27: test_linebreak_totals ............   Passed    1.51 sec
+      Start 29: test_mathtext
+26/54 Test #17: test_demo ........................   Passed   15.18 sec
+      Start 30: test_nodes
+27/54 Test #29: test_mathtext ....................   Passed    5.12 sec
+      Start 31: test_opentype
+28/54 Test #30: test_nodes .......................   Passed    0.81 sec
+      Start 32: test_opentype_formats
+29/54 Test #32: test_opentype_formats ............   Passed    0.06 sec
+      Start 33: test_opentype_wild
+30/54 Test #28: test_math_mlist ..................   Passed    7.02 sec
+      Start 34: test_pack
+31/54 Test #34: test_pack ........................   Passed    0.41 sec
+      Start 35: test_paragraph
+32/54 Test #35: test_paragraph ...................   Passed    3.42 sec
+      Start 36: test_selection
+33/54 Test #31: test_opentype ....................   Passed    5.25 sec
+      Start 37: test_shipout
+34/54 Test #36: test_selection ...................   Passed    1.90 sec
+      Start 38: test_soft_raster
+35/54 Test #38: test_soft_raster .................   Passed    0.05 sec
+      Start 39: test_specimen
+36/54 Test #39: test_specimen ....................   Passed    0.11 sec
+      Start 40: test_stress_font
+37/54 Test #37: test_shipout .....................   Passed    1.85 sec
+      Start 41: test_stress_layout
+38/54 Test #41: test_stress_layout ...............   Passed    3.71 sec
+      Start 42: test_stress_text
+39/54 Test #21: test_font_loader_wild ............   Passed   29.67 sec
+      Start 43: test_style
+40/54 Test #43: test_style .......................   Passed    1.52 sec
+      Start 44: test_tex_rules
+41/54 Test #33: test_opentype_wild ...............   Passed   20.33 sec
+      Start 45: test_units
+42/54 Test #45: test_units .......................   Passed    0.02 sec
+      Start 46: test_vsplit
+43/54 Test #46: test_vsplit ......................   Passed    0.22 sec
+      Start 47: test_word_gaps
+44/54 Test #42: test_stress_text .................   Passed   12.70 sec
+      Start 48: smoke
+45/54 Test #48: smoke ............................   Passed    0.01 sec
+      Start 49: amalgamation
+46/54 Test #47: test_word_gaps ...................   Passed    4.26 sec
+      Start 50: example_demo_headless
+47/54 Test #44: test_tex_rules ...................   Passed   21.38 sec
+      Start 51: example_minimal
+48/54 Test #51: example_minimal ..................   Passed    0.07 sec
+      Start 52: example_specimen
+49/54 Test #52: example_specimen .................   Passed    3.57 sec
+      Start 53: python_binding
+50/54 Test #50: example_demo_headless ............   Passed   19.01 sec
+      Start 54: python_demo_sections
+51/54 Test #54: python_demo_sections .............   Passed    1.09 sec
+52/54 Test #49: amalgamation .....................   Passed   23.87 sec
+53/54 Test #53: python_binding ...................   Passed   27.47 sec
+54/54 Test #40: test_stress_font .................   Passed   63.95 sec
+
+100% tests passed, 0 tests failed out of 54
+
+Total Test time (real) = 100.34 sec
+exit 0

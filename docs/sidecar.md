@@ -86,7 +86,9 @@ CPython tag or to a path. Two things follow:
    opened; if the load still fails **and the platform is not Linux**, the
    wheel's module is opened again with `RTLD_GLOBAL` and the load tried once
    more. On Linux that second step is taken only when
-   `IMTYPESET_PRELOAD_BUNDLE=1` asks for it, for the reason measured below.
+   `IMTYPESET_PRELOAD_BUNDLE=1` asks for it, for the reason measured below,
+   and only in a source checkout: an installed distribution does not read
+   the variable (section 9).
    `host_info()["bundle"]["preload"]` says what was needed: `import` or
    `global`. RAN on Linux, a lookup-bound library: refused with only the
    import, accepted with `IMTYPESET_PRELOAD_BUNDLE=1`. The macOS half of the
@@ -179,11 +181,26 @@ definitions, in the build script (`docs/bindings-notes.md`, section 3).
   fetched and checked the same way. The library then says `stand-in:...`, which
   `imtypeset.host_info()["bundle"]["headers"]` shows; Dear ImGui's own check
   refuses it; `IMTYPESET_BUNDLE_STRICT=1` makes the package refuse it too.
-- Results are kept under `build/bundle-headers` (`IMTYPESET_HEADER_CACHE`) and
-  used again only while every file still has the sha256 recorded with it.
+- Results are kept under `build/bundle-headers` (`IMTYPESET_HEADER_CACHE`),
+  and a kept copy is used again **only when its files hash to what the
+  tracked pins record**: the configuration header by `config_sha256`, the
+  headers by `standin_headers_sha256` (stand-in) or `imgui_h_sha256` and
+  `imgui_headers_sha256` (the fork). The cache's own `SOURCE.json` says where
+  the files came from and vouches for nothing. (RAN, before the change: a
+  cached `imgui.h` edited together with its line in `SOURCE.json` was used.
+  After: refused, and so are a file added to or taken out of the cache.)
+- **The fork's two checksums are not recorded yet**, because no machine here
+  has held the fork. Until they are: the fork's headers are checked by commit
+  id alone, are fetched again for every build, and a release build is
+  refused (`--require-recorded`, which `build_wheel.py --release` sets). The
+  first fetch of the fork prints both values as the two lines to paste into
+  `bundle_pins.toml` and writes them on the job's summary page; a person
+  pastes them. From then on they are checked on every fetch. The stand-in
+  checksums are recorded (computed here from `../imgui` at the pinned
+  commits).
 
-RAN (14 tests, `tools/ci/test_fetch_headers.py`): the fetch, both checks, the
-cache, each refusal, against a git repository and a `file://` URL made for the
+RAN (17 tests, `tools/ci/test_fetch_headers.py`): the fetch, the checks, the
+cache held to the pins, each refusal, against a git repository and a `file://` URL made for the
 test; and stand-in headers for both wheels from the local `ocornut/imgui`
 clone. **Never run: any fetch from github.com**, so that GitHub serves these
 two commits by id is unconfirmed (it is what `git submodule update` relies on
@@ -213,8 +230,9 @@ headers, so on a machine with no network it stops at the fetch and says so.
 Its last step runs the full probe in a child interpreter and writes
 `<library>.attestation.json` (section 9). **Copy that file with the library**
 if the library is moved: with it, `import imtypeset` checks content and starts
-nothing; without it, a library named by `IMTYPESET_LIBRARY` is probed in a
-child interpreter at every import. The script no longer writes
+nothing; without it, a library named by `IMTYPESET_LIBRARY` is loaded and
+probed in a child interpreter at every import, before the importing process
+loads it. The script no longer writes
 `<library>.gate`, and nothing reads one.
 
 ## 5. The checks, and where each runs
@@ -223,17 +241,21 @@ child interpreter at every import. The script no longer writes
 |---|---|---|---|
 | `tools/ci/sidecar_probe.py` | the whole question for one interpreter: machine, wheel, symbols, build, audit, load, gate, checks; a report whatever happens | RAN, both environments | `sidecar-probe.yml`, every job |
 | `tools/ci/sidecar_symbols.py` | what the module exports against what the library needs; the audit after linking | RAN (ELF) | same |
-| `tools/ci/test_fetch_headers.py` | the header fetch against local sources | RAN, 14 tests | `ci.yml`, job `tools/ci` |
-| `tools/ci/check_workflows.py` | the workflow files are YAML and keep this repository's rules (read-only permissions, exact action versions, a timeout per job, no logic outside `tools/ci`) | RAN with PyYAML 6 | same |
+| `tools/ci/test_fetch_headers.py` | the header fetch against local sources | RAN, 17 tests | `ci.yml`, job `tools/ci` |
+| `tools/ci/check_workflows.py` | the workflow files are YAML and keep this repository's rules (read-only permissions, every action named by a commit id with its version beside it, no `${{ }}` inside a `run`, a timeout per job, no logic outside `tools/ci`) | RAN with PyYAML 6 | same |
 | `tools/ci/cpp_preset.sh` | one CMake preset: configure, build, ctest | RAN for `debug` on a copy of commit `caaeab3`, GCC | `ci.yml`: six presets by three toolchains |
 | `tools/ci/sidecar_install.sh`, `install_deps.sh` | pip and the system's package manager | not runnable here (no network); syntax and shellcheck only | both workflows |
-| `tools/ci/test_wheel.py` | the version line, the content comparison (ELF; Mach-O on a file made by hand), which gate runs where, every refusal before a library is loaded | RAN, 11 tests | `ci.yml`, job `tools/ci` |
+| `tools/ci/test_wheel.py` | the version line and its ordering, the content comparison (ELF; Mach-O on a file made by hand), which route a package directory is, which gate runs where, every refusal before a library is loaded | RAN, 24 tests | `ci.yml`, job `tools/ci` |
 | `tools/wheel/build_wheel.py`, `check_wheel.py`, `check_installed.py` | one wheel built, its archive checked, the installation checked (section 12) | RAN, both environments, stand-in headers | `wheels.yml` through `tools/ci/wheel_build.sh` |
 | `tools/ci/wheel_build.sh`, `wheel_release.sh` | the same from PyPI's wheel in new environments; the release | syntax and shellcheck only (no index, no GitHub) | `wheels.yml` |
 
 What `check_workflows.py` cannot show is that GitHub accepts the files:
-expression syntax, contexts, runner labels and action versions are checked by
-the first run there.
+expression syntax, contexts, runner labels and the actions' commit ids are
+checked by the first run there. The four commit ids were READ on 2026-10-12
+from `api.github.com` (`repos/actions/<name>/git/ref/tags/<tag>` and
+`repos/actions/<name>/commits/<tag>`, which agreed for each) through a
+summarising fetch, not by git; an id that is wrong stops its job at once with
+"unable to resolve action", which is loud.
 
 `ci.yml` has never run, and **the library has never been compiled by Clang, on
 any system, nor on arm64**. Expect red on the first run, for reasons that are
@@ -315,12 +337,44 @@ sdist.
 
 | the library depends on | because | encoded as |
 |---|---|---|
-| the platform and architecture | it is machine code | the platform tag. Linux: `manylinux_2_<n>_x86_64`, `n` the larger of 28 (the imgui-bundle wheel's own tag) and what the library's versioned glibc symbols need, and only while its libstdc++ symbols fit what manylinux_2_28 allows; else `linux_x86_64`. RAN here: the library needs `GLIBC_2.14`, `GLIBCXX_3.4.21`, `CXXABI_1.3.9`, `GCC_7.0.0`, so `manylinux_2_28_x86_64`. The limits compared against are RECALLED from the manylinux policy, and auditwheel was not run (it does not know that the one unusual needed library, the wheel's module, is supplied by the pin). macOS: `macosx_14_0_arm64`, never built |
+| the platform and architecture | it is machine code | the platform tag, **measured from the library that was built and never asserted** (below). macOS: `macosx_14_0_arm64`, never built |
 | one imgui-bundle wheel's binary | its Dear ImGui symbols and struct layouts are that module's | `Requires-Dist: imgui-bundle==X`, exactly; and the version line below |
 | the CPython version | the attestation is of that CPython's `_imgui_bundle` module, and on Linux the library names that module's file, which carries the CPython tag | the Python tag `cp311`, and `Requires-Python: ==3.11.*` |
 | **not** the CPython ABI | it is loaded with `ctypes` and calls no CPython function | the ABI tag `none` |
 
 So a file is `imtypeset-0.3.0.192900-cp311-none-manylinux_2_28_x86_64.whl`.
+
+**The Linux platform tag is a measurement** (`build_wheel.measured_linux_tag`,
+with `objdump`). `manylinux_2_<n>_x86_64` promises that the file needs no
+glibc newer than 2.`n` and no library but a short list every system has. So:
+`n` is the newest `GLIBC_2.x` among the library's versioned symbols, and at
+least 28 (the imgui-bundle wheel's own floor); the tag is plain
+`linux_x86_64` instead when the library needs more of libstdc++ or libgcc
+than manylinux_2_28 allows, or names a needed library other than the system's
+and the wheel's own module (which the pin supplies). `check_wheel.py`
+measures the library in the archive again and refuses a tag that claims more;
+a tag given by hand is held to the same.
+
+- MEASURED here (2026-10-12, the library built by GCC 12.2 on Debian 12,
+  glibc 2.36, `objdump -T` and `objdump -p`): `GLIBC_2.14` (one symbol; the
+  rest are `GLIBC_2.2.5`), `GLIBCXX_3.4.21`, `CXXABI_1.3.9`, `GCC_7.0.0`;
+  needed libraries `libstdc++.so.6`, `libm.so.6`, `libgcc_s.so.1`,
+  `libc.so.6` and the wheel's module. So `manylinux_2_28_x86_64`.
+- RECALLED, not read: the limits compared against (`GLIBCXX_3.4.24`,
+  `CXXABI_1.3.11`, `GCC_8`) and the list of system libraries, from the
+  manylinux policy. auditwheel was not run: it would refuse the wheel's
+  module as a library from outside.
+- NOT KNOWN: what the measurement gives on a GitHub runner. A library
+  compiled against a newer glibc can pick up newer symbol versions (2.38
+  redirects the `strtol` family, for one). On `ubuntu-latest` the tag might
+  come out `manylinux_2_38` or higher, which Debian 12 (2.36) cannot install.
+  The `wheels` workflow therefore builds Linux wheels on `ubuntu-22.04`
+  (glibc 2.35) and prints each wheel's measured tag and its basis on the
+  job's summary page. If the tag there is above what the application's users
+  have, the remedy is to build inside the `manylinux_2_28` container image,
+  which is not written: `actions/setup-python` does not serve that image, so
+  the job would take its Python from `/opt/python` and its system libraries
+  from `dnf`. That the label `ubuntu-22.04` still exists is RECALLED.
 
 **Two imgui-bundle versions coexist as two version lines of one distribution
 name.** The distribution's version is the library's version with the
@@ -337,27 +391,63 @@ as the versions do). Why this and not the alternatives:
 - *Separate distribution names* (`imtypeset-bundle192900`) work, and would
   make an application's requirement name the imgui-bundle twice.
 
-With version lines, an application states both requirements and the resolver
-does the rest: `imgui-bundle==1.92.801` and `imtypeset==0.3.0.*`. RAN (pip
-26.2.1, `--no-index --find-links` over a directory holding both lines, in an
-environment that has 1.92.801): pip considers `0.3.0.192900` first, finds its
-pin unsatisfiable, and settles on `0.3.0.192801`; in the 1.92.900 environment
-it takes `0.3.0.192900`. **Name both requirements.** `pip install imtypeset`
-alone, with an index that also offers a newer imgui-bundle, would take the
-newest line and move imgui-bundle with it; that is pip's ordinary behaviour
-and was not run here (no index).
+**What an application writes: both pins, exactly.**
 
-`imtypeset.version()` is the library's version (`0.3.0`).
-`imtypeset.host_info()["distribution_version"]` is the distribution's
-(`0.3.0.192900`), `None` for a development build.
+```
+imgui-bundle==1.92.900
+imtypeset==0.3.0.192900
+```
+
+The second line is the first one again (192900 is 1.92.900), and both change
+together. Why exactly, and not a range:
+
+- `imtypeset==0.3.0` matches **nothing**: under PEP 440 it means
+  `0.3.0.0`. (RAN, `packaging` 26.3.)
+- `imtypeset==0.3.0.*` matches every line of 0.3.0. With `imgui-bundle==X`
+  beside it a resolver settles on the line built for X: RAN (pip 26.2.1,
+  `--no-index --find-links` over a directory holding both lines, in an
+  environment that has 1.92.801): pip considers `0.3.0.192900` first, finds
+  its pin unsatisfiable, and settles on `0.3.0.192801`. It works, and it
+  depends on the other pin being there.
+- `pip install -U imtypeset` alone, or `imtypeset==0.3.0.*` with imgui-bundle
+  unpinned, takes the **newest line** and, because that wheel requires its own
+  imgui-bundle exactly, **replaces the application's imgui-bundle with the one
+  that line was built for**. The pair that results is consistent and the gate
+  accepts it; what changed under the application is its Dear ImGui. This is
+  pip's ordinary behaviour, RECALLED and not run here (there is no index, and
+  one environment cannot hold two imgui-bundles to choose between).
+- An application that updates itself therefore ships a lock: the two exact
+  pins above, moved together, in one step (section 11).
 
 **A wheel built against stand-in headers says so four times**, and is not a
-release: its version ends `+standin` (which an index refuses), its metadata's
-summary and description say it, its attestation has `"stand_in": true`, and
+release: its version is `0.3.0.192900.dev0+standin`, its metadata's summary
+and description say it, its attestation has `"stand_in": true`, and
 `host_info()["bundle"]["stand_in"]` is `True` with `"headers": "stand-in:..."`.
 `build_wheel.py --release`, `check_wheel.py --release` and
 `tools/ci/wheel_release.sh` each refuse one. Both wheels built here are
 stand-in wheels: this machine cannot fetch the fork's headers.
+
+`.dev0` is what keeps a stand-in wheel **below** the release of its line.
+RAN (`packaging` 26.3, in `tools/ci/test_wheel.py`): `0.3.0.192900+standin`,
+which these wheels were called until 2026-10-12, orders *above*
+`0.3.0.192900`, so a directory holding both would have given pip the stand-in;
+`0.3.0.192900.dev0+standin` orders below it, is not matched by
+`==0.3.0.192900`, and is left out by `==0.3.0.*` while any release matches.
+RAN (pip 26.2.1, `--no-index --find-links`, `--dry-run` for the pairs): the
+old `+standin` wheel beside a wheel named as the release of its line (made
+for the test; it holds no library): pip chose `+standin`. The `.dev0+standin`
+wheel beside the same: pip chose the release, with `--pre` too. With only
+stand-in wheels in the directory pip 26.2.1 installs one unasked. An older
+resolver need not: `packaging` 21.3 (inside Debian 12's pip 23.0.1) does not
+fall back to a development release for a range like `==0.3.0.*` (RAN on the
+specifier alone, not through that pip), so installing a stand-in wheel by
+name is `pip install --pre`, which is what `tools/ci/wheel_build.sh` does. Still true, and worth knowing: a stand-in
+of a *newer* line or library version orders above an older release; the exact
+pins above are what keep it out, and `--pre` is what would let it in.
+
+`imtypeset.version()` is the library's version (`0.3.0`).
+`imtypeset.host_info()["distribution_version"]` is the distribution's
+(`0.3.0.192900`), `None` for a development build.
 
 **What is in a wheel**, and nothing else (`check_wheel.py` holds every wheel
 to this list): `imtypeset/__init__.py`, `_bundle.py`, `_capi.py`, `demo.py`;
@@ -372,19 +462,30 @@ licence has been chosen for imtypeset** (`docs/decisions.md`, D24), and the
 metadata says so; a wheel should not be given to anyone outside until that is
 decided.
 
-**How the package finds its library**, in this order (`_capi.library_route`):
+**How the package finds its library** (`_capi.library_route`). The route is
+decided by what is in the package's own directory, and by nothing else:
 
-1. `IMTYPESET_LIBRARY`, when set: the development override. It wins, inside an
-   installed distribution too. `IMTYPESET_PYTHON` is advtext's variable for
-   where the package directory is; the package does not read it.
-2. Otherwise the file `libimtypeset_bundle.so` (`.dylib`) **in the package's
-   own directory**. No metadata, no entry point, no search path.
+1. **Installed**: the directory holds `_attestation.json` or a library, as a
+   wheel puts them. The library is `libimtypeset_bundle.so` (`.dylib`) in
+   that directory. No metadata, no entry point, no search path, and **no
+   environment variable**: `IMTYPESET_LIBRARY` is not read (section 9).
+2. **Development**: the directory holds neither, which is a source checkout.
+   `IMTYPESET_LIBRARY` names the library. `IMTYPESET_PYTHON` is advtext's
+   variable for where the package directory is; the package does not read it.
 
-`host_info()["route"]` is `"IMTYPESET_LIBRARY"` or `"installed"`. An
-application that wants to know whether an installed imtypeset is present
-without importing it can look for `_attestation.json` beside
-`importlib.util.find_spec("imtypeset").origin`; that survives a freezer that
-drops `dist-info` directories, which the metadata does not.
+`host_info()["route"]` is `"installed"`, `"IMTYPESET_LIBRARY"`, or
+`"IMTYPESET_LIBRARY (build-info check only)"` for a library that is not a
+sidecar (section 9). An application that wants to know whether an installed
+imtypeset is present without importing it can look for `_attestation.json`
+beside `importlib.util.find_spec("imtypeset").origin`; that survives a freezer
+that drops `dist-info` directories, which the metadata does not.
+
+**The metadata** is version 2.4, the version that has `License-File`; the two
+files it names are the notices, in `dist-info/licenses/`. It names **no
+licence** (no `License-Expression`, no `License`, no classifier), because none
+has been chosen, and its description says so in words. RECALLED: that an index
+refuses `License-File` under an older metadata version (PEP 639). RAN: pip
+26.2.1 installs the wheel.
 
 Building one, as a developer:
 
@@ -397,9 +498,39 @@ python3 -I -B tools/wheel/check_wheel.py wheels/*.whl
 ## 9. The import gate
 
 `import imtypeset` either succeeds with a library it has reason to believe
-fits the Dear ImGui in the process, or raises `ImportError`. It no longer
-starts a child interpreter, writes a stamp, or keys anything on a path or a
-date, except in the development case at the end of this section.
+fits the Dear ImGui in the process, or raises `ImportError`. An installed
+distribution starts no child interpreter, writes nothing, keys nothing on a
+path or a date, **and reads no environment variable**. The development route
+at the end of this section is the only place a variable or a child exists.
+
+**An environment variable never chooses what a shipped application loads**
+(an agent decision of 2026-10-12, after review-8 F1; `docs/decisions.md`).
+Which route a package is on is decided by its own directory (section 8): if
+it holds `_attestation.json` or a library, it is installed, whatever
+`sys.frozen` says and whatever the environment holds.
+
+| variable | installed distribution | source checkout (development) |
+|---|---|---|
+| `IMTYPESET_LIBRARY` | not read | names the library |
+| `IMTYPESET_GATE` | not read: the attestation, or a refusal | `attested` forbids the probe; `probe` asks for it over an attestation |
+| `IMTYPESET_PRELOAD_BUNDLE` | not read: on Linux the module is never reopened `RTLD_GLOBAL` | `1` reopens it (section 2) |
+| `IMTYPESET_PYTHON` | not read (it is advtext's) | not read |
+| `IMTYPESET_BUNDLE_STRICT` | read: `1` refuses a stand-in build. It can only refuse | the same |
+| `IMTYPESET_GATE_FONT` | not read: the installed gate reads no font | names the probe's font |
+
+`host_info()["ignored_environment"]` lists the first four that were set and
+not read; it is empty in a checkout. RAN (review-8 F1, reproduced on the
+installed wheel as it was: `IMTYPESET_LIBRARY` naming a sidecar with no
+attestation was loaded and probed; naming a truncated one **killed the
+process with SIGBUS**, frozen shape included; naming the self-hosted library
+or a development build with its attestation was accepted with `sys.frozen`
+set; `IMTYPESET_GATE=probe` started a child from an installed package and,
+with `sys.executable` an application and no `sys.frozen`, **tried to start
+the application again**; `IMTYPESET_PRELOAD_BUNDLE=1` made the module global).
+After the change, each of those in each of three shapes (plain, `sys.frozen`,
+and an application that sets no flag): the import is the plain one, the named
+file is never mapped, nothing is started, and `host_info()` names the
+variable (`check_installed.py`, section 12).
 
 **Why there was a child, and where it went.** The field probe reads the
 wheel's live objects at the offsets the library was compiled with. At a wrong
@@ -420,23 +551,35 @@ wheel is for. If, and only if, the probe accepts, it writes
 
 **What `import imtypeset` then does** (`_bundle.precheck`, then `_bundle.gate`):
 
-1. *Before the library is loaded:* the attestation is read; the platform is
-   compared; the library file and the installed wheel's module file are hashed
-   and compared with it. Any difference is a refusal, and a library that is
-   not the attested one is never mapped. (RAN: a library cut to half its
-   length is refused here. With that comparison left out it is loaded and the
-   process dies with SIGBUS; that is what was found when an earlier draft of
-   this gate accepted a file on its linker build-id, which a truncated file
-   keeps.)
-2. `imgui_bundle` is imported, then the library is loaded (section 2).
-3. *In the process, reading nothing through an offset:* that a second copy of
-   the wheel's module was not loaded; the library's own account of its headers;
-   Dear ImGui's `DebugCheckVersionAndDataLayout` (a comparison of a version
-   string and six sizes inside the wheel; its assertion is an exception the
-   library catches); the nine enumerators the library passes by value against
-   the wheel's binding. Each must answer what the attestation records.
+1. *Before anything is loaded:* the attestation is read and held to its shape
+   (anything else is `damaged`); the platform is compared; the library file is
+   hashed and compared with it. Then the wheel's module file is found
+   **without importing `imgui_bundle`** (from the module if the application
+   has imported it already, else from where the import system says the
+   package is), hashed and compared. Any difference is a refusal: a library
+   that is not the attested one is never mapped, and an imgui-bundle that is
+   not the attested one is not imported by this package. (RAN: a library cut
+   to half its length is refused here. With that comparison left out it is
+   loaded and the process dies with SIGBUS; that is what was found when an
+   earlier draft of this gate accepted a file on its linker build-id, which a
+   truncated file keeps.) Where an importer does not say where the module
+   file is, `imgui_bundle` is imported first and
+   `host_info()["bundle"]["attestation"]["module_found"]` says "by importing
+   imgui_bundle"; never seen here.
+2. `imgui_bundle` is imported, the module it brought is held to the file that
+   was hashed, and the library is loaded (section 2).
+3. *In the process, reading nothing through an offset:* that no second Dear
+   ImGui is in reach (below); the library's own account of its headers; Dear
+   ImGui's `DebugCheckVersionAndDataLayout` (a comparison of a version string
+   and six sizes inside the wheel; its assertion is an exception the library
+   catches); the nine enumerators the library passes by value against the
+   wheel's binding. Each must answer what the attestation records.
 4. The package's own checks of the library against itself (struct sizes, the
    C ABI revision, every function it declares).
+
+Whatever else goes wrong in those steps, an exception of any kind, leaves
+`import imtypeset` as an `ImportError` with kind `unchecked` and the
+exception's name on its second line.
 
 No Dear ImGui context is created, no font is read, no process is started and
 nothing is written. MEASURED (CPython 3.11.2, files in the page cache, load
@@ -453,19 +596,55 @@ still runs, adds about 200 ms to an import.
   probe adds and the context it creates are inputs chosen by the probe, not
   properties of the machine.
 - *sha256*, to say that two files are the same bytes.
-- *The second hash, for a file a freezer rewrote.* `strip` and code signing
-  change a file's sha256 and leave alone what the loader maps. So each file
-  also has a sha256 over exactly that: on ELF every `PT_LOAD` segment's bytes
-  with its address and length, without the first 64 bytes (the ELF header,
-  which `strip` edits); on Mach-O every section's bytes with its names and
-  length, leaving out the header, the load commands and `__LINKEDIT`, which
-  hold the signature and the install names. A file that matches neither hash
-  is refused. RAN on ELF: a `strip --strip-all` copy is accepted by the second
-  hash; a byte changed or the file cut inside a segment is refused. **The
-  Mach-O reader is written from the format as remembered and has read only a
-  file made by hand for its test.** If it is wrong, the failure is a refusal
-  ("damaged") in a re-signed application, not an acceptance: a file it cannot
-  read has no second hash.
+- *The second hash, for a file a freezer rewrote.* `strip`, `install_name_tool`
+  and code signing change a file's sha256 and leave alone what the loader
+  maps. So each file also has a sha256 over exactly that. A file that matches
+  neither hash is refused. What goes into it, and what does not:
+
+  | | hashed | not hashed |
+  |---|---|---|
+  | ELF | of the ELF header: type, machine, entry point, flags, and where and how many the program headers are; the whole program header table; every `PT_LOAD` segment's bytes with its address and length (those bytes include `.dynamic`, the dynamic symbols and strings, so the needed libraries and the run path) | the rest of the 64-byte ELF header, which says where the section headers are (`strip` moves them); the section headers; the sections no segment maps (debugging information, the static symbol table) |
+  | Mach-O | every section's bytes with its segment and section name, address, length and flags; each segment's name, address, size in memory and protection, `__LINKEDIT` excepted | the header (its count of load commands changes when a signature is added); **every load command that is not a segment**: `LC_ID_DYLIB`, `LC_LOAD_DYLIB`, `LC_RPATH`, `LC_CODE_SIGNATURE`, the symbol-table and fixup commands, `LC_UUID`, `LC_BUILD_VERSION`; and all of `__LINKEDIT` (symbols, the exports trie, the binding and fixup tables, the signature) |
+
+  **And the file must be as long as its own headers say** (`_elf_loaded`,
+  `_macho_loaded`): on ELF every program header's bytes, the section header
+  table and every section with bytes in the file; on Mach-O every segment's
+  bytes, `__LINKEDIT`'s included, and the tables `LC_SYMTAB` and the
+  linkedit-data commands place. A file cut anywhere, its tail included, has
+  no second hash and is `damaged`. RAN before this was added (review-8 F2):
+  a hand-made Mach-O cut 1, 150 or 300 bytes into `__LINKEDIT` kept its
+  second hash, and so did this build's ELF library cut 1 to 7,432 bytes from
+  its tail (an ELF file cut there still loads; it is refused because it is
+  not the file that was installed). RAN after: all refused, and an installed
+  library cut 1, 64 or 4,096 bytes short is `damaged`.
+
+  *Why the Mach-O load commands are not hashed* (review-8 F3 asked). As
+  understood, RECALLED: re-signing adds or rewrites `LC_CODE_SIGNATURE` and
+  changes `__LINKEDIT`'s size and the header's command count; and an
+  application freezer runs `install_name_tool` on the libraries it collects,
+  which rewrites `LC_ID_DYLIB`, `LC_LOAD_DYLIB` and `LC_RPATH`. Hashing those
+  commands would refuse exactly the re-signed, frozen application this second
+  hash exists for. So a Mach-O file with a tampered `__TEXT` cannot pass, and
+  one with an **added `LC_LOAD_DYLIB` or a changed run path can**: that is
+  the price, and it is a tampering case, which this gate does not claim to
+  stop (next item). On ELF the same information is inside a hashed segment.
+  What was added on 2026-10-12 is the part of the load commands that
+  describes the mapping of the hashed bytes (addresses, sizes, protections,
+  section flags), which neither tool is known to touch.
+
+  RAN on ELF: copies rewritten by `strip --strip-debug` and `strip
+  --strip-all` are accepted by the second hash (a library compiled for the
+  test, and the installed sidecar); one bit changed in the entry point, the
+  flags, or a program header is refused; a file with bytes added after its
+  end is accepted. **The Mach-O reader is written from the format as
+  remembered and has read only files made by hand for its tests.** Two facts
+  about Apple's tools decide whether a signed application is accepted and
+  cannot be settled here: that re-signing and `install_name_tool` leave
+  section bytes, section and segment addresses, protections and flags
+  untouched; and that they keep every table inside the length `__LINKEDIT`
+  states. If either is wrong, the failure is a refusal (`damaged`) in a
+  re-signed application, not an acceptance; the refusal's second line prints
+  both hashes for the report section 10 asks for.
 - *That the attestation was written by a real probe.* Nothing signs it. Anyone
   who can write in the package can write an attestation, and can as well
   replace the library; the gate is a guard against a mismatched or damaged
@@ -475,15 +654,45 @@ still runs, adds about 200 ms to an import.
   between the hash and the load, or was replaced after the process mapped the
   wheel's module (section 11, "under a running process").
 
-The full probe remains, as the development path: `tools/bundle_route/run_gate.py`
-prints its report, `mutate_gate.py` moves each offset to see that it notices,
-`attest.py` writes an attestation, and the build script's last step runs all
-that. **The probe runs at import only** for a library named by
-`IMTYPESET_LIBRARY` that has no attestation beside it, in a child interpreter,
-every time, and never when `sys.frozen` is set; or when `IMTYPESET_GATE=probe`
-asks. `IMTYPESET_GATE=attested` forbids it everywhere. That one case also has
-no protection against a truncated library, which is loaded before the child
-is started.
+**The development route** (a source checkout: `python/imtypeset` with no
+library in it, and `IMTYPESET_LIBRARY`). The full probe remains here:
+`tools/bundle_route/run_gate.py` prints its report, `mutate_gate.py` moves
+each offset to see that it notices, `attest.py` writes an attestation, and the
+build script's last step runs all that. **Nothing is mapped into the importing
+process before a content check or a child's verdict:**
+
+- A named library with an attestation beside it
+  (`<library>.attestation.json`) is held to it by content before it is
+  loaded, exactly as an installed one is. `checked_in` is `"attestation"`.
+- A named library with none is **loaded and probed in a child interpreter
+  first** (`_bundle.probe_in_child`), every time; only if the child accepts
+  it does the importing process load it. `checked_in` is `"child"`. A
+  truncated file ends the child (RAN: the importing process gets an
+  `ImportError`, kind `not-a-library`, and lives; before, it died).
+- **Where no child can be started, that import is refused, kind
+  `unchecked`.** Nothing is run to find out, because starting a
+  `sys.executable` that is an application starts the application again
+  (RAN, above). `_bundle.child_interpreter` decides from what can be read:
+  `sys.frozen`; Nuitka's `__compiled__` on the module; that `sys.executable`
+  is a file **named like a Python interpreter** (`python`, `python3.11`,
+  `pythonw.exe`, `pypy3`), which is what is left for a packager that sets no
+  flag. RECALLED: Briefcase and Nuitka do not set `sys.frozen`; Briefcase
+  starts the application from a binary named for it. An interpreter under
+  another name is refused too; its way out is an attestation, not a
+  variable.
+- **A library that is not a sidecar** (it does not export
+  `ImTypesetBundle_LayoutFacts`): the self-hosted `libimtypeset_pyhost.so`,
+  which has Dear ImGui inside it, or a library with none at all. It is
+  accepted **only on this route**, after a child interpreter has loaded it,
+  and by its **build-info check** alone: `ImTypeset_GetBuildInfo` answers a
+  struct of the size and C ABI revision this package was written for; for a
+  self-hosted library `ImTypesetHost_GetInfo` says the Dear ImGui inside it
+  is the version imtypeset was compiled against; and the library accepts the
+  package's struct sizes (`ImTypeset_DebugCheck*DataLayout`). There is no
+  second Dear ImGui to compare with, so there is nothing to probe.
+  `host_info()["route"]` is then `"IMTYPESET_LIBRARY (build-info check
+  only)"` and `host_info()["checked_by"]` says the same in words. Under an
+  attestation such a library is refused (`not-a-library`).
 
 **Refusals.** Every refusal is a plain `ImportError` (not a subclass: a
 refused import leaves no module of the package behind to hold a class). Its
@@ -495,15 +704,15 @@ to do, and holds no path. The lines after it are for a log. `e.kind`,
 |---|---|---|
 | `bundle-mismatch` | the wheel's module is not the attested one | "imtypeset 0.3.0 was built for imgui-bundle 1.92.900, and this application has imgui-bundle 1.92.801. The two are updated together: install imgui-bundle 1.92.900, or the imtypeset built for imgui-bundle 1.92.801." (same version, other binary: "…built for another build of imgui-bundle 1.92.900 than the one in this application…") |
 | `bundle-missing` | `import imgui_bundle` fails | "imtypeset needs imgui-bundle 1.92.900, and it cannot be imported here. Install it." |
-| `damaged` | the library is not the attested file, or the attestation cannot be read | "The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again." |
+| `damaged` | the library is not the attested file, is cut short anywhere, or is missing; or the attestation cannot be read or is not of the shape the gate reads | "The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again." |
 | `package-mismatch` | the Python modules and the library are of different releases | "The imtypeset library does not export 2 of the 95 functions this imtypeset package calls: … The library and the package are installed together, from one release." / "The imtypeset library refuses this package (written for …): …" |
 | `layout` | Linux: `imgui_bundle` was imported from another directory than the package's neighbour | "imtypeset and imgui-bundle are installed in two different places, and imtypeset finds imgui-bundle only beside itself. Install both into the same environment." |
 | `wrong-platform` | the package was built for another system | "This copy of imtypeset 0.3.0 was built for Darwin arm64, and this computer is Linux x86_64. Install the imtypeset built for this computer." |
-| `unchecked` | no attestation, and no probe may run (installed, frozen, or `IMTYPESET_GATE=attested`) | "This copy of imtypeset carries no record that it was checked against the imgui-bundle it is running beside, and it is not checked here. Install a released imtypeset wheel." |
-| `no-library` | `IMTYPESET_LIBRARY` unset and no library in the package: a source directory | "IMTYPESET_LIBRARY is not set, and this copy of the imtypeset package carries no library: it is a source directory and not an installed wheel." |
+| `unchecked` | no attestation, and no probe may run (an installed package, always; a checkout where no child interpreter can be started, or with `IMTYPESET_GATE=attested`); or the check itself ended in an error | "This copy of imtypeset carries no record that it was checked against the imgui-bundle it is running beside, and it is not checked here. Install a released imtypeset wheel." / "The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. …" |
+| `no-library` | a source checkout (no library and no attestation in the package), and `IMTYPESET_LIBRARY` unset | "IMTYPESET_LIBRARY is not set, and this copy of the imtypeset package carries no library: it is a source directory and not an installed wheel." |
 | `not-a-library` | the file cannot be loaded or is not imtypeset's | "The imtypeset library cannot be loaded: it is damaged, or it was built for another system or another imgui-bundle. Install imtypeset again." |
-| `refused` | a check ran and refused: a second copy of the module, an answer that differs from the attestation, a failed probe | "The imtypeset library does not fit imgui-bundle … in this application. Install the imtypeset built for this imgui-bundle." |
-| `configuration` | `IMTYPESET_GATE` or `IMTYPESET_BUNDLE_STRICT` asks for what cannot be given | "IMTYPESET_GATE=probe starts a Python interpreter, and a packaged application has none. Unset it." |
+| `refused` | a check ran and refused: a second copy of the module, a second Dear ImGui in the global symbol scope, an answer that differs from the attestation, a failed probe | "The imtypeset library does not fit imgui-bundle … in this application. Install the imtypeset built for this imgui-bundle." |
+| `configuration` | `IMTYPESET_BUNDLE_STRICT=1` over a stand-in build; in a checkout, `IMTYPESET_GATE` with a value that is not one | "This imtypeset was built against stand-in Dear ImGui headers, and IMTYPESET_BUNDLE_STRICT=1 refuses such a build. …" |
 
 "There is no library for this platform" (advtext's H26) has no refusal of its
 own, because it cannot arise from an install: where no wheel matches the
@@ -511,15 +720,37 @@ platform, pip installs nothing, and `import imtypeset` is Python's own
 `ModuleNotFoundError`. A package copied from another system is
 `wrong-platform`.
 
-**The duplicate-module check** (`_bundle._same_module`) lists the files mapped
-in the process and refuses a second `_imgui_bundle.*`. On Linux it reads
-`/proc/self/maps`. On macOS it asks dyld (`_dyld_image_count`,
-`_dyld_get_image_name`, through `ctypes.CDLL(None)`): written from Apple's
-header as remembered, **never run**. It is never silently skipped:
-`host_info()["bundle"]["second_module_check"]` is `"done: /proc/self/maps"`,
-`"done: dyld's image list"`, or `"not done: <why>"`. On macOS a second copy is
-also less likely by construction: the library names no module file, so
-loading it cannot bring one in.
+**Is another Dear ImGui in reach?** (`_bundle._same_module`, after the load.)
+Two checks, and what each cannot see:
+
+1. *A second copy of the wheel's module.* The files mapped in the process
+   are listed and a second `_imgui_bundle.*` is refused. On Linux from
+   `/proc/self/maps`. On macOS from dyld (`_dyld_image_count`,
+   `_dyld_get_image_name`, through `ctypes.CDLL(None)`): written from Apple's
+   header as remembered, **never run**. On macOS a second copy is also less
+   likely by construction: the library names no module file, so loading it
+   cannot bring one in.
+2. *Another image answering for Dear ImGui's names in the global symbol
+   scope* (review-8 F10). A library's undefined symbols are bound there
+   first: on ELF before its own needed libraries are looked at, and on macOS
+   it is where a symbol left for lookup is found at all, the first image in
+   load order that exports the name. So an executable with a Dear ImGui of
+   its own linked in, or another extension opened `RTLD_GLOBAL` that carries
+   one, would be what the library draws through. The check asks `dlsym` on
+   the global scope for four of the names and `dladdr` for the image of each
+   answer, and refuses any image but the wheel's module. RAN on Linux: a
+   library exporting those names, opened `RTLD_GLOBAL` before the import, is
+   refused ("a second Dear ImGui in this application"); the plain import
+   finds none. The macOS half has never run.
+   **Not seen:** an image that exports the names and was opened
+   `RTLD_LOCAL`. On ELF the library does not bind to such an image. Whether
+   macOS's lookup can is RECALLED as no (a lookup searches global images)
+   and not known; and four names stand for 117.
+
+Neither is silently skipped: `host_info()["bundle"]["second_module_check"]`
+is, in full, `"done: /proc/self/maps; global Dear ImGui names: none but the
+wheel's (dlsym and dladdr on the global scope)"`, with `"not done: <why>"` in
+place of either half that could not be made.
 
 ## 10. What a packaged application carries
 
@@ -558,8 +789,13 @@ list to state, and the library does not check it.
 - Needs a person at a Mac: build or download the arm64 wheel, freeze an
   application with it, sign with a Developer ID under the hardened runtime,
   and report `imtypeset.host_info()["bundle"]` — in particular
-  `attestation.matched_by` (expected `image` for both files), `preload`, and
-  `second_module_check` — or the refusal's two lines.
+  `attestation.matched_by` (expected `image` for both files),
+  `attestation.module_found`, `preload`, and `second_module_check` — or the
+  refusal's two lines, whose second names both hashes. With them, the output
+  of `otool -l` on the library before and after signing settles the two
+  facts section 9 could not: that signing and `install_name_tool` leave
+  section bytes, addresses, protections and flags alone, and that a file cut
+  inside `__LINKEDIT` is one whose load commands point past its end.
 
 ## 11. What an update is
 
@@ -574,7 +810,12 @@ replace the directories `imtypeset/` and `imgui_bundle/` (and
 modules and the attestation come from one wheel.
 
 **advtext and the application follow imtypeset's version** by the rule of
-`docs/versioning.md`: until 1.0, a requirement of the form `imtypeset==0.3.*`.
+`docs/versioning.md`. What they write is a lock: `imgui-bundle==X` and the
+imtypeset line built for it, `imtypeset==0.3.0.<line of X>`, both exact and
+moved together (section 8 says what `pip install -U imtypeset` alone would do
+instead: move the application's imgui-bundle). A library like advtext, which
+does not own the application's environment, states the range it works with
+(`imtypeset==0.3.*`) and leaves the two exact pins to the application.
 
 | what was updated | what happens at `import imtypeset` |
 |---|---|
@@ -583,8 +824,9 @@ modules and the attestation come from one wheel.
 | imtypeset only, to a wheel built for another imgui-bundle | the same sentence. pip refuses to get there: the pin conflicts |
 | imgui-bundle rebuilt at the same version (another binary) | `bundle-mismatch`, "another build of". Not run: there is one binary of each version here |
 | the library replaced, the Python modules not (or the reverse) | `damaged` when the attestation still describes the old library (RAN: any library but the attested one); `package-mismatch` when all three files of the new wheel arrived except the modules (RAN: modules declaring a function the library lacks; modules of another version string; and, for real, a library built from `c9f8902` under this tree's package: "does not export 2 of the 95 functions") |
-| an update interrupted partway through a file | `damaged`, before the file is loaded (RAN: truncated to half, emptied, one byte changed) |
-| the attestation lost | `unchecked` (RAN) |
+| an update interrupted partway through a file | `damaged`, before the file is loaded (RAN: truncated to half, cut 1, 64 and 4,096 bytes short at its tail, emptied, one byte changed, missing) |
+| the attestation lost | `unchecked` (RAN), and still `unchecked` with `IMTYPESET_LIBRARY` naming a good library: a package with a library in it is an installed one |
+| a variable left in the environment by a developer's shell or a launcher (`IMTYPESET_LIBRARY`, `IMTYPESET_GATE`, `IMTYPESET_PRELOAD_BUNDLE`) | nothing: an installed package does not read them, and `host_info()["ignored_environment"]` names them (RAN) |
 | advtext or the application newer than imtypeset | not the gate's to see. `imtypeset.version()` and `host_info()["distribution_version"]` are what they compare; a call that does not exist is Python's `AttributeError` |
 
 In every row that refuses, the application gets an `ImportError` whose first
@@ -615,6 +857,10 @@ the two systems treat mapped files, and not run:
 
 ## 12. What ran for the distribution, and what never did
 
+**The runs below are of 2026-10-11, before the gate's routes changed.** What
+was run again on 2026-10-12 on the changed tree is the table after this one;
+where the two differ (wheel names, counts), the later one is current.
+
 RAN, by the builder of task `py-dist`, 2026-10-11, on the machine of section 1
 (Debian 12, GCC 12.2, CPython 3.11.2, pip 26.2.1), every process under
 `ulimit -v 6000000`, load average 3 to 4.5:
@@ -629,8 +875,36 @@ RAN, by the builder of task `py-dist`, 2026-10-11, on the machine of section 1
 | `tools/ci/test_wheel.py` | 11 tests |
 | a library bound by lookup on Linux through the package | refused after the import alone (`undefined symbol`), accepted with `IMTYPESET_PRELOAD_BUNDLE=1` (`preload: global`) |
 
+RAN again, by the builder of task `gate-fixes`, 2026-10-12, same machine, on
+the tree with that task's changes and task `hidpi`'s (25 probe rows), every
+process under `ulimit -v 6000000`:
+
+| what | result |
+|---|---|
+| review-8's findings, on the tree and the installed wheel as they were | F1: every sequence reproduced (section 9), two of them a process killed by SIGBUS and one an application started again. F2: reproduced on a hand-made Mach-O and on this build's ELF library. F3: the Mach-O half as stated; the ELF half only in part (the program headers were already inside a hashed segment; the ELF header's entry point and flags were not hashed). F4: three of the four raised `AttributeError`, the fourth `ValueError`. F5: reproduced with `packaging` 26.3 and with pip. F9: reproduced |
+| both wheels, `build_wheel.py --headers stand-in` | `imtypeset-0.3.0.192900.dev0+standin-cp311-none-manylinux_2_28_x86_64.whl` and `…192801.dev0+standin…`, 588 kB, 11 files, metadata 2.4, tag measured |
+| `check_wheel.py` on both | ok, the tag measured again from the archive; with `--release --tag v0.3.0`: both refused |
+| two new throwaway environments (`local_env.py`), `pip install --no-index --find-links <both> imtypeset imgui-bundle==X` | each got its own line (in the 1.92.801 one pip tried `…192900.dev0` first); `pip check` clean |
+| `check_installed.py` in each, with `--other-python`, `--dev-library` (a development sidecar built for that environment) and `--self-hosted-library` | **92 of 92 in each**: what section 12's first table lists; the unflagged shape; the library cut 1, 64 and 4,096 bytes short, missing, and lengthened; five attestations of another shape; 27 imports with a variable set that an installed package must not read (nine settings by three shapes); a second Dear ImGui in the global scope; and 18 development-route cases from this repository's package |
+| `tools/ci/test_wheel.py` | 24 tests, under `packaging` 26.3 and under pip 23.0.1's `packaging` 21.3 |
+| `tools/ci/test_fetch_headers.py`, `check_workflows.py` (PyYAML 6; and a copy with a tag in place of a commit id and an expression in a `run`: reported), `shellcheck` on `tools/ci/*.sh` and the build script | 17 tests; three files ok; clean |
+| `tools/bundle_route/mutate_gate.py` (1.92.900) | 31 offsets, 90 mutants, 12 crashed, 0 survived |
+| `tests/python/test_binding.py`, `test_demo_sections.py` against a self-hosted library built for this run | 101 and 4 tests pass; each import now starts one child interpreter |
+| `tools/ci/sidecar_probe.py --also-lookup --only-stand-in` (1.92.900) | H1 YES by `link`; the lookup-bound library accepted only with the module global, as before |
+
+Not run again on 2026-10-12: the C++ presets (this task changed no C++);
+`pip wheel .` through `pyproject.toml`'s backend; `tools/release.sh`.
+
 NEVER RUN:
 
+- **The Mach-O length check, the widened Mach-O hash, the global-scope check
+  on macOS, and `child_interpreter()` inside a real Briefcase, Nuitka,
+  PyInstaller or py2app application.** Each is written from the format or the
+  tool as remembered.
+- **The four actions' commit ids, the label `ubuntu-22.04`, and a wheel's
+  measured tag on a runner**: the first run of the workflows.
+- **A fetch of the fork**, so its two checksums are unrecorded and
+  `--release` cannot pass until they are pasted in (section 3).
 - **Anything on macOS**: the wheel build, the platform tag, the load ladder's
   second step, dyld's image list, the Mach-O content hash on a real file, a
   signed or frozen application.
