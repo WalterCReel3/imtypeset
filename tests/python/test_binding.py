@@ -1374,6 +1374,47 @@ class Documents(unittest.TestCase):
 class Requests(unittest.TestCase):
     """What a host building a grid of code asked for (tests/test_api_requests.cpp)."""
 
+    def test_font_metrics_are_the_font_files_at_a_size(self):
+        # Roboto: 2048 units to the em, an hhea ascender of 1900 and a
+        # descender of -500. Inconsolata: 1000, 859 and -190.
+        prose = ts.font_metrics(ts.Face.Regular, 16.0)
+        self.assertEqual(prose.em_size, 16.0)
+        self.assertEqual(prose.ascent, 16.0 * 1900 / 2048)
+        self.assertEqual(prose.descent, 16.0 * 500 / 2048)
+        self.assertEqual(prose.font_size, 18.75)
+        self.assertEqual(prose.line_gap, 0.0)
+        self.assertTrue(0.0 < prose.x_height < prose.ascent)
+        self.assertEqual(prose.space_advance, ts.glyph_advance(ts.Face.Regular, 16.0, " "))
+        code = ts.font_metrics(ts.Face.Code, 1000.0)
+        self.assertEqual((code.ascent, code.descent, code.font_size), (859.0, 190.0, 1049.0))
+        # The em at which a face is 16 px tall as ImGui means it, from the
+        # metrics at any size: what advtext's em_size_for_pixel_height answers.
+        probe = ts.font_metrics(ts.Face.Regular, 1024.0)
+        em = 16.0 * probe.em_size / probe.font_size
+        self.assertAlmostEqual(em, 16.0 * 2048 / 2400, places=5)
+        self.assertAlmostEqual(ts.font_metrics(ts.Face.Regular, em).font_size, 16.0, places=5)
+        # A monospace face: every character one advance; a kerned face not.
+        cell = ts.glyph_advance(ts.Face.Code, 16.0, "M")
+        self.assertEqual(cell, 8.0)
+        self.assertEqual(ts.glyph_advance(ts.Face.Code, 16.0, "i"), cell)
+        self.assertEqual(ts.glyph_advance(ts.Face.Code, 16.0, ord("i")), cell)
+        self.assertGreater(
+            ts.glyph_advance(ts.Face.Regular, 16.0, "M"), ts.glyph_advance(ts.Face.Regular, 16.0, "i")
+        )
+        # CodeBold answers for Bold's font until it has its own.
+        self.assertEqual(ts.font_metrics(ts.Face.CodeBold, 16.0), ts.font_metrics(ts.Face.Bold, 16.0))
+        # No ImGui context is asked for: the answer is the same between frames.
+        self.assertEqual(ts.font_metrics(ts.Face.Regular, 16.0), prose)
+        for bad in (0.0, -1.0, math.nan, math.inf, 2.0e6):
+            with self.assertRaises(ts.Error) as raised:
+                ts.font_metrics(ts.Face.Regular, bad)
+            self.assertEqual(raised.exception.code, ts.ErrorCode.InvalidArgument)
+            with self.assertRaises(ts.Error):
+                ts.glyph_advance(ts.Face.Regular, bad, "a")
+        with self.assertRaises(ts.Error) as raised:
+            ts.font_metrics(99, 16.0)
+        self.assertEqual(raised.exception.code, ts.ErrorCode.InvalidArgument)
+
     def test_face_has_glyph_answers_for_the_role_alone(self):
         self.assertTrue(ts.face_has_glyph(ts.Face.Code, "A"))
         self.assertTrue(ts.face_has_glyph(ts.Face.Code, ord("A")))
@@ -1573,6 +1614,70 @@ class Tables(unittest.TestCase):
         self.addCleanup(prose.close)
         with self.assertRaises(ValueError):
             prose.append_table_rows([["a"]])
+
+    def test_a_row_that_arrives_in_pieces_is_appended_to_and_never_replaced(self):
+        # The row being written is described with the cells it has: the cell
+        # being written is the table's last, append_text grows it and
+        # append_table_cells adds the next one. One library call a piece.
+        document = self.table([["Name", "Unit", "Note"]], flags=ts.BlockFlags.TableHeld)
+        steps = [
+            ("rows", [["ma"]]),
+            ("text", "ss"),
+            ("cells", ["k"]),
+            ("text", "g"),
+            ("cells", [ts.Cell("the SI", runs=[ts.Run(4, 6, tag=5)])]),
+            ("text", " unit"),
+            ("cells", []),
+            ("rows", [["len"]]),
+            ("text", "gth"),
+            ("cells", ["m", "the mètre"]),
+        ]
+        before = document.stats()
+        for kind, given in steps:
+            with Calls() as calls:
+                if kind == "rows":
+                    self.assertTrue(document.append_table_rows(given))
+                elif kind == "text":
+                    self.assertTrue(document.append_text(given))
+                else:
+                    self.assertTrue(document.append_table_cells(given))
+            edits = [name for name in calls.names if name.startswith("ImTypeset_Append")]
+            self.assertEqual(len(edits), 0 if given == [] else 1)
+            document.layout(600.0)
+            document.layout_window(0.0, 1.0e6)
+        text = self.TEXT + "\nlength\tm\tthe mètre"
+        self.assertEqual(document.range_text(((0, 0), (0, len(text)))), text)
+        geometry = document.table_geometry(0)
+        self.assertEqual((geometry.row_count, geometry.column_count, geometry.cell_count), (3, 3, 9))
+        # Positions in the appended cells are the block's, accents and all.
+        position = document.table_position(0, 2, 2, 6)
+        self.assertEqual(position, ts.Position(0, text.index("mètre") + 2))
+        self.assertEqual(document.table_cell(position), ts.CellPosition(2, 2, 8, 6))
+        linked = document.caret_rect(document.table_position(0, 1, 2, 5))
+        self.assertEqual(document.hit_test((linked[0] + 1.0, (linked[1] + linked[3]) / 2.0)).tag, 5)
+        # It is the table described whole.
+        whole = self.table(self.ROWS + [["length", "m", "the mètre"]], flags=ts.BlockFlags.TableHeld)
+        self.assertEqual(whole.table_geometry(0), geometry)
+        # Each piece measured the cell it touched and nothing else: ten, after
+        # the three of the header at the first layout.
+        after = document.stats()
+        self.assertEqual(after.TableCellsMeasured - before.TableCellsMeasured, 3 + 10)
+        # A table with no row yet gets its first; a document whose last block
+        # is no table refuses.
+        empty = ts.Document.from_blocks([ts.Block(ts.BlockKind.Table)])
+        self.addCleanup(empty.close)
+        empty.layout(400.0)
+        self.assertTrue(empty.append_table_cells(["é", "b"]))
+        self.assertTrue(empty.append_table_cells(["c"]))
+        self.assertEqual(empty.table_geometry(0).row_count, 1)
+        self.assertEqual(empty.range_text(((0, 0), (0, 5))), "é\tb\tc")
+        self.assertEqual(empty.table_position(0, 0, 2, 1), ts.Position(0, 5))
+        prose = ts.Document.from_blocks([ts.Block(text="no table here")])
+        self.addCleanup(prose.close)
+        with self.assertRaises(ValueError):
+            prose.append_table_cells(["a"])
+        with self.assertRaises(TypeError):
+            document.append_table_cells("ab")
 
     def test_set_table_columns_states_the_widths(self):
         document = self.table(self.ROWS)
@@ -2027,6 +2132,919 @@ class ParagraphFailures(unittest.TestCase):
             finally:
                 ts._lib = real
             self.assertEqual(paragraph.range_text((0, 2)), ACCENTED[:2])
+
+
+# --- What leaves a call on input a host controls (docs/python-errors.md) ------------------
+
+import ctypes  # noqa: E402
+import enum  # noqa: E402
+import math  # noqa: E402
+
+from imtypeset import _capi, demo  # noqa: E402
+
+T, V, O, U, E, OK = TypeError, ValueError, OverflowError, UnicodeEncodeError, ts.Error, None
+NAN, INF, HUGE, LONE = math.nan, math.inf, 10**400, "\ud800"
+PLAIN = "Plain words, enough of them to wrap onto several lines at this width."
+ROBOTO = os.path.join(FONT_DIR, FONTS[ts.Face.Regular])
+F = frame  # A row that draws does it inside a frame.
+
+
+class Hostile:
+    """What a row calls into, made new for the row and closed after it."""
+
+    def __init__(self):
+        self.made = []
+
+    def close(self):
+        for thing in self.made:
+            thing.close()
+
+    def paragraph(self, text):
+        paragraph = ts.Paragraph(text, [ts.Run(0, 2, ts.Face.Bold, tag=3)])
+        self.made.append(paragraph)
+        paragraph.layout(260.0)
+        return paragraph
+
+    @property
+    def par(self):  # Text that is not ASCII: positions go through the library.
+        return self.paragraph(ACCENTED)
+
+    @property
+    def plain(self):  # ASCII: positions are converted in the package.
+        return self.paragraph(PLAIN)
+
+    @property
+    def doc(self):  # Blocks 0 to 5 of every kind, and block 6 a table of two rows.
+        table = ts.Block(
+            ts.BlockKind.Table,
+            rows=[["né", ts.Cell("Größe", [ts.Run(0, 2, ts.Face.Bold)])], ["c", "d"]],
+            columns=[ts.TableColumn(ts.Align.Left, 60.0), ts.TableColumn(ts.Align.Right, 80.0)],
+        )
+        document = ts.Document.from_blocks(
+            every_kind() + [table], STYLES(), [ts.Container(Kind=ts.ContainerKind.List, Indent=24.0)]
+        )
+        self.made.append(document)
+        document.layout(400.0)
+        return document
+
+    @property
+    def prose(self):  # The last block is a paragraph: what append_text appends to.
+        document = ts.Document.from_blocks([ts.Block(text=PROSE)])
+        self.made.append(document)
+        document.layout(400.0)
+        return document
+
+    def a_context_and_back(self):
+        held = ts.current_context()
+        other = ts.create_context()
+        try:
+            ts.set_current_context(other)
+            return ts.current_context() == other
+        finally:
+            ts.destroy_context(other)
+            ts.set_current_context(held)
+
+
+def blocks_with(**fields):
+    return [ts.Block(text="né " + PLAIN)._replace(**fields)]
+
+
+def run_with(**fields):
+    return [ts.Run(0, 2)._replace(**fields)]
+
+
+def mark_with(**fields):
+    return [ts.Mark(((1, 2), (1, 9)), RED)._replace(**fields)]
+
+
+SEL = ((1, 2), (2, 3))
+BOX = (0.0, 0.0, 600.0, 400.0)
+
+# (call, the input, what leaves the call, the call). `OK` is nothing at all:
+# the call returns. An exception class is the class exactly, not one of its
+# subclasses. ONE LINE HERE FOR A NEW PUBLIC NAME, and its name in
+# docs/python-errors.md: test_every_public_name_is_in_the_table and
+# test_the_document_names_every_call_of_the_table fail until both are there.
+TABLE = [
+    # --- the module's functions
+    ("col32", "r=None", T, lambda x: ts.col32(None, 0, 0)),
+    ("col32", "r=1.5", T, lambda x: ts.col32(1.5, 0, 0)),
+    ("col32", "r=2**40: the low byte", OK, lambda x: ts.col32(2**40, 0, 0)),
+    ("library", "no argument", OK, lambda x: ts.library()),
+    ("build_info", "no argument", OK, lambda x: ts.build_info()),
+    ("version", "no argument", OK, lambda x: ts.version()),
+    ("host_info", "no argument", OK, lambda x: ts.host_info()),
+    ("last_error", "no argument", OK, lambda x: ts.last_error()),
+    ("current_context", "no argument", OK, lambda x: ts.current_context()),
+    ("get_context_serial", "no argument", OK, lambda x: ts.get_context_serial()),
+    ("stats", "no argument", OK, lambda x: ts.stats()),
+    ("get_style", "no argument", OK, lambda x: ts.get_style()),
+    ("create_context", "a second context, then destroyed", OK, lambda x: x.a_context_and_back()),
+    ("destroy_context", "ctx='x'", T, lambda x: ts.destroy_context("x")),
+    ("destroy_context", "ctx=1.5", T, lambda x: ts.destroy_context(1.5)),
+    ("set_current_context", "ctx=b'x'", T, lambda x: ts.set_current_context(b"x")),
+    ("set_current_context", "ctx=[]", T, lambda x: ts.set_current_context([])),
+    ("set_style", "style=5", T, lambda x: ts.set_style(5)),
+    ("set_style", "style=a BlockStyle", T, lambda x: ts.set_style(ts.BlockStyle())),
+    ("set_text_cache_limits", "max_paragraphs=None", T, lambda x: ts.set_text_cache_limits(None)),
+    ("set_text_cache_limits", "max_bytes='x'", V, lambda x: ts.set_text_cache_limits(0, "x")),
+    ("set_text_cache_limits", "max_bytes=nan", V, lambda x: ts.set_text_cache_limits(0, NAN)),
+    ("set_text_cache_limits", "max_bytes=inf", O, lambda x: ts.set_text_cache_limits(0, INF)),
+    ("set_text_cache_limits", "2**40: clamped", OK, lambda x: ts.set_text_cache_limits(2**40, 2**40)),
+    ("codepoint_to_byte_offset", "text=None", T, lambda x: ts.codepoint_to_byte_offset(None, 0)),
+    ("codepoint_to_byte_offset", "text=bytes", T, lambda x: ts.codepoint_to_byte_offset(b"a", 0)),
+    ("codepoint_to_byte_offset", "a lone surrogate", U, lambda x: ts.codepoint_to_byte_offset(LONE, 0)),
+    ("codepoint_to_byte_offset", "offset=None", T, lambda x: ts.codepoint_to_byte_offset("aé", None)),
+    ("codepoint_to_byte_offset", "offset=nan", V, lambda x: ts.codepoint_to_byte_offset("aé", NAN)),
+    ("codepoint_to_byte_offset", "offset=inf", O, lambda x: ts.codepoint_to_byte_offset("aé", INF)),
+    ("codepoint_to_byte_offset", "offset=2**40: clamped", OK, lambda x: ts.codepoint_to_byte_offset("aé", 2**40)),
+    ("byte_to_codepoint_offset", "text=None", T, lambda x: ts.byte_to_codepoint_offset(None, 0)),
+    ("byte_to_codepoint_offset", "a lone surrogate", U, lambda x: ts.byte_to_codepoint_offset(LONE, 0)),
+    ("byte_to_codepoint_offset", "offset='x'", V, lambda x: ts.byte_to_codepoint_offset("aé", "x")),
+    ("byte_to_codepoint_offset", "offset=inf", O, lambda x: ts.byte_to_codepoint_offset("aé", INF)),
+    ("byte_to_codepoint_offset", "offset=-2**40: clamped", OK, lambda x: ts.byte_to_codepoint_offset("aé", -(2**40))),
+    ("add_font", "face=None", T, lambda x: ts.add_font(None, ROBOTO)),
+    ("add_font", "face='x'", V, lambda x: ts.add_font("x", ROBOTO)),
+    ("add_font", "face=inf", O, lambda x: ts.add_font(INF, ROBOTO)),
+    ("add_font", "face=2**32+1: no such role", E, lambda x: ts.add_font(2**32 + 1, ROBOTO)),
+    ("add_font", "source=None", T, lambda x: ts.add_font(ts.Face.Italic, None)),
+    ("add_font", "source=2**31 (an int)", T, lambda x: ts.add_font(ts.Face.Italic, 2**31)),
+    ("add_font", "source=1.5", T, lambda x: ts.add_font(ts.Face.Italic, 1.5)),
+    ("add_font", "source=a lone surrogate", U, lambda x: ts.add_font(ts.Face.Italic, LONE)),
+    ("add_font", "source=''", E, lambda x: ts.add_font(ts.Face.Italic, "")),
+    ("add_font", "face_index=None", T, lambda x: ts.add_font(ts.Face.Italic, ROBOTO, None)),
+    ("add_font", "face_index=2**40: no such face in the file", E, lambda x: ts.add_font(ts.Face.Italic, ROBOTO, 2**40)),
+    ("remove_font", "face=None", T, lambda x: ts.remove_font(None)),
+    ("remove_font", "face='x'", V, lambda x: ts.remove_font("x")),
+    ("remove_font", "face=inf", O, lambda x: ts.remove_font(INF)),
+    ("remove_font", "face=2**32+1: no such role", OK, lambda x: ts.remove_font(2**32 + 1)),
+    ("get_font", "face=None", T, lambda x: ts.get_font(None)),
+    ("get_font", "face='x'", V, lambda x: ts.get_font("x")),
+    ("get_font", "face=inf", O, lambda x: ts.get_font(INF)),
+    ("get_font", "face=2**32+1: no such role", OK, lambda x: ts.get_font(2**32 + 1)),
+    ("font_atlas_index", "face=None", T, lambda x: ts.font_atlas_index(None)),
+    ("font_atlas_index", "face=nan", V, lambda x: ts.font_atlas_index(NAN)),
+    ("font_atlas_index", "face=inf", O, lambda x: ts.font_atlas_index(INF)),
+    ("font_atlas_index", "face=-2**40: no such role", OK, lambda x: ts.font_atlas_index(-(2**40))),
+    ("face_has_glyph", "face=None", T, lambda x: ts.face_has_glyph(None, "a")),
+    ("face_has_glyph", "face='x'", V, lambda x: ts.face_has_glyph("x", "a")),
+    ("face_has_glyph", "char=''", T, lambda x: ts.face_has_glyph(ts.Face.Regular, "")),
+    ("face_has_glyph", "char='ab'", T, lambda x: ts.face_has_glyph(ts.Face.Regular, "ab")),
+    ("face_has_glyph", "char=None", T, lambda x: ts.face_has_glyph(ts.Face.Regular, None)),
+    ("face_has_glyph", "char=nan", V, lambda x: ts.face_has_glyph(ts.Face.Regular, NAN)),
+    ("face_has_glyph", "char=inf", O, lambda x: ts.face_has_glyph(ts.Face.Regular, INF)),
+    ("face_has_glyph", "char=-1, 2**40, a lone surrogate: False", OK,
+     lambda x: [ts.face_has_glyph(ts.Face.Regular, c) for c in (-1, 2**40, LONE)]),
+    ("font_metrics", "face=None", T, lambda x: ts.font_metrics(None, 16.0)),
+    ("font_metrics", "face='x'", V, lambda x: ts.font_metrics("x", 16.0)),
+    ("font_metrics", "face=99", E, lambda x: ts.font_metrics(99, 16.0)),
+    ("font_metrics", "face=2**40", E, lambda x: ts.font_metrics(2**40, 16.0)),
+    ("font_metrics", "em_size=None", T, lambda x: ts.font_metrics(ts.Face.Regular, None)),
+    ("font_metrics", "em_size='16'", T, lambda x: ts.font_metrics(ts.Face.Regular, "16")),
+    ("font_metrics", "em_size=10**400", O, lambda x: ts.font_metrics(ts.Face.Regular, HUGE)),
+    ("font_metrics", "em_size=nan", E, lambda x: ts.font_metrics(ts.Face.Regular, NAN)),
+    ("font_metrics", "em_size=inf", E, lambda x: ts.font_metrics(ts.Face.Regular, INF)),
+    ("font_metrics", "em_size=0", E, lambda x: ts.font_metrics(ts.Face.Regular, 0)),
+    ("font_metrics", "em_size=-16", E, lambda x: ts.font_metrics(ts.Face.Regular, -16.0)),
+    ("font_metrics", "em_size=1e300", E, lambda x: ts.font_metrics(ts.Face.Regular, 1e300)),
+    ("glyph_advance", "face=None", T, lambda x: ts.glyph_advance(None, 16.0, "a")),
+    ("glyph_advance", "face=99", E, lambda x: ts.glyph_advance(99, 16.0, "a")),
+    ("glyph_advance", "em_size=None", T, lambda x: ts.glyph_advance(ts.Face.Regular, None, "a")),
+    ("glyph_advance", "em_size=nan", E, lambda x: ts.glyph_advance(ts.Face.Regular, NAN, "a")),
+    ("glyph_advance", "em_size=10**400", O, lambda x: ts.glyph_advance(ts.Face.Regular, HUGE, "a")),
+    ("glyph_advance", "char=''", T, lambda x: ts.glyph_advance(ts.Face.Regular, 16.0, "")),
+    ("glyph_advance", "char='ab'", T, lambda x: ts.glyph_advance(ts.Face.Regular, 16.0, "ab")),
+    ("glyph_advance", "char=None", T, lambda x: ts.glyph_advance(ts.Face.Regular, 16.0, None)),
+    ("glyph_advance", "char=nan", V, lambda x: ts.glyph_advance(ts.Face.Regular, 16.0, NAN)),
+    ("glyph_advance", "char=inf", O, lambda x: ts.glyph_advance(ts.Face.Regular, 16.0, INF)),
+    ("glyph_advance", "char=-1, 2**40, a lone surrogate: the missing glyph's", OK,
+     lambda x: [ts.glyph_advance(ts.Face.Regular, 16.0, c) for c in (-1, 2**40, LONE)]),
+    ("text", "text=None", T, lambda x: F(lambda: ts.text(None))),
+    ("text", "text=bytes", T, lambda x: F(lambda: ts.text(b"abc"))),
+    ("text", "a lone surrogate", U, lambda x: F(lambda: ts.text("a" + LONE))),
+    ("text", "flags=None", T, lambda x: F(lambda: ts.text("a", flags=None))),
+    ("text", "flags='x'", V, lambda x: F(lambda: ts.text("a", flags="x"))),
+    ("text", "flags=inf", O, lambda x: F(lambda: ts.text("a", flags=INF))),
+    ("text", "wrap_width=None", T, lambda x: F(lambda: ts.text("a", wrap_width=None))),
+    ("text", "wrap_width='200'", T, lambda x: F(lambda: ts.text("a", wrap_width="200"))),
+    ("text", "wrap_width=10**400", O, lambda x: F(lambda: ts.text("a", wrap_width=HUGE))),
+    ("text", "wrap_width=nan, inf, -1, 1e300", OK,
+     lambda x: F(lambda: [ts.text(PLAIN, wrap_width=w) for w in (NAN, INF, -1, 1e300)])),
+    ("text", "style=5", T, lambda x: F(lambda: ts.text("a", style=5))),
+    ("text", "'', NUL inside, 2 MB", OK, lambda x: F(lambda: [ts.text(t) for t in ("", "a\0b", "a" * (1 << 21))])),
+    ("text_with_id", "str_id=None", T, lambda x: F(lambda: ts.text_with_id(None, "a"))),
+    ("text_with_id", "str_id=a lone surrogate", U, lambda x: F(lambda: ts.text_with_id(LONE, "a"))),
+    ("text_with_id", "text=5", T, lambda x: F(lambda: ts.text_with_id("id", 5))),
+    ("text_with_id", "text=a lone surrogate", U, lambda x: F(lambda: ts.text_with_id("id", LONE))),
+    ("text_with_id", "flags=None", T, lambda x: F(lambda: ts.text_with_id("id", "a", flags=None))),
+    ("text_with_id", "wrap_width=None", T, lambda x: F(lambda: ts.text_with_id("id", "a", wrap_width=None))),
+    ("text_with_id", "wrap_width=10**400", O, lambda x: F(lambda: ts.text_with_id("id", "a", wrap_width=HUGE))),
+    ("text_with_id", "style='x'", T, lambda x: F(lambda: ts.text_with_id("id", "a", style="x"))),
+    ("text_with_id", "str_id=''", OK, lambda x: F(lambda: ts.text_with_id("", "a"))),
+    ("selectable_text", "str_id=None", T, lambda x: F(lambda: ts.selectable_text(None, "a"))),
+    ("selectable_text", "str_id='': the library refuses it", E, lambda x: F(lambda: ts.selectable_text("", "a"))),
+    ("selectable_text", "text=None", T, lambda x: F(lambda: ts.selectable_text("id", None))),
+    ("selectable_text", "text=a lone surrogate", U, lambda x: F(lambda: ts.selectable_text("id", LONE))),
+    ("selectable_text", "flags='x'", V, lambda x: F(lambda: ts.selectable_text("id", "a", flags="x"))),
+    ("selectable_text", "wrap_width=None", T, lambda x: F(lambda: ts.selectable_text("id", "a", wrap_width=None))),
+    ("selectable_text", "style=5", T, lambda x: F(lambda: ts.selectable_text("id", "a", style=5))),
+    ("selectable_text", "selection=5", T, lambda x: F(lambda: ts.selectable_text("id", "abc", selection=5))),
+    ("selectable_text", "selection=()", V, lambda x: F(lambda: ts.selectable_text("id", "abc", selection=()))),
+    ("selectable_text", "selection={}", V, lambda x: F(lambda: ts.selectable_text("id", "abc", selection={}))),
+    ("selectable_text", "selection=(None, 1)", T, lambda x: F(lambda: ts.selectable_text("id", "abc", selection=(None, 1)))),
+    ("selectable_text", "selection=('x', 1)", V, lambda x: F(lambda: ts.selectable_text("id", "abc", selection=("x", 1)))),
+    ("selectable_text", "selection=(inf, 1)", O, lambda x: F(lambda: ts.selectable_text("id", "abc", selection=(INF, 1)))),
+    ("selectable_text", "selection=(-5, 2**40): clamped", OK,
+     lambda x: F(lambda: [ts.selectable_text("id", t, selection=(-5, 2**40)) for t in ("abc", "aéc")])),
+    ("calc_text_size", "text=None", T, lambda x: ts.calc_text_size(None)),
+    ("calc_text_size", "a lone surrogate", U, lambda x: ts.calc_text_size(LONE)),
+    ("calc_text_size", "flags=None", T, lambda x: ts.calc_text_size("a", flags=None)),
+    ("calc_text_size", "flags=nan", V, lambda x: ts.calc_text_size("a", flags=NAN)),
+    ("calc_text_size", "wrap_width='x'", T, lambda x: ts.calc_text_size("a", wrap_width="x")),
+    ("calc_text_size", "wrap_width=10**400", O, lambda x: ts.calc_text_size("a", wrap_width=HUGE)),
+    ("calc_text_size", "style=5", T, lambda x: ts.calc_text_size("a", style=5)),
+    ("show_demo_window", "open=None, 'x', an object", OK,
+     lambda x: F(lambda: [ts.show_demo_window(o) for o in (None, "x", object())])),
+    # --- imtypeset.demo
+    ("demo.show_demo_window", "open=5", OK, lambda x: F(lambda: demo.show_demo_window(5))),
+    ("show_demo_window", "outside a frame: nothing drawn", OK, lambda x: ts.show_demo_window()),
+    ("demo.show_demo_section", "outside a frame: nothing drawn", OK,
+     lambda x: demo.show_demo_section(demo.DemoSection.Math)),
+    ("demo.sections", "no argument", OK, lambda x: demo.sections()),
+    ("demo.section_name", "section=None", T, lambda x: demo.section_name(None)),
+    ("demo.section_name", "section='x'", V, lambda x: demo.section_name("x")),
+    ("demo.section_name", "section=inf", O, lambda x: demo.section_name(INF)),
+    ("demo.section_name", "section=2**32: no such section", OK, lambda x: demo.section_name(2**32)),
+    ("demo.show_demo_section", "section=None", T, lambda x: F(lambda: demo.show_demo_section(None))),
+    ("demo.show_demo_section", "section='x'", V, lambda x: F(lambda: demo.show_demo_section("x"))),
+    ("demo.show_demo_section", "section=inf", O, lambda x: F(lambda: demo.show_demo_section(INF))),
+    ("demo.show_demo_section", "section=2**32: no such section", OK, lambda x: F(lambda: demo.show_demo_section(2**32))),
+    ("demo.DemoSection", "99", V, lambda x: demo.DemoSection(99)),
+    # --- Paragraph
+    ("Paragraph", "text=5", T, lambda x: ts.Paragraph(5)),
+    ("Paragraph", "text=bytes", T, lambda x: ts.Paragraph(b"abc")),
+    ("Paragraph", "a lone surrogate", U, lambda x: ts.Paragraph(LONE)),
+    ("Paragraph", "runs=5", T, lambda x: ts.Paragraph("abc", 5)),
+    ("Paragraph", "flags=None", T, lambda x: ts.Paragraph("abc", (), None)),
+    ("Paragraph.set_text", "text=None", T, lambda x: x.par.set_text(None)),
+    ("Paragraph.set_text", "a lone surrogate", U, lambda x: x.par.set_text("a" + LONE)),
+    ("Paragraph.set_text", "runs=a generator", T, lambda x: x.par.set_text("abc", (r for r in [ts.Run(0, 1)]))),
+    ("Paragraph.set_text", "runs=[None]", T, lambda x: x.par.set_text("abc", [None])),
+    ("Paragraph.set_text", "runs=[(0,)]", T, lambda x: x.par.set_text("abc", [(0,)])),
+    ("Paragraph.set_text", "runs=['ab']", V, lambda x: x.par.set_text("abc", ["ab"])),
+    ("Paragraph.set_text", "Run.start=None", T, lambda x: x.par.set_text("abc", run_with(start=None))),
+    ("Paragraph.set_text", "Run.end=nan", V, lambda x: x.par.set_text("abc", run_with(end=NAN))),
+    ("Paragraph.set_text", "Run.end=inf", O, lambda x: x.par.set_text("abc", run_with(end=INF))),
+    ("Paragraph.set_text", "Run.face=None", T, lambda x: x.par.set_text("abc", run_with(face=None))),
+    ("Paragraph.set_text", "Run.face='x'", V, lambda x: x.par.set_text("abc", run_with(face="x"))),
+    ("Paragraph.set_text", "Run.scale=None", T, lambda x: x.par.set_text("abc", run_with(scale=None))),
+    ("Paragraph.set_text", "Run.scale=10**400", O, lambda x: x.par.set_text("abc", run_with(scale=HUGE))),
+    ("Paragraph.set_text", "Run.color=None", T, lambda x: x.par.set_text("abc", run_with(color=None))),
+    ("Paragraph.set_text", "Run.color=1.5", T, lambda x: x.par.set_text("abc", run_with(color=1.5))),
+    ("Paragraph.set_text", "Run.flags=None", T, lambda x: x.par.set_text("abc", run_with(flags=None))),
+    ("Paragraph.set_text", "Run.tag='x'", V, lambda x: x.par.set_text("abc", run_with(tag="x"))),
+    ("Paragraph.set_text", "flags=inf", O, lambda x: x.par.set_text("abc", (), INF)),
+    ("Paragraph.set_text", "every number of a run 2**40", OK,
+     lambda x: [x.par.set_text(t, [ts.Run(-(2**40), 2**40, 2**40, 1e300, 2**40, 2**40, 2**40)]) for t in ("abc", "aéc")]),
+    ("Paragraph.layout", "width=None", T, lambda x: x.par.layout(None)),
+    ("Paragraph.layout", "width='x'", T, lambda x: x.par.layout("x")),
+    ("Paragraph.layout", "width=10**400", O, lambda x: x.par.layout(HUGE)),
+    ("Paragraph.layout", "width=nan, inf, -1, 0", OK, lambda x: [x.par.layout(w) for w in (NAN, INF, -1, 0)]),
+    ("Paragraph.layout", "style=5", T, lambda x: x.par.layout(100.0, 5)),
+    ("Paragraph.close", "twice", OK, lambda x: [x.par.close() for _ in range(2)]),
+    ("Paragraph.closed", "no argument", OK, lambda x: x.par.closed),
+    ("Paragraph.error", "no argument", OK, lambda x: x.par.error),
+    ("Paragraph.status", "no argument", OK, lambda x: x.par.status),
+    ("Paragraph.size", "no argument", OK, lambda x: x.par.size),
+    ("Paragraph.line_count", "no argument", OK, lambda x: x.par.line_count),
+    ("Paragraph.lines", "no argument", OK, lambda x: x.par.lines()),
+    ("Paragraph.formulas", "no argument", OK, lambda x: x.par.formulas()),
+    ("Paragraph.line", "index=None", T, lambda x: x.par.line(None)),
+    ("Paragraph.line", "index='x'", V, lambda x: x.par.line("x")),
+    ("Paragraph.line", "index=inf", O, lambda x: x.par.line(INF)),
+    ("Paragraph.line", "index=-1, 2**32: no such line", OK, lambda x: [x.par.line(i) for i in (-1, 2**32)]),
+    ("Paragraph.draw", "draw_list='x'", T, lambda x: F(lambda: x.par.draw("x", (0, 0)))),
+    ("Paragraph.draw", "draw_list=b'x'", T, lambda x: F(lambda: x.par.draw(b"x", (0, 0)))),
+    ("Paragraph.draw", "draw_list=1.5", T, lambda x: F(lambda: x.par.draw(1.5, (0, 0)))),
+    ("Paragraph.draw", "pos=None", T, lambda x: F(lambda: x.par.draw(None, None))),
+    ("Paragraph.draw", "pos=(1, 2, 3)", T, lambda x: F(lambda: x.par.draw(None, (1, 2, 3)))),
+    ("Paragraph.draw", "pos=('a', 'b')", T, lambda x: F(lambda: x.par.draw(None, ("a", "b")))),
+    ("Paragraph.draw", "pos=(10**400, 0)", O, lambda x: F(lambda: x.par.draw(None, (HUGE, 0)))),
+    ("Paragraph.draw", "pos=(nan, inf), (), (1,)", OK,
+     lambda x: F(lambda: [x.par.draw(None, pos) for pos in ((NAN, INF), (), (1,))])),
+    ("Paragraph.draw", "selection=5", T, lambda x: F(lambda: x.par.draw(None, (0, 0), 5))),
+    ("Paragraph.draw", "selection=(1,)", V, lambda x: F(lambda: x.par.draw(None, (0, 0), (1,)))),
+    ("Paragraph.draw", "selection=(None, 1)", T, lambda x: F(lambda: x.par.draw(None, (0, 0), (None, 1)))),
+    ("Paragraph.draw", "selection=(nan, 1)", V, lambda x: F(lambda: x.par.draw(None, (0, 0), (NAN, 1)))),
+    ("Paragraph.draw", "selection=(inf, 1)", O, lambda x: F(lambda: x.par.draw(None, (0, 0), (INF, 1)))),
+    ("Paragraph.draw_to_buffers", "pos=None", T, lambda x: x.par.draw_to_buffers(None, BOX)),
+    ("Paragraph.draw_to_buffers", "pos=(10**400, 0)", O, lambda x: x.par.draw_to_buffers((HUGE, 0), BOX)),
+    ("Paragraph.draw_to_buffers", "clip_rect=None", T, lambda x: x.par.draw_to_buffers((0, 0), None)),
+    ("Paragraph.draw_to_buffers", "clip_rect of five", T, lambda x: x.par.draw_to_buffers((0, 0), (0, 0, 1, 1, 1))),
+    ("Paragraph.draw_to_buffers", "clip_rect=(0, 0, None, 1)", T, lambda x: x.par.draw_to_buffers((0, 0), (0, 0, None, 1))),
+    ("Paragraph.draw_to_buffers", "selection={}", V, lambda x: x.par.draw_to_buffers((0, 0), BOX, {})),
+    ("Paragraph.draw_to_buffers", "selection=('x', 1)", V, lambda x: x.par.draw_to_buffers((0, 0), BOX, ("x", 1))),
+    ("Paragraph.hit_test", "local_pos=None", T, lambda x: x.par.hit_test(None)),
+    ("Paragraph.hit_test", "local_pos=(None, 0)", T, lambda x: x.par.hit_test((None, 0))),
+    ("Paragraph.hit_test", "local_pos=(10**400, 0)", O, lambda x: x.par.hit_test((HUGE, 0))),
+    ("Paragraph.hit_test", "local_pos=(nan, -inf)", OK, lambda x: x.par.hit_test((NAN, -INF))),
+    ("Paragraph.select_range", "anchor=None", T, lambda x: x.par.select_range(None, (1, 1))),
+    ("Paragraph.select_range", "active=(0, 10**400)", O, lambda x: x.par.select_range((0, 0), (0, HUGE))),
+    ("Paragraph.select_range", "granularity=None", T, lambda x: x.par.select_range((0, 0), (9, 9), None)),
+    ("Paragraph.select_range", "granularity='x'", V, lambda x: x.par.select_range((0, 0), (9, 9), "x")),
+    ("Paragraph.select_range", "granularity=inf", O, lambda x: x.par.select_range((0, 0), (9, 9), INF)),
+    ("Paragraph.select_range", "granularity=2**40", OK, lambda x: x.par.select_range((0, 0), (9, 9), 2**40)),
+    ("Paragraph.range_rects", "selection=None", T, lambda x: x.par.range_rects(None)),
+    ("Paragraph.range_rects", "selection=[]", V, lambda x: x.par.range_rects([])),
+    ("Paragraph.range_rects", "selection=(0, None)", T, lambda x: x.par.range_rects((0, None))),
+    ("Paragraph.range_rects", "selection=(0, 'x')", V, lambda x: x.par.range_rects((0, "x"))),
+    ("Paragraph.range_rects", "selection=(0, inf)", O, lambda x: x.par.range_rects((0, INF))),
+    ("Paragraph.range_rects", "selection=(-2**40, 2**40)", OK, lambda x: [p.range_rects((-(2**40), 2**40)) for p in (x.par, x.plain)]),
+    ("Paragraph.caret_rect", "offset=None", T, lambda x: x.par.caret_rect(None)),
+    ("Paragraph.caret_rect", "offset=nan", V, lambda x: x.par.caret_rect(NAN)),
+    ("Paragraph.caret_rect", "offset=inf", O, lambda x: x.par.caret_rect(INF)),
+    ("Paragraph.caret_rect", "offset=-1, 2**40", OK, lambda x: [p.caret_rect(o) for p in (x.par, x.plain) for o in (-1, 2**40)]),
+    ("Paragraph.range_text", "selection=5", T, lambda x: x.par.range_text(5)),
+    ("Paragraph.range_text", "selection=''", V, lambda x: x.par.range_text("")),
+    ("Paragraph.range_text", "selection=(None, None)", T, lambda x: x.par.range_text((None, None))),
+    ("Paragraph.range_text", "selection=(0, inf)", O, lambda x: x.par.range_text((0, INF))),
+    # --- Document: the edits
+    ("Document", "no argument", OK, lambda x: ts.Document().close()),
+    ("Document.from_blocks", "blocks=None", T, lambda x: ts.Document.from_blocks(None)),
+    ("Document.from_blocks", "blocks=a generator", T, lambda x: ts.Document.from_blocks(b for b in every_kind())),
+    ("Document.from_blocks", "blocks=[None]", T, lambda x: ts.Document.from_blocks([None])),
+    ("Document.from_blocks", "blocks='x'", V, lambda x: ts.Document.from_blocks("x")),
+    ("Document.set_blocks", "blocks=5", T, lambda x: x.doc.set_blocks(5)),
+    ("Document.set_blocks", "blocks=[5]", T, lambda x: x.doc.set_blocks([5])),
+    ("Document.set_blocks", "blocks=[(1, 2, 3)]", T, lambda x: x.doc.set_blocks([(1, 2, 3)])),
+    ("Document.set_blocks", "Block.text=None", T, lambda x: x.doc.set_blocks(blocks_with(text=None))),
+    ("Document.set_blocks", "Block.text=bytes", T, lambda x: x.doc.set_blocks(blocks_with(text=b"abc"))),
+    ("Document.set_blocks", "Block.text=a lone surrogate", U, lambda x: x.doc.set_blocks(blocks_with(text=LONE))),
+    ("Document.set_blocks", "Block.marker=5", T, lambda x: x.doc.set_blocks(blocks_with(marker=5))),
+    ("Document.set_blocks", "Block.marker=a lone surrogate", U, lambda x: x.doc.set_blocks(blocks_with(marker=LONE))),
+    ("Document.set_blocks", "Block.kind=None", T, lambda x: x.doc.set_blocks(blocks_with(kind=None))),
+    ("Document.set_blocks", "Block.kind='x'", V, lambda x: x.doc.set_blocks(blocks_with(kind="x"))),
+    ("Document.set_blocks", "Block.kind=inf", O, lambda x: x.doc.set_blocks(blocks_with(kind=INF))),
+    ("Document.set_blocks", "Block.style=None", T, lambda x: x.doc.set_blocks(blocks_with(style=None))),
+    ("Document.set_blocks", "Block.level=nan", V, lambda x: x.doc.set_blocks(blocks_with(level=NAN))),
+    ("Document.set_blocks", "Block.flags=None", T, lambda x: x.doc.set_blocks(blocks_with(flags=None))),
+    ("Document.set_blocks", "Block.left_indent=None", T, lambda x: x.doc.set_blocks(blocks_with(left_indent=None))),
+    ("Document.set_blocks", "Block.left_indent='x'", T, lambda x: x.doc.set_blocks(blocks_with(left_indent="x"))),
+    ("Document.set_blocks", "Block.extent=10**400", O, lambda x: x.doc.set_blocks(blocks_with(extent=HUGE))),
+    ("Document.set_blocks", "Block.runs=5", T, lambda x: x.doc.set_blocks(blocks_with(runs=5))),
+    ("Document.set_blocks", "Block.runs=[None]", T, lambda x: x.doc.set_blocks(blocks_with(runs=[None]))),
+    ("Document.set_blocks", "Run.start=None", T, lambda x: x.doc.set_blocks(blocks_with(runs=run_with(start=None)))),
+    ("Document.set_blocks", "Run.start=1.5", T, lambda x: x.doc.set_blocks(blocks_with(runs=run_with(start=1.5)))),
+    ("Document.set_blocks", "Run.end=nan", T, lambda x: x.doc.set_blocks(blocks_with(runs=run_with(end=NAN)))),
+    ("Document.set_blocks", "Run.face=None", T, lambda x: x.doc.set_blocks(blocks_with(runs=run_with(face=None)))),
+    ("Document.set_blocks", "Run.face='x'", V, lambda x: x.doc.set_blocks(blocks_with(runs=run_with(face="x")))),
+    ("Document.set_blocks", "Run.face=inf", O, lambda x: x.doc.set_blocks(blocks_with(runs=run_with(face=INF)))),
+    ("Document.set_blocks", "Run.scale=None", T, lambda x: x.doc.set_blocks(blocks_with(runs=run_with(scale=None)))),
+    ("Document.set_blocks", "Run.scale=10**400", O, lambda x: x.doc.set_blocks(blocks_with(runs=run_with(scale=HUGE)))),
+    ("Document.set_blocks", "Run.color=None", T, lambda x: x.doc.set_blocks(blocks_with(runs=run_with(color=None)))),
+    ("Document.set_blocks", "Run.color=1.5", T, lambda x: x.doc.set_blocks(blocks_with(runs=run_with(color=1.5)))),
+    ("Document.set_blocks", "Run.flags=None", T, lambda x: x.doc.set_blocks(blocks_with(runs=run_with(flags=None)))),
+    ("Document.set_blocks", "Run.tag='x'", V, lambda x: x.doc.set_blocks(blocks_with(runs=run_with(tag="x")))),
+    ("Document.set_blocks", "rows on a block that is no table", V, lambda x: x.doc.set_blocks(blocks_with(rows=[["a"]]))),
+    ("Document.set_blocks", "a table's row is a str", T,
+     lambda x: x.doc.set_blocks([ts.Block(ts.BlockKind.Table, rows=["ab"])])),
+    ("Document.set_blocks", "a table's cell is None", T,
+     lambda x: x.doc.set_blocks([ts.Block(ts.BlockKind.Table, rows=[[None]])])),
+    ("Document.set_blocks", "a table's cell holds a lone surrogate", U,
+     lambda x: x.doc.set_blocks([ts.Block(ts.BlockKind.Table, rows=[[LONE]])])),
+    ("Document.set_blocks", "a table's text is not its rows'", V,
+     lambda x: x.doc.set_blocks([ts.Block(ts.BlockKind.Table, text="x", rows=[["a"]])])),
+    ("Document.set_blocks", "TableColumn.align=None", T,
+     lambda x: x.doc.set_blocks([ts.Block(ts.BlockKind.Table, rows=[["a"]], columns=[(None,)])])),
+    ("Document.set_blocks", "TableColumn.width='x'", T,
+     lambda x: x.doc.set_blocks([ts.Block(ts.BlockKind.Table, rows=[["a"]], columns=[(0, "x")])])),
+    ("Document.set_blocks", "styles=[5]", T, lambda x: x.doc.set_blocks(blocks_with(), [5])),
+    ("Document.set_blocks", "styles=a Style", T, lambda x: x.doc.set_blocks(blocks_with(), [ts.Style()])),
+    ("Document.set_blocks", "containers=None", T, lambda x: x.doc.set_blocks(blocks_with(), (), None)),
+    ("Document.set_blocks", "every number of a block and a run 2**40", OK,
+     lambda x: x.doc.set_blocks([
+         ts.Block(2**40, text, [ts.Run(-(2**40), 2**40, 2**40, 1e300, 2**40, 2**40, 2**40)], "", 2**40,
+                  1e300, 2**40, 2**40, 2**40, 1e300, 2**40, 2**40)
+         for text in ("abc", "aéc")])),
+    ("Document.set_blocks", "every number of a table's column and cell run 2**40", OK,
+     lambda x: x.doc.set_blocks([ts.Block(
+         ts.BlockKind.Table, rows=[[ts.Cell("né", [ts.Run(-(2**40), 2**40, 2**40, 1e300, -1, 2**40, 2**40)])]],
+         columns=[(2**40, 1e300, -1e300)])])),
+    ("Document.replace_blocks", "first=None", T, lambda x: x.doc.replace_blocks(None, 0)),
+    ("Document.replace_blocks", "first='x'", V, lambda x: x.doc.replace_blocks("x", 0)),
+    ("Document.replace_blocks", "count=inf", O, lambda x: x.doc.replace_blocks(0, INF)),
+    ("Document.replace_blocks", "first=-1", V, lambda x: x.doc.replace_blocks(-1, 0)),
+    ("Document.replace_blocks", "count=2**40: blocks that are not there", V, lambda x: x.doc.replace_blocks(0, 2**40)),
+    ("Document.replace_blocks", "blocks=[None]", T, lambda x: x.doc.replace_blocks(0, 1, [None])),
+    ("Document.replace_blocks", "Block.text=a lone surrogate", U, lambda x: x.doc.replace_blocks(0, 1, blocks_with(text=LONE))),
+    ("Document.replace_blocks", "Block.style=2**40: clamped", OK, lambda x: x.doc.replace_blocks(0, 1, blocks_with(style=2**40))),
+    ("Document.append_text", "text=None", T, lambda x: x.prose.append_text(None)),
+    ("Document.append_text", "text=bytes", T, lambda x: x.prose.append_text(b"abc")),
+    ("Document.append_text", "a lone surrogate", U, lambda x: x.prose.append_text(LONE)),
+    ("Document.append_text", "a document with no block", V, lambda x: ts.Document().append_text("a")),
+    ("Document.append_text", "runs=5", T, lambda x: x.prose.append_text("a", 5)),
+    ("Document.append_text", "runs=[None]", T, lambda x: x.prose.append_text("a", [None])),
+    ("Document.append_text", "Run.start=None", T, lambda x: x.prose.append_text("a", run_with(start=None))),
+    ("Document.append_text", "Run.face='x'", V, lambda x: x.prose.append_text("a", run_with(face="x"))),
+    ("Document.append_text", "Run.scale=10**400", O, lambda x: x.prose.append_text("a", run_with(scale=HUGE))),
+    ("Document.append_text", "Run.color=None", T, lambda x: x.prose.append_text("a", run_with(color=None))),
+    ("Document.append_text", "every number of a run 2**40", OK,
+     lambda x: x.prose.append_text(" é", [ts.Run(-(2**40), 2**40, 2**40, 1e300, 2**40, 2**40, 2**40)])),
+    ("Document.append_table_cells", "cells=None", T, lambda x: x.doc.append_table_cells(None)),
+    ("Document.append_table_cells", "cells='ab'", T, lambda x: x.doc.append_table_cells("ab")),
+    ("Document.append_table_cells", "cells=5", T, lambda x: x.doc.append_table_cells(5)),
+    ("Document.append_table_cells", "a cell is 5", T, lambda x: x.doc.append_table_cells([5])),
+    ("Document.append_table_cells", "a cell holds a lone surrogate", U,
+     lambda x: x.doc.append_table_cells([LONE])),
+    ("Document.append_table_cells", "the last block is not a table", V,
+     lambda x: x.prose.append_table_cells(["a"])),
+    ("Document.append_table_cells", "a cell's Run.face=None", T,
+     lambda x: x.doc.append_table_cells([ts.Cell("ab", [ts.Run(0, 1, None)])])),
+    ("Document.append_table_cells", "a cell's Run.tag=2**40: its low 32 bits", OK,
+     lambda x: x.doc.append_table_cells([ts.Cell("ab", [ts.Run(0, 1, tag=2**40)])])),
+    ("Document.append_table_cells", "no cells: nothing done", OK,
+     lambda x: x.doc.append_table_cells([])),
+    ("Document.append_table_rows", "rows=None", T, lambda x: x.doc.append_table_rows(None)),
+    ("Document.append_table_rows", "rows=['ab']", T, lambda x: x.doc.append_table_rows(["ab"])),
+    ("Document.append_table_rows", "a cell is 5", T, lambda x: x.doc.append_table_rows([[5]])),
+    ("Document.append_table_rows", "a cell holds a lone surrogate", U, lambda x: x.doc.append_table_rows([[LONE]])),
+    ("Document.append_table_rows", "the last block is not a table", V, lambda x: x.prose.append_table_rows([["a"]])),
+    ("Document.append_table_rows", "a cell's Run.face=None", T,
+     lambda x: x.doc.append_table_rows([[ts.Cell("ab", run_with(face=None))]])),
+    ("Document.append_table_rows", "a cell's Run.tag='x'", V,
+     lambda x: x.doc.append_table_rows([[ts.Cell("ab", run_with(tag="x"))]])),
+    ("Document.append_table_rows", "every number of a cell's run 2**40", OK,
+     lambda x: x.doc.append_table_rows([[ts.Cell("né", [ts.Run(-(2**40), 2**40, 2**40, 1e300, 2**40, 2**40, 2**40)])]])),
+    ("Document.set_table_columns", "block=None", T, lambda x: x.doc.set_table_columns(None, [])),
+    ("Document.set_table_columns", "block='x'", V, lambda x: x.doc.set_table_columns("x", [])),
+    ("Document.set_table_columns", "block=inf", O, lambda x: x.doc.set_table_columns(INF, [])),
+    ("Document.set_table_columns", "block=2**32+6: no such block", E, lambda x: x.doc.set_table_columns(2**32 + 6, [])),
+    ("Document.set_table_columns", "columns=None", T, lambda x: x.doc.set_table_columns(6, None)),
+    ("Document.set_table_columns", "columns=[None]", T, lambda x: x.doc.set_table_columns(6, [None])),
+    ("Document.set_table_columns", "TableColumn.align='x'", V, lambda x: x.doc.set_table_columns(6, [("x",)])),
+    ("Document.set_table_columns", "TableColumn.width=None", T, lambda x: x.doc.set_table_columns(6, [(0, None)])),
+    ("Document.set_table_columns", "TableColumn.share=10**400", O, lambda x: x.doc.set_table_columns(6, [(0, 0.0, HUGE)])),
+    ("Document.set_table_columns", "align=2**40, width=1e300, share=nan", OK,
+     lambda x: x.doc.set_table_columns(6, [(2**40, 1e300, NAN)])),
+    ("Document.set_block_extent", "block=None", T, lambda x: x.doc.set_block_extent(None, 1.0)),
+    ("Document.set_block_extent", "block=nan", V, lambda x: x.doc.set_block_extent(NAN, 1.0)),
+    ("Document.set_block_extent", "block=2**32+3: no such block", E, lambda x: x.doc.set_block_extent(2**32 + 3, 1.0)),
+    ("Document.set_block_extent", "extent=None", T, lambda x: x.doc.set_block_extent(3, None)),
+    ("Document.set_block_extent", "extent=10**400", O, lambda x: x.doc.set_block_extent(3, HUGE)),
+    ("Document.set_block_extent", "extent=nan, inf, -1", OK, lambda x: [x.doc.set_block_extent(3, e) for e in (NAN, INF, -1)]),
+    ("Document.set_options", "options=5", T, lambda x: x.doc.set_options(5)),
+    ("Document.set_options", "options=a Style", T, lambda x: x.doc.set_options(ts.Style())),
+    ("Document.set_options", "options=None", OK, lambda x: x.doc.set_options(None)),
+    ("Document.block_count", "no argument", OK, lambda x: x.doc.block_count),
+    ("Document.style_count", "no argument", OK, lambda x: x.doc.style_count),
+    ("Document.container_count", "no argument", OK, lambda x: x.doc.container_count),
+    ("Document.closed", "no argument", OK, lambda x: x.doc.closed),
+    ("Document.close", "twice", OK, lambda x: [x.doc.close() for _ in range(2)]),
+    # --- Document: layout and drawing
+    ("Document.layout", "width=None", T, lambda x: x.doc.layout(None)),
+    ("Document.layout", "width='x'", T, lambda x: x.doc.layout("x")),
+    ("Document.layout", "width=10**400", O, lambda x: x.doc.layout(HUGE)),
+    ("Document.layout", "width=nan, inf, -1, 0", OK, lambda x: [x.doc.layout(w) for w in (NAN, INF, -1, 0)]),
+    ("Document.layout", "style=5", T, lambda x: x.doc.layout(100.0, 5)),
+    ("Document.layout_window", "top=None", T, lambda x: x.doc.layout_window(None, 1.0)),
+    ("Document.layout_window", "bottom='x'", T, lambda x: x.doc.layout_window(0.0, "x")),
+    ("Document.layout_window", "bottom=10**400", O, lambda x: x.doc.layout_window(0.0, HUGE)),
+    ("Document.layout_window", "nan, inf", OK, lambda x: [x.doc.layout_window(a, b) for a, b in ((NAN, NAN), (-INF, INF), (9.0, 0.0))]),
+    ("Document.size", "no argument", OK, lambda x: x.doc.size()),
+    ("Document.stats", "no argument", OK, lambda x: x.doc.stats()),
+    ("Document.block_error", "block=None", T, lambda x: x.doc.block_error(None)),
+    ("Document.block_error", "block='x'", V, lambda x: x.doc.block_error("x")),
+    ("Document.block_error", "block=inf", O, lambda x: x.doc.block_error(INF)),
+    ("Document.block_error", "block=-1, 2**32+1: no such block", OK, lambda x: [x.doc.block_error(b) for b in (-1, 2**32 + 1)]),
+    ("Document.pack_marks", "marks=None", T, lambda x: x.doc.pack_marks(None)),
+    ("Document.pack_marks", "marks=a generator", T, lambda x: x.doc.pack_marks(m for m in mark_with())),
+    ("Document.pack_marks", "marks=[None]", T, lambda x: x.doc.pack_marks([None])),
+    ("Document.pack_marks", "marks=[()]", T, lambda x: x.doc.pack_marks([()])),
+    ("Document.pack_marks", "marks=[{}]", T, lambda x: x.doc.pack_marks([{}])),
+    ("Document.pack_marks", "Mark.range=5", T, lambda x: x.doc.pack_marks(mark_with(range=5))),
+    ("Document.pack_marks", "Mark.range of one position", V, lambda x: x.doc.pack_marks(mark_with(range=((1, 2),)))),
+    ("Document.pack_marks", "a position's block is None", T, lambda x: x.doc.pack_marks(mark_with(range=((None, 2), (1, 9))))),
+    ("Document.pack_marks", "a position's offset is 1.5", T, lambda x: x.doc.pack_marks(mark_with(range=((1, 1.5), (1, 9))))),
+    ("Document.pack_marks", "Mark.color=None", T, lambda x: x.doc.pack_marks(mark_with(color=None))),
+    ("Document.pack_marks", "Mark.place=None", T, lambda x: x.doc.pack_marks(mark_with(place=None))),
+    ("Document.pack_marks", "Mark.place='x'", V, lambda x: x.doc.pack_marks(mark_with(place="x"))),
+    ("Document.pack_marks", "Mark.place=inf", O, lambda x: x.doc.pack_marks(mark_with(place=INF))),
+    ("Document.pack_marks", "Mark.thickness=None", T, lambda x: x.doc.pack_marks(mark_with(thickness=None))),
+    ("Document.pack_marks", "Mark.offset=10**400", O, lambda x: x.doc.pack_marks(mark_with(offset=HUGE))),
+    ("Document.pack_marks", "every number of a mark 2**40", OK,
+     lambda x: x.doc.pack_marks([(((2**40, -(2**40)), (-(2**40), 2**40)), 2**40, 2**40, 1e300, -1e300), (((0, 0), (0, 1)), -1)])),
+    ("Document.draw", "draw_list='x'", T, lambda x: F(lambda: x.doc.draw("x", (0, 0)))),
+    ("Document.draw", "draw_list=1.5", T, lambda x: F(lambda: x.doc.draw(1.5, (0, 0)))),
+    ("Document.draw", "pos=None", T, lambda x: F(lambda: x.doc.draw(None, None))),
+    ("Document.draw", "pos=(1, 2, 3)", T, lambda x: F(lambda: x.doc.draw(None, (1, 2, 3)))),
+    ("Document.draw", "pos=(10**400, 0)", O, lambda x: F(lambda: x.doc.draw(None, (HUGE, 0)))),
+    ("Document.draw", "pos=(nan, inf)", OK, lambda x: F(lambda: x.doc.draw(None, (NAN, INF)))),
+    ("Document.draw", "selection=5", T, lambda x: F(lambda: x.doc.draw(None, (0, 0), 5))),
+    ("Document.draw", "selection=(0, 1)", T, lambda x: F(lambda: x.doc.draw(None, (0, 0), (0, 1)))),
+    ("Document.draw", "selection of one position", V, lambda x: F(lambda: x.doc.draw(None, (0, 0), ((0, 1),)))),
+    ("Document.draw", "selection=((None, 0), (1, 1))", T, lambda x: F(lambda: x.doc.draw(None, (0, 0), ((None, 0), (1, 1))))),
+    ("Document.draw", "selection=((0, 1.5), (1, 1))", T, lambda x: F(lambda: x.doc.draw(None, (0, 0), ((0, 1.5), (1, 1))))),
+    ("Document.draw", "selection=((-2**40, -2**40), (2**40, 2**40))", OK,
+     lambda x: F(lambda: x.doc.draw(None, (0, 0), ((-(2**40), -(2**40)), (2**40, 2**40))))),
+    ("Document.draw", "marks=5", T, lambda x: F(lambda: x.doc.draw(None, (0, 0), None, 5))),
+    ("Document.draw", "marks=[None]", T, lambda x: F(lambda: x.doc.draw(None, (0, 0), None, [None]))),
+    ("Document.draw", "Mark.color=None", T, lambda x: F(lambda: x.doc.draw(None, (0, 0), None, mark_with(color=None)))),
+    ("Document.draw_to_buffers", "pos=None", T, lambda x: x.doc.draw_to_buffers(None, BOX)),
+    ("Document.draw_to_buffers", "clip_rect=None", T, lambda x: x.doc.draw_to_buffers((0, 0), None)),
+    ("Document.draw_to_buffers", "clip_rect=(0, 0, 10**400, 1)", O, lambda x: x.doc.draw_to_buffers((0, 0), (0, 0, HUGE, 1))),
+    ("Document.draw_to_buffers", "selection='x'", V, lambda x: x.doc.draw_to_buffers((0, 0), BOX, "x")),
+    ("Document.draw_to_buffers", "marks=[()]", T, lambda x: x.doc.draw_to_buffers((0, 0), BOX, None, [()])),
+    ("Document.draw_to_buffers", "Mark.place='x'", V, lambda x: x.doc.draw_to_buffers((0, 0), BOX, None, mark_with(place="x"))),
+    ("Document.view", "str_id=None", T, lambda x: F(lambda: x.doc.view(None))),
+    ("Document.view", "str_id=bytes", T, lambda x: F(lambda: x.doc.view(b"view"))),
+    ("Document.view", "str_id=a lone surrogate", U, lambda x: F(lambda: x.doc.view(LONE))),
+    ("Document.view", "str_id='': the view's own ID", OK, lambda x: F(lambda: x.doc.view(""))),
+    ("Document.view", "str_id='\\0x': the same", OK, lambda x: F(lambda: x.doc.view("\0x"))),
+    ("Document.view", "size=None", T, lambda x: F(lambda: x.doc.view("view", None))),
+    ("Document.view", "size=(None, 0)", T, lambda x: F(lambda: x.doc.view("view", (None, 0)))),
+    ("Document.view", "size=(10**400, 0)", O, lambda x: F(lambda: x.doc.view("view", (HUGE, 0)))),
+    ("Document.view", "size=(nan, -inf)", OK, lambda x: F(lambda: x.doc.view("view", (NAN, -INF)))),
+    ("Document.view", "selection=5", T, lambda x: F(lambda: x.doc.view("view", (0, 0), 5))),
+    ("Document.view", "selection=()", V, lambda x: F(lambda: x.doc.view("view", (0, 0), ()))),
+    ("Document.view", "marks=[None]", T, lambda x: F(lambda: x.doc.view("view", (0, 0), None, [None]))),
+    ("Document.view", "style=5", T, lambda x: F(lambda: x.doc.view("view", (0, 0), None, (), 5))),
+    # --- Document: questions
+    ("Document.hit_test", "local_pos=None", T, lambda x: x.doc.hit_test(None)),
+    ("Document.hit_test", "local_pos=('a', 'b')", T, lambda x: x.doc.hit_test(("a", "b"))),
+    ("Document.hit_test", "local_pos=(10**400, 0)", O, lambda x: x.doc.hit_test((HUGE, 0))),
+    ("Document.hit_test", "local_pos=(nan, inf)", OK, lambda x: x.doc.hit_test((NAN, INF))),
+    ("Document.select_range", "anchor=None", T, lambda x: x.doc.select_range(None, (1, 1))),
+    ("Document.select_range", "active=(10**400, 0)", O, lambda x: x.doc.select_range((0, 0), (HUGE, 0))),
+    ("Document.select_range", "granularity=None", T, lambda x: x.doc.select_range((0, 0), (9, 9), None)),
+    ("Document.select_range", "granularity='x'", V, lambda x: x.doc.select_range((0, 0), (9, 9), "x")),
+    ("Document.select_range", "granularity=inf", O, lambda x: x.doc.select_range((0, 0), (9, 9), INF)),
+    ("Document.select_range", "granularity=2**40", OK, lambda x: x.doc.select_range((0, 0), (9, 9), 2**40)),
+    ("Document.range_rects", "range=None", T, lambda x: x.doc.range_rects(None)),
+    ("Document.range_rects", "range=(0, 1)", T, lambda x: x.doc.range_rects((0, 1))),
+    ("Document.range_rects", "range of three positions", V, lambda x: x.doc.range_rects(((0, 0), (0, 1), (0, 2)))),
+    ("Document.range_rects", "a position of three", V, lambda x: x.doc.range_rects(((0, 0, 0), (0, 1)))),
+    ("Document.range_rects", "a position's block is 'x'", T, lambda x: x.doc.range_rects((("x", 0), (0, 1)))),
+    ("Document.range_rects", "a position's offset is None", T, lambda x: x.doc.range_rects(((0, None), (0, 1)))),
+    ("Document.range_rects", "positions 2**40", OK, lambda x: x.doc.range_rects(((-(2**40), 2**40), (2**40, -(2**40))))),
+    ("Document.caret_rect", "position=None", T, lambda x: x.doc.caret_rect(None)),
+    ("Document.caret_rect", "position=(1,)", V, lambda x: x.doc.caret_rect((1,))),
+    ("Document.caret_rect", "position=(1, 1.5)", T, lambda x: x.doc.caret_rect((1, 1.5))),
+    ("Document.caret_rect", "position=(2**32+1, 2**40)", OK, lambda x: x.doc.caret_rect((2**32 + 1, 2**40))),
+    ("Document.range_text", "range=5", T, lambda x: x.doc.range_text(5)),
+    ("Document.range_text", "range='x'", V, lambda x: x.doc.range_text("x")),
+    ("Document.range_text", "a position's block is None", T, lambda x: x.doc.range_text(((None, 0), (1, 1)))),
+    ("Document.range_text", "separator=5", T, lambda x: x.doc.range_text(SEL, 5)),
+    ("Document.range_text", "separator=bytes", T, lambda x: x.doc.range_text(SEL, b"\n")),
+    ("Document.range_text", "separator=a lone surrogate", U, lambda x: x.doc.range_text(SEL, LONE)),
+    ("Document.range_text", "separator='', NUL inside", OK, lambda x: [x.doc.range_text(SEL, s) for s in ("", "a\0b")]),
+    ("Document.block_geometry", "block=None", T, lambda x: x.doc.block_geometry(None)),
+    ("Document.block_geometry", "block='x'", V, lambda x: x.doc.block_geometry("x")),
+    ("Document.block_geometry", "block=inf", O, lambda x: x.doc.block_geometry(INF)),
+    ("Document.block_geometry", "block=-1, 2**32+1: no such block", OK, lambda x: [x.doc.block_geometry(b) for b in (-1, 2**32 + 1)]),
+    ("Document.block_line", "block=None", T, lambda x: x.doc.block_line(None, 0)),
+    ("Document.block_line", "line='x'", V, lambda x: x.doc.block_line(1, "x")),
+    ("Document.block_line", "line=inf", O, lambda x: x.doc.block_line(1, INF)),
+    ("Document.block_line", "line=2**32: no such line", OK, lambda x: x.doc.block_line(1, 2**32)),
+    ("Document.table_geometry", "block=None", T, lambda x: x.doc.table_geometry(None)),
+    ("Document.table_geometry", "block=nan", V, lambda x: x.doc.table_geometry(NAN)),
+    ("Document.table_geometry", "block=inf", O, lambda x: x.doc.table_geometry(INF)),
+    ("Document.table_geometry", "block=2**32+6: no such block", OK, lambda x: x.doc.table_geometry(2**32 + 6)),
+    ("Document.table_column", "block=None", T, lambda x: x.doc.table_column(None, 0)),
+    ("Document.table_column", "column='x'", V, lambda x: x.doc.table_column(6, "x")),
+    ("Document.table_column", "column=inf", O, lambda x: x.doc.table_column(6, INF)),
+    ("Document.table_column", "column=2**32: no such column", OK, lambda x: x.doc.table_column(6, 2**32)),
+    ("Document.table_row", "row=None", T, lambda x: x.doc.table_row(6, None)),
+    ("Document.table_row", "block='x'", V, lambda x: x.doc.table_row("x", 0)),
+    ("Document.table_row", "row=inf", O, lambda x: x.doc.table_row(6, INF)),
+    ("Document.table_row", "row=2**32: no such row", OK, lambda x: x.doc.table_row(6, 2**32)),
+    ("Document.set_columns", "columns=5", T, lambda x: x.doc.set_columns(5)),
+    ("Document.set_columns", "columns of five", T, lambda x: x.doc.set_columns((1, 2, 3, 4, 5))),
+    ("Document.set_columns", "columns='x'", V, lambda x: x.doc.set_columns("x")),
+    ("Document.set_columns", "Columns.count=None", T, lambda x: x.doc.set_columns(ts.Columns(None))),
+    ("Document.set_columns", "Columns.count=inf", O, lambda x: x.doc.set_columns(ts.Columns(INF))),
+    ("Document.set_columns", "Columns.height=None", T, lambda x: x.doc.set_columns(ts.Columns(2, None))),
+    ("Document.set_columns", "Columns.gutter=10**400", O, lambda x: x.doc.set_columns(ts.Columns(2, 100.0, HUGE))),
+    ("Document.set_columns", "Columns.flags='x'", V, lambda x: x.doc.set_columns(ts.Columns(2, 100.0, 0.0, "x"))),
+    ("Document.set_columns", "count=2**40, height=nan, gutter=-inf", OK, lambda x: x.doc.set_columns((2**40, NAN, -INF, 2**40))),
+    ("Document.column_count", "no argument", OK, lambda x: x.doc.column_count()),
+    ("Document.column", "index=None", T, lambda x: x.doc.column(None)),
+    ("Document.column", "index='x'", V, lambda x: x.doc.column("x")),
+    ("Document.column", "index=inf", O, lambda x: x.doc.column(INF)),
+    ("Document.column", "index=-1, 2**32: no such column", OK, lambda x: [x.doc.column(i) for i in (-1, 2**32)]),
+    ("Document.column_pos", "uncut_pos=None", T, lambda x: x.doc.column_pos(None)),
+    ("Document.column_pos", "uncut_pos=(0, 10**400)", O, lambda x: x.doc.column_pos((0, HUGE))),
+    ("Document.column_pos", "uncut_pos=(nan, inf)", OK, lambda x: x.doc.column_pos((NAN, INF))),
+    ("Document.table_cell", "position=None", T, lambda x: x.doc.table_cell(None)),
+    ("Document.table_cell", "position='x'", V, lambda x: x.doc.table_cell("x")),
+    ("Document.table_cell", "position=(6, None)", T, lambda x: x.doc.table_cell((6, None))),
+    ("Document.table_cell", "position=(2**32+6, 2**40)", OK, lambda x: x.doc.table_cell((2**32 + 6, 2**40))),
+    ("Document.table_position", "block=None", T, lambda x: x.doc.table_position(None, 0, 0)),
+    ("Document.table_position", "row='x'", V, lambda x: x.doc.table_position(6, "x", 0)),
+    ("Document.table_position", "column=inf", O, lambda x: x.doc.table_position(6, 0, INF)),
+    ("Document.table_position", "offset=None", T, lambda x: x.doc.table_position(6, 0, 0, None)),
+    ("Document.table_position", "every index 2**40", OK,
+     lambda x: [x.doc.table_position(*where) for where in ((2**40, 0, 0), (6, 2**40, 0), (6, 0, 2**40), (6, 0, 1, 2**40))]),
+    # --- the classes a host constructs
+    ("Error", "constructed with a str where the library's ErrorInfo goes", AttributeError, lambda x: ts.Error("no", "where")),
+    ("Style", "a field of the wrong kind", T, lambda x: ts.Style(FontSize="x")),
+    ("Style", "a field set to None", T, lambda x: setattr(ts.Style(), "Face", None)),
+    ("Style", "FontSize=10**400", O, lambda x: ts.Style(FontSize=HUGE)),
+    ("Style", "a name that is no field, an int past a C int", OK, lambda x: ts.Style(Fontsize=3.0, Face=2**40)),
+    ("BlockStyle", "Scale=None", T, lambda x: ts.BlockStyle(Scale=None)),
+    ("BlockStyle", "one value too many", T, lambda x: ts.BlockStyle(*range(12))),
+    ("Container", "Kind='x'", T, lambda x: ts.Container(Kind="x")),
+    ("DocumentOptions", "CodeOverflow=1.5", T, lambda x: ts.DocumentOptions(CodeOverflow=1.5)),
+]
+
+# A valid call of every method and property of the two handles: what
+# test_a_closed_handle_raises_value_error makes of each once its handle is
+# closed. ONE LINE HERE TOO FOR A NEW METHOD of Paragraph or Document.
+PARAGRAPH_CALLS = {
+    "set_text": lambda p: p.set_text("abc"),
+    "layout": lambda p: p.layout(100.0),
+    "error": lambda p: p.error,
+    "status": lambda p: p.status,
+    "size": lambda p: p.size,
+    "line_count": lambda p: p.line_count,
+    "line": lambda p: p.line(0),
+    "lines": lambda p: p.lines(),
+    "formulas": lambda p: p.formulas(),
+    "draw": lambda p: frame(lambda: p.draw(None, (0.0, 0.0))),
+    "draw_to_buffers": lambda p: p.draw_to_buffers((0.0, 0.0), BOX),
+    "hit_test": lambda p: p.hit_test((1.0, 1.0)),
+    "select_range": lambda p: p.select_range((0.0, 0.0), (9.0, 9.0)),
+    "range_rects": lambda p: p.range_rects((0, 2)),
+    "caret_rect": lambda p: p.caret_rect(1),
+    "range_text": lambda p: p.range_text((0, 2)),
+}
+DOCUMENT_CALLS = {
+    "set_blocks": lambda d: d.set_blocks(blocks_with()),
+    "replace_blocks": lambda d: d.replace_blocks(0, 0, blocks_with()),
+    "append_text": lambda d: d.append_text("a"),
+    "append_table_rows": lambda d: d.append_table_rows([["a"]]),
+    "append_table_cells": lambda d: d.append_table_cells(["a"]),
+    "set_table_columns": lambda d: d.set_table_columns(6, [(0, 50.0)]),
+    "set_block_extent": lambda d: d.set_block_extent(3, 4.0),
+    "set_options": lambda d: d.set_options(None),
+    "block_count": lambda d: d.block_count,
+    "style_count": lambda d: d.style_count,
+    "container_count": lambda d: d.container_count,
+    "layout": lambda d: d.layout(300.0),
+    "layout_window": lambda d: d.layout_window(0.0, 100.0),
+    "size": lambda d: d.size(),
+    "stats": lambda d: d.stats(),
+    "block_error": lambda d: d.block_error(0),
+    "draw": lambda d: frame(lambda: d.draw(None, (0.0, 0.0))),
+    "draw_to_buffers": lambda d: d.draw_to_buffers((0.0, 0.0), BOX),
+    "view": lambda d: frame(lambda: d.view("view")),
+    "hit_test": lambda d: d.hit_test((1.0, 1.0)),
+    "select_range": lambda d: d.select_range((0.0, 0.0), (9.0, 9.0)),
+    "range_rects": lambda d: d.range_rects(SEL),
+    "caret_rect": lambda d: d.caret_rect((1, 1)),
+    "range_text": lambda d: d.range_text(SEL),
+    "block_geometry": lambda d: d.block_geometry(0),
+    "block_line": lambda d: d.block_line(1, 0),
+    "table_geometry": lambda d: d.table_geometry(6),
+    "table_column": lambda d: d.table_column(6, 0),
+    "table_row": lambda d: d.table_row(6, 0),
+    "set_columns": lambda d: d.set_columns(None),
+    "column_count": lambda d: d.column_count(),
+    "column": lambda d: d.column(0),
+    "column_pos": lambda d: d.column_pos((0.0, 0.0)),
+    "table_cell": lambda d: d.table_cell((6, 1)),
+    "table_position": lambda d: d.table_position(6, 0, 0),
+}
+# What a closed handle still answers, and never reaches the library for.
+CLOSED_ANSWERS = {"close", "closed", "from_blocks", "pack_marks"}
+
+
+class HostileInput(unittest.TestCase):
+    """docs/python-errors.md, row by row: what leaves each public call of the
+    package on input a host controls, and that nothing but `imtypeset.Error`,
+    TypeError, ValueError (UnicodeEncodeError is one) and OverflowError does."""
+
+    DOCUMENT = os.path.join(REPO, "docs", "python-errors.md")
+
+    @staticmethod
+    def generated():
+        """Rows for the types: a NamedTuple refuses one value too many, an enum
+        a value it has no member for, whatever else a table above says of it."""
+        rows = []
+        for name in ts.__all__:
+            thing = getattr(ts, name)
+            if not isinstance(thing, type):
+                continue
+            if issubclass(thing, tuple) and hasattr(thing, "_fields"):
+                rows.append((name, "one value too many", T,
+                             lambda x, thing=thing: thing(*range(len(thing._fields) + 1))))
+            elif issubclass(thing, enum.Enum):
+                rows.append((name, "'x'", V, lambda x, thing=thing: thing("x")))
+        return rows
+
+    def rows(self):
+        return TABLE + self.generated()
+
+    def public_names(self):
+        names = set(ts.__all__) | {f"demo.{name}" for name in demo.__all__}
+        for handle in (ts.Paragraph, ts.Document):
+            names |= {
+                f"{handle.__name__}.{name}" for name in vars(handle) if not name.startswith("_")
+            }
+        return names
+
+    def tearDown(self):
+        ts.set_text_cache_limits()
+
+    def test_each_row_raises_what_the_table_says_and_nothing_else(self):
+        for call, given, expected, body in self.rows():
+            with self.subTest(call=call, given=given):
+                made = Hostile()
+                try:
+                    body(made)
+                    left = None
+                except Exception as exc:  # noqa: BLE001 - the class is what is compared
+                    left = type(exc)
+                finally:
+                    made.close()
+                self.assertIs(left, expected)
+
+    def test_no_row_expects_anything_but_the_four(self):
+        allowed = {OK, T, V, O, U, E}
+        for call, given, expected, _ in self.rows():
+            if call == "Error":  # Constructed by a host, which no host does.
+                continue
+            self.assertIn(expected, allowed, f"{call}: {given}")
+
+    def test_every_public_name_is_in_the_table(self):
+        missing = self.public_names() - {call for call, _, _, _ in self.rows()}
+        self.assertEqual(sorted(missing), [], "add a row to TABLE for each (and to docs/python-errors.md)")
+
+    def test_the_table_names_nothing_that_is_not_public(self):
+        self.assertEqual(sorted({call for call, _, _, _ in self.rows()} - self.public_names()), [])
+
+    def test_the_document_names_every_call_of_the_table(self):
+        with open(self.DOCUMENT, encoding="utf-8") as stream:
+            text = stream.read()
+        missing = sorted({call for call, _, _, _ in self.rows() if f"`{call}`" not in text})
+        self.assertEqual(missing, [], "docs/python-errors.md names each call as `name`")
+
+    def test_a_closed_handle_raises_value_error(self):
+        for handle, calls in ((ts.Paragraph, PARAGRAPH_CALLS), (ts.Document, DOCUMENT_CALLS)):
+            names = {name for name in vars(handle) if not name.startswith("_")} - CLOSED_ANSWERS
+            self.assertEqual(sorted(names - set(calls)), [], f"{handle.__name__}: add a valid call")
+            self.assertEqual(sorted(set(calls) - names), [])
+            for how in ("open", "closed", "context destroyed"):
+                for name, call in calls.items():
+                    with self.subTest(handle=handle.__name__, call=name, how=how):
+                        made = Hostile()
+                        self.addCleanup(made.close)
+                        if handle is ts.Paragraph:
+                            thing = made.par
+                        elif name == "append_text":
+                            thing = made.prose
+                        else:
+                            thing = made.doc
+                        if how == "open":
+                            call(thing)  # The call is a valid one: it is the handle that is refused below.
+                            continue
+                        if how == "closed":
+                            thing.close()
+                        else:
+                            # A context of its own, destroyed under the handle.
+                            held = ts.current_context()
+                            other = ts.create_context()
+                            ts.set_current_context(other)
+                            try:
+                                thing = ts.Paragraph("abc") if handle is ts.Paragraph else ts.Document()
+                            finally:
+                                ts.destroy_context(other)
+                                ts.set_current_context(held)
+                        self.assertTrue(thing.closed)
+                        with self.assertRaises(ValueError) as caught:
+                            call(thing)
+                        self.assertIs(type(caught.exception), ValueError)
+
+    def test_a_number_past_a_c_int_names_nothing_and_no_other_block(self):
+        made = Hostile()
+        self.addCleanup(made.close)
+        document = made.doc
+        nothing = document.block_geometry(10**6)
+        self.assertFalse(nothing.laid_out)
+        self.assertNotEqual(document.block_geometry(1), nothing)
+        # 2**32 + 1 is block 1 in its low 32 bits.
+        for block in (2**32 + 1, 2**40, 2**64 + 1, -(2**32) + 1):
+            self.assertEqual(document.block_geometry(block), nothing, block)
+            self.assertEqual(document.block_error(block).code, ts.ErrorCode.None_)
+            self.assertEqual(document.caret_rect((block, 0)), (0.0, 0.0, 0.0, 0.0))
+        self.assertEqual(document.table_geometry(2**32 + 6).row_count, 0)
+        self.assertEqual(document.table_geometry(6).row_count, 2)
+        self.assertFalse(document.column(2**32).exists)
+        self.assertTrue(document.column(0).exists)
+        # A range to a block past the last is a range to the end.
+        whole = document.range_text(((0, 0), (10**6, 0)))
+        self.assertEqual(document.range_text(((0, 0), (2**32 + 1, 2))), whole)
+        self.assertEqual(document.range_text(((0, 0), (len(document) - 1, 2**32 + 1))), whole)
+        # A role.
+        self.assertIsNotNone(ts.get_font(ts.Face.Regular))
+        self.assertIsNone(ts.get_font(2**32 + ts.Face.Regular))
+        self.assertIsNone(ts.font_atlas_index(2**32 + ts.Face.Regular))
+        self.assertFalse(ts.face_has_glyph(2**32 + ts.Face.Regular, "a"))
+        self.assertFalse(ts.remove_font(2**32 + ts.Face.Regular))
+        self.assertIsNotNone(ts.get_font(ts.Face.Regular))
+        with self.assertRaises(ts.Error) as caught:
+            ts.add_font(2**32 + ts.Face.Regular, ROBOTO)
+        self.assertEqual(caught.exception.code, ts.ErrorCode.InvalidArgument)
+        self.assertEqual(demo.section_name(2**32), "")
+        self.assertEqual(demo.section_name(0), "Paragraph")
+        # A position in a paragraph: past the end is the end.
+        for text in (PLAIN, ACCENTED):
+            paragraph = made.paragraph(text)
+            self.assertEqual(paragraph.range_text((0, 2**32 + 2)), text)
+            self.assertEqual(paragraph.range_text((-(2**32) + 2, 2**40)), text)
+            self.assertEqual(paragraph.caret_rect(2**32 + 1), paragraph.caret_rect(len(text)))
+            self.assertNotEqual(paragraph.caret_rect(1), paragraph.caret_rect(len(text)))
+        self.assertEqual(ts.codepoint_to_byte_offset("aéb", 2**32 + 1), 4)
+        self.assertEqual(ts.byte_to_codepoint_offset("aéb", 2**32 + 1), 3)
+
+    def test_what_a_description_cannot_hold_is_brought_to_what_it_can(self):
+        made = Hostile()
+        self.addCleanup(made.close)
+        document = made.doc
+        # Flags and a tag keep their low 32 bits; a colour its 32.
+        run = ts.Run(0, 5, ts.Face.Bold, 1.0, 2**40 + RED, 2**40, 2**32 + 7)
+        self.assertIsInstance(document.set_blocks([ts.Block(text="né " + PLAIN, runs=[run])]), bool)
+        document.layout(400.0)
+        self.assertEqual(document.block_count, 1)
+        self.assertEqual(document.hit_test((3.0, 3.0)).tag, 7)
+        self.assertEqual(document.range_text(((0, 0), (0, 5))), "né Pl")
+        # A level, a style, an indent that no block has: the library's answer, not an exception.
+        self.assertIsInstance(
+            document.set_blocks([ts.Block(text="abc", style=2**40, level=2**40, left_indent=1e300)]), bool
+        )
+        self.assertIn(document.edit_error.code, (ts.ErrorCode.None_, ts.ErrorCode.DescriptionCut))
+        self.assertEqual(document.range_text(((0, 0), (0, 3))), "abc")
+        # And what was clamped is laid out and drawn as anything else is.
+        extreme = ts.Run(-(2**40), 2**40, 2**40, 1e300, 2**40, 2**40, 2**40)
+        blocks = [
+            ts.Block(2**40, "né abc", [extreme], "", 2**40, 1e300, 2**40, 2**40, 2**40, 1e300, 2**40, 2**40),
+            ts.Block(text="plain", quote_depth=2**40, level=-(2**40), item=2**40, left_indent=-1e300),
+            ts.Block(ts.BlockKind.Table, rows=[[ts.Cell("né", [extreme]), "b"]],
+                     columns=[(2**40, 1e300, -1e300), (-(2**40), NAN, INF)]),
+        ]
+        self.assertFalse(document.set_blocks(blocks))
+        self.assertEqual(document.edit_error.code, ts.ErrorCode.DescriptionCut)
+        self.assertIn("Kind", document.edit_error.message)
+        document.layout(300.0)
+        self.assertIsInstance(document.layout_window(0.0, 1000.0), bool)
+        vertices, _ = document.draw_to_buffers((0.0, 0.0), BOX)
+        self.assertGreater(len(vertices), 0)
+        self.assertEqual(document.range_text(((0, 0), (2, 2**40)), "|"), "né abc|plain|né\tb")
+        marks = document.pack_marks([(((2**40, 0), (0, 2**40)), -1)])
+        self.assertEqual(marks.count, 1)
+        self.assertEqual(marks.array[0].Range.Start.Block, 2**31 - 1)
+        self.assertEqual(marks.array[0].Color, 0xFFFFFFFF)
+        self.assertIsInstance(document.draw_to_buffers((0.0, 0.0), BOX, None, marks), tuple)
+
+    def test_what_would_end_the_process_is_refused_first(self):
+        made = Hostile()
+        self.addCleanup(made.close)
+        # An empty ID is an assertion of Dear ImGui's in BeginChild: the
+        # library gives a view without one its own.
+        for str_id in ("", "\0", "\0view", "##"):
+            self.assertTrue(frame(lambda: made.doc.view(str_id))[0])
+        # The demo outside a frame is an assertion in Begin, or a window that
+        # is not there: the library draws nothing.
+        self.assertIsNone(ts.show_demo_window())
+        self.assertIsNone(demo.show_demo_window())
+        for section in demo.sections():
+            demo.show_demo_section(section)
+        # ctypes hands over the address of a str's characters as an address.
+        for address in ("x", b"x", bytearray(b"x"), 1.5, [], object()):
+            with self.assertRaises(TypeError):
+                frame(lambda: made.par.draw(address, (0.0, 0.0)))
+            with self.assertRaises(TypeError):
+                frame(lambda: made.doc.draw(address, (0.0, 0.0)))
+            with self.assertRaises(TypeError):
+                ts.set_current_context(address)
+            with self.assertRaises(TypeError):
+                ts.destroy_context(address)
+        self.assertIsNotNone(ts.current_context())
+        frame(lambda: made.par.draw(ctypes.c_void_p(host.get_window_draw_list()), (0.0, 0.0)))
+        # bytes(n) is n zero bytes.
+        for source in (5, 2**31, 2**40, True):
+            with self.assertRaises(TypeError):
+                ts.add_font(ts.Face.Italic, source)
+        self.assertIsNone(ts.get_font(ts.Face.Italic))
+
+    def test_the_modules_under_the_package_raise_import_error_and_these(self):
+        # Not for a host to call; reached by `import imtypeset`.
+        self.assertTrue(os.path.isfile(_capi.library_path()))
+        for path, expected in ((None, ImportError), ("no-such-library.so", ImportError), (b"x", ImportError),
+                               (5, TypeError), ("a\0b", ValueError), (LONE, UnicodeEncodeError)):
+            with self.subTest(path=path):
+                with self.assertRaises(expected) as caught:
+                    _capi.load(path)
+                self.assertIs(type(caught.exception), expected)
 
 
 if __name__ == "__main__":

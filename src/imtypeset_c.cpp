@@ -122,6 +122,17 @@ IMTYPESET_C_FIELD(ImTypeset_Hit, ImTypesetHit, Line);
 IMTYPESET_C_FIELD(ImTypeset_Hit, ImTypesetHit, Inside);
 IMTYPESET_C_FIELD(ImTypeset_Hit, ImTypesetHit, Tag);
 
+IMTYPESET_C_MIRROR(ImTypeset_FontMetrics, ImTypesetFontMetrics);
+IMTYPESET_C_FIELD(ImTypeset_FontMetrics, ImTypesetFontMetrics, EmSize);
+IMTYPESET_C_FIELD(ImTypeset_FontMetrics, ImTypesetFontMetrics, FontSize);
+IMTYPESET_C_FIELD(ImTypeset_FontMetrics, ImTypesetFontMetrics, Ascent);
+IMTYPESET_C_FIELD(ImTypeset_FontMetrics, ImTypesetFontMetrics, Descent);
+IMTYPESET_C_FIELD(ImTypeset_FontMetrics, ImTypesetFontMetrics, LineGap);
+IMTYPESET_C_FIELD(ImTypeset_FontMetrics, ImTypesetFontMetrics, XHeight);
+IMTYPESET_C_FIELD(ImTypeset_FontMetrics, ImTypesetFontMetrics, SpaceAdvance);
+static_assert(sizeof(ImTypeset_FontMetrics) == 7 * sizeof(float),
+              "ImTypeset_FontMetrics has a field the mirror does not name");
+
 IMTYPESET_C_MIRROR(ImTypeset_ErrorInfo, ImTypesetErrorInfo);
 IMTYPESET_C_FIELD(ImTypeset_ErrorInfo, ImTypesetErrorInfo, Code);
 IMTYPESET_C_FIELD(ImTypeset_ErrorInfo, ImTypesetErrorInfo, BytePos);
@@ -804,6 +815,26 @@ struct ImFont* ImTypeset_GetFont(ImTypeset_Face face)
 int ImTypeset_FaceHasGlyph(ImTypeset_Face face, unsigned int codepoint)
 {
     return guarded(0, [&]() -> int { return status(ImTypeset::FaceHasGlyph(face, codepoint)); });
+}
+
+int ImTypeset_GetFontMetrics(ImTypeset_Face face, float em_size, ImTypeset_FontMetrics* out,
+                             size_t out_size)
+{
+    return guarded(0, [&]() -> int {
+        // The size is what the caller compiled; a caller of another size is
+        // refused before anything is written to it.
+        ImTypesetFontMetrics metrics;
+        const bool ok =
+            ImTypeset::GetFontMetrics(face, em_size, out != nullptr ? &metrics : nullptr, out_size);
+        if (out != nullptr && out_size == sizeof(ImTypeset_FontMetrics))
+            *out = mirror<ImTypeset_FontMetrics>(metrics);
+        return status(ok);
+    });
+}
+
+float ImTypeset_GetGlyphAdvance(ImTypeset_Face face, float em_size, unsigned int codepoint)
+{
+    return guarded(0.0f, [&]() { return ImTypeset::GetGlyphAdvance(face, em_size, codepoint); });
 }
 
 int ImTypeset_GetFontAtlasIndex(ImTypeset_Face face)

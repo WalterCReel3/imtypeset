@@ -366,19 +366,23 @@ struct DrawRules {
     // wherever that glyph went.
     bool word_spaces_led = false;
 
-    // A glyph whose quad lies wholly above the top edge of the clip
-    // rectangle or wholly at or below its bottom edge is not emitted. A clip
-    // rectangle covers the pixels from its top edge to, but not including,
-    // its bottom edge, so such a quad shows nothing; with the rule, a
-    // document drawn in slices one under another (columns: each under a clip
-    // that ends where the next begins) emits a glyph in every slice it shows
-    // in and in no other.
+    // A glyph's quad is emitted exactly when part of it is inside the clip
+    // rectangle vertically: its top above the rectangle's bottom edge and its
+    // bottom below the top edge. A clip rectangle covers the pixels from its
+    // top edge to, but not including, its bottom edge, so a quad wholly at or
+    // below the bottom edge shows nothing; with the rule, a document drawn in
+    // slices one under another (columns: each under a clip that ends where
+    // the next begins) emits a glyph in every slice it shows in and in no
+    // other. It is a rule about the glyphs placed: which lines are placed at
+    // all is DrawArgs::cull_lines.
     //
     // The reference draws through ImFont::RenderText, which looks at the
     // font's cell and not at the glyph's bitmap: it skips a glyph only when
     // its pen (the top of the cell) is BELOW the bottom edge or the whole
     // cell above the top edge. A glyph whose pen is exactly on the bottom
-    // edge is emitted, every vertex of it outside the rectangle.
+    // edge is emitted, every vertex of it outside the rectangle; and a glyph
+    // taller than the cell (a box-drawing bar, an integral sign) is dropped
+    // with its cell while a row or two of its bitmap is inside.
     bool quads_off_clip_dropped = false;
 
     static constexpr DrawRules reference() { return DrawRules(); }

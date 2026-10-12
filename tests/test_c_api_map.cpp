@@ -69,6 +69,8 @@ const Row TABLE[] = {
     BOTH(RemoveFont),
     BOTH(GetFont),
     BOTH(FaceHasGlyph),
+    BOTH(GetFontMetrics),
+    BOTH(GetGlyphAdvance),
     BOTH(TextUnformatted),
     BOTH(Text),
     BOTH(TextV),

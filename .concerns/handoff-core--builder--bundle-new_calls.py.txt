@@ -1,0 +1,62 @@
+"""The calls this task added, inside an installed imgui_bundle wheel (headless)."""
+import os
+import sys
+
+from imgui_bundle import imgui
+
+import imtypeset as ts
+from imtypeset import demo
+
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+FONTS = os.path.join(REPO, "tests", "data", "fonts")
+imgui.create_context()
+io = imgui.get_io()
+io.display_size = imgui.ImVec2(900.0, 600.0)
+io.delta_time = 1.0 / 60.0
+io.backend_flags |= imgui.BackendFlags_.renderer_has_textures.value
+io.set_ini_filename("")
+ts.create_context()
+ts.add_font(ts.Face.Regular, os.path.join(FONTS, "Roboto-Regular.ttf"))
+ts.add_font(ts.Face.Code, os.path.join(FONTS, "Inconsolata-Medium.ttf"))
+ts.add_font(ts.Face.Math, os.path.join(FONTS, "latinmodern-math.otf"))
+failed = 0
+
+
+def check(what, ok):
+    global failed
+    failed += not ok
+    print("PASS" if ok else "FAIL", what)
+
+
+# Outside a frame the demo draws nothing (it ended the process).
+ts.show_demo_window()
+demo.show_demo_section(demo.DemoSection.Math)
+check("the demo outside a frame returns", True)
+m = ts.font_metrics(ts.Face.Regular, 16.0)
+check("font_metrics: Roboto at a 16 px em is 18.75 px as ImGui sizes it", m.font_size == 18.75 and m.ascent == 16.0 * 1900 / 2048)
+check("glyph_advance: a monospace cell", ts.glyph_advance(ts.Face.Code, 16.0, "M") == 8.0 == ts.glyph_advance(ts.Face.Code, 16.0, "i"))
+try:
+    ts.font_metrics(ts.Face.Italic, 16.0)
+    check("font_metrics: a role with no font raises", False)
+except ts.Error as error:
+    check("font_metrics: a role with no font raises NoFont", error.code == ts.ErrorCode.NoFont)
+doc = ts.Document.from_blocks([ts.Block(ts.BlockKind.Table, rows=[["Name", "Unit"]], flags=ts.BlockFlags.TableHeld)])
+doc.layout(500.0)
+doc.append_table_rows([["ma"]])
+doc.append_text("ss")
+doc.append_table_cells(["kg"])
+doc.layout(500.0)
+text = "Name\tUnit\nmass\tkg"
+check("append_table_cells: the row is the row described whole", doc.range_text(((0, 0), (0, len(text)))) == text and doc.table_geometry(0).cell_count == 4)
+marks = [ts.Mark(((0, 5 * k % 10), (0, 5 * k % 10 + 2)), ts.col32(255, 0, 0)) for k in range(40)]
+imgui.new_frame()
+imgui.begin("w")
+check("Document.view with an empty id draws", doc.view("", (300.0, 100.0))[0])
+check("a draw with 40 marks in no order", doc.draw(None, (10.0, 10.0), marks=marks))
+demo.show_demo_section(demo.DemoSection.Math)
+imgui.end()
+imgui.render()
+ts.show_demo_window()
+check("the demo after render() returns", True)
+print("all passed" if not failed else f"{failed} FAILED")
+sys.exit(1 if failed else 0)

@@ -1,0 +1,94 @@
+# Does the Python sidecar work beside the imgui-bundle wheel from PyPI, on each
+# platform that has a wheel? Each job answers for one platform, one CPython and
+# one wheel version, and its report is on the run's summary page whether the
+# job is green or red (docs/sidecar.md says how to read one).
+#
+# Every step is a script under tools/ci that also runs on a developer's
+# machine; this file only says where and in what order.
+#
+# Runner labels and action versions were read from GitHub's pages on
+# 2026-10-11 through a summarising fetch. A label GitHub has since retired
+# leaves its job queued and never started: start the workflow by hand
+# (Actions, "sidecar-probe", "Run workflow") and give another label there.
+name: sidecar-probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      linux_runner:
+        description: Runner label for Linux x86-64
+        default: ubuntu-latest
+      macos_arm64_runner:
+        description: Runner label for macOS on Apple Silicon
+        default: macos-14
+      macos_x86_64_runner:
+        description: Runner label for macOS on Intel ("none" to leave it out)
+        default: macos-15-intel
+  push:
+    paths:
+      - .github/workflows/sidecar-probe.yml
+      - tools/ci/**
+      - tools/bundle_route/**
+      - tools/amalgamate.py
+      - python/**
+      - src/**
+      - include/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sidecar-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: Which jobs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - id: matrix
+        env:
+          IMTYPESET_CI_LINUX: ${{ github.event.inputs.linux_runner }}
+          IMTYPESET_CI_MACOS_ARM64: ${{ github.event.inputs.macos_arm64_runner }}
+          IMTYPESET_CI_MACOS_X86_64: ${{ github.event.inputs.macos_x86_64_runner }}
+        run: python3 tools/ci/sidecar_matrix.py >> "$GITHUB_OUTPUT"
+
+  probe:
+    name: ${{ matrix.name }}
+    needs: plan
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: System libraries the wheel's module links
+        run: sh tools/ci/install_deps.sh sidecar
+      - name: Install the wheel (never fails; the probe reports what is there)
+        run: sh tools/ci/sidecar_install.sh "${{ matrix.bundle }}" probe-report python
+      - name: Probe (never fails; the verdict step does)
+        run: python -P -B tools/ci/sidecar_probe.py --out probe-report ${{ matrix.flags }}
+      - name: The report, on the summary page
+        if: always()
+        run: sh tools/ci/sidecar_summary.sh probe-report
+      - name: The report and every log, as an artifact
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: sidecar-probe-${{ matrix.id }}
+          path: |
+            probe-report
+            !probe-report/**/obj/**
+            !probe-report/**/dist/**
+          if-no-files-found: warn
+      - name: Verdict
+        if: always()
+        run: python3 tools/ci/sidecar_verdict.py probe-report

@@ -1,0 +1,98 @@
+# The C++ library: each preset that makes sense on a hosted runner, configured,
+# built and tested as CMakePresets.json defines it, by GCC and Clang on Linux
+# and by Apple's Clang on macOS. No flag is weakened for a compiler: a warning
+# is an error here as it is on the machine the library was written on.
+#
+# The tests replay the goldens in tests/golden; nothing here runs the Python
+# reference or writes a golden.
+#
+# Runner labels and action versions were read from GitHub's pages on
+# 2026-10-11 through a summarising fetch.
+name: ci
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  presets:
+    name: ${{ matrix.preset }} / ${{ matrix.toolchain.name }}
+    runs-on: ${{ matrix.toolchain.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [debug, release, asan, stb, wchar16, amalgamation]
+        toolchain:
+          - { name: linux-gcc, os: ubuntu-latest, cc: gcc, cxx: g++ }
+          - { name: linux-clang, os: ubuntu-latest, cc: clang, cxx: clang++ }
+          - { name: macos-appleclang, os: macos-14, cc: cc, cxx: c++ }
+    env:
+      CC: ${{ matrix.toolchain.cc }}
+      CXX: ${{ matrix.toolchain.cxx }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Dependencies
+        run: sh tools/ci/install_deps.sh cpp
+      - name: Configure, build, test
+        run: sh tools/ci/cpp_preset.sh "${{ matrix.preset }}"
+      - name: What ctest recorded
+        if: failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ctest-${{ matrix.preset }}-${{ matrix.toolchain.name }}
+          path: build/${{ matrix.preset }}/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+
+  # tests/python drive the SELF-HOSTED library (Dear ImGui, SDL2 and imtypeset
+  # in one), not the sidecar: they run here, on the one platform that library's
+  # link is written for.
+  python-host:
+    name: python-host / linux-gcc
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CC: gcc
+      CXX: g++
+      SDL_VIDEODRIVER: dummy
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Dependencies
+        run: sh tools/ci/install_deps.sh python-host
+      - name: Configure, build, test
+        run: IMTYPESET_CI_CMAKE_ARGS="-DIMTYPESET_PYTHON=$(command -v python)" sh tools/ci/cpp_preset.sh python-host
+      - name: What ctest recorded
+        if: failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ctest-python-host-linux-gcc
+          path: build/python-host/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+
+  # The header fetch against local sources, and the scripts' own checks.
+  scripts:
+    name: tools/ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.11"
+      - name: fetch_headers.py against local sources
+        run: python -I -B tools/ci/test_fetch_headers.py -v
+      - name: The workflows themselves
+        run: |
+          python -m pip install --disable-pip-version-check pyyaml
+          python -B tools/ci/check_workflows.py

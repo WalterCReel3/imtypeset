@@ -587,7 +587,12 @@ enum ImTypesetBlockFlags_ {
     ImTypesetBlockFlags_FixedLineHeight = 1 << 3,
     // Table: its first row is a header, and a rule is drawn under it
     // (ImTypesetDocumentOptions::TableRuleThickness). How a header's cells
-    // look is in their runs, like any text's.
+    // look is in their runs, like any text's. The rule is stacked as a line
+    // of the table is: its foot is one line height under the header's
+    // baseline and the next row's baseline one line height under that. A
+    // table with a header and a rule is therefore one line height taller than
+    // its rows, whatever the rule's thickness; with no rule
+    // (TableRuleThickness below zero) it is as tall as its rows.
     ImTypesetBlockFlags_TableHeader = 1 << 4,
     // Table: its columns are HELD while it grows. See "A TABLE THAT GROWS".
     ImTypesetBlockFlags_TableHeld = 1 << 5
@@ -854,6 +859,17 @@ struct ImTypesetBlock {
 // wants the table settled when it is complete replaces it once more without
 // the flag, and one that wants it never to jump leaves the flag on.
 //
+// A ROW THAT ARRIVES IN PIECES is described with the cells it has so far and
+// no others: the cell being written is then the table's last, and each piece
+// is AppendDocumentText() for more of that cell and AppendDocumentTableCells()
+// with a first cell that is no row's start for the next cell of the row. Each
+// costs the cell it touched and the row it is in. A row padded out with empty
+// cells for what is not written yet has the cell being written in its middle,
+// where nothing can be appended: every piece is then a replace of the whole
+// table, which measures every cell again. A row with fewer cells than the
+// table has columns is set as if the rest were empty, so the padding buys
+// nothing.
+//
 // LIMITS. A table has at most 1,024 columns and 262,144 cells; what is past
 // either is left out and said (ImTypesetError_DescriptionCut). A table is laid
 // out whole the first time any of it is looked at: it costs what its cells
@@ -1013,8 +1029,13 @@ struct ImTypesetMark {
 struct ImTypesetDocumentDraw {
     // Highlighted behind the text in the document style's SelectionColor.
     ImTypesetDocumentRange Selection;
-    // Every mark costs a comparison each draw, in view or not: for tens of
-    // thousands, hand over the ones near the view.
+    // In any order, and all of them: a draw works out the marks on the lines
+    // its clip rectangle shows and passes over the rest, which cost it one
+    // comparison of a range each (what tells it the marks are the ones it
+    // was given last time). Marks given in the order they start in the
+    // document are used as they come; in any other order they are put in
+    // that order once, when the ranges handed over are not the ranges of the
+    // draw before, and not again while they stay the same.
     const ImTypesetMark* Marks;
     int MarkCount;
     ImTypesetDocumentDrawFlags Flags;
@@ -1259,6 +1280,38 @@ struct ImTypesetDocumentStats {
     ImU64 BalanceHeightsTried;
 };
 
+// A role's font at one size, in pixels: what GetFontMetrics() answers. The
+// numbers are the font file's, read by the library's own reader, scaled by
+// EmSize over the font's units per em and not rounded: the lengths layout is
+// built from. Ascent and Descent are the hhea table's, which is what ImGui's
+// rasterisers size a font by, and not OS/2's, whatever the font asks for.
+// Layout places baselines by ImTypesetStyle::LineHeight and does not read
+// LineGap.
+// THE TWO SIZES (see ImTypesetStyle). FontSize is what ImGui calls the size
+// of a font whose em is EmSize: Ascent + Descent. The ratio is the face's and
+// the same at every size, so the em at which a face is `h` pixels tall as
+// ImGui means it is h * EmSize / FontSize, from the metrics at any size.
+struct ImTypesetFontMetrics {
+    float EmSize;       // The size asked for: one em.
+    float FontSize;     // Ascent + Descent: ImGui's size for this em.
+    float Ascent;       // Above the baseline.
+    float Descent;      // Below the baseline, positive.
+    float LineGap;      // The hhea table's lineGap. Not used by layout.
+    float XHeight;      // OS/2's sxHeight; 0.45 em for a font that states none.
+    float SpaceAdvance; // The advance of U+0020: the natural width of a space.
+
+    ImTypesetFontMetrics()
+        : EmSize(0.0f)
+        , FontSize(0.0f)
+        , Ascent(0.0f)
+        , Descent(0.0f)
+        , LineGap(0.0f)
+        , XHeight(0.0f)
+        , SpaceAdvance(0.0f)
+    {
+    }
+};
+
 // The sections of the demo window. The values are stable: a new section is
 // added before COUNT and none is renumbered.
 enum ImTypesetDemoSection_ {
@@ -1439,6 +1492,27 @@ IMTYPESET_API ImFont* GetFont(ImTypesetFace face);
 // keeps the glyph variants that have no codepoint of their own; no text a
 // host hands over holds those.
 IMTYPESET_API bool FaceHasGlyph(ImTypesetFace face, unsigned int codepoint);
+// A role's font at an em size in pixels: see ImTypesetFontMetrics. The role's
+// own font, as for FaceHasGlyph (CodeBold answers for Bold's until it has its
+// own, Default for Regular's), and no ImGui context is needed. `out_size` is
+// sizeof(ImTypesetFontMetrics) where the call is compiled, which is how a
+// caller compiled against another imtypeset.h is refused and not written
+// past. False, with `out` zeroed when it is the library's size, for a face
+// that is not one, a size that is not a finite number above zero and at most
+// 1,000,000 (ImTypesetError_InvalidArgument), a role with no font
+// (ImTypesetError_NoFont), with no context (ImTypesetError_NoContext), or an
+// `out_size` that is not the library's (ImTypesetError_VersionMismatch). [E]
+IMTYPESET_API bool GetFontMetrics(ImTypesetFace face, float em_size, ImTypesetFontMetrics* out,
+                                  size_t out_size = sizeof(ImTypesetFontMetrics));
+// How far the pen moves after one character of a role's own font at an em
+// size in pixels, kerning apart: the font's advance for it, scaled and not
+// rounded. A character the font lacks answers the advance of the font's
+// missing-glyph glyph, which is not what a text holding it is set with (it is
+// set from another face: ask FaceHasGlyph first). Zero wherever
+// GetFontMetrics is false. Layout rounds each advance to a scaled point (a
+// 65,536th of a point), and kerns pairs: the width of a text is a paragraph's
+// line (GetParagraphLine), not a sum of these. [E]
+IMTYPESET_API float GetGlyphAdvance(ImTypesetFace face, float em_size, unsigned int codepoint);
 
 // --- Widgets -------------------------------------------------------------------------
 //
@@ -1832,6 +1906,21 @@ IMTYPESET_API ImTypesetDocumentStats GetDocumentStats(const ImTypesetDocument* d
 // outside the clip rectangle are not visited: the work is what is in view
 // plus a logarithm of the number of blocks. Refuses what DrawParagraph
 // refuses; `draw_list` null is the current window's, as there. [E]
+//
+// WHICH GLYPHS A CLIP RECTANGLE GETS. A glyph's quad is emitted exactly when
+// some of it is inside the clip rectangle from top to bottom: its top above
+// the rectangle's bottom edge and its bottom below the top edge (a rectangle
+// holds the pixels from its top edge to, not including, its bottom edge). So
+// a document drawn in slices under rectangles that meet has every glyph in
+// each slice it shows in and in no other, and a glyph a cut goes through in
+// both. Where its pen is, or its line's box, does not decide: a glyph taller
+// than its font's cell (a box-drawing bar, a character set from another face)
+// is drawn by the row of it that is inside. This holds for every glyph of a
+// line the draw looks at, and a draw looks at every line whose box is within
+// two pixels of the rectangle; ink further than that outside its line's box
+// is only found where lines are an exact height
+// (ImTypesetBlockFlags_FixedLineHeight says how far). Left to right a quad is
+// emitted when it reaches the rectangle or touches its edge.
 IMTYPESET_API bool DrawDocument(ImTypesetDocument* document, ImDrawList* draw_list,
                                 const ImVec2& pos, const ImTypesetDocumentDraw* draw = NULL);
 // The same as vertices and indices: see DrawParagraphToBuffers. [E]
@@ -1939,7 +2028,9 @@ IMTYPESET_API ImVec2 GetDocumentColumnPos(ImTypesetDocument* document, const ImV
 
 // A document in a child window that scrolls it: lays out and draws what is in
 // view, selects with the mouse as SelectableText() does (across blocks), and
-// copies with Ctrl+C. `size` is the child's, as for ImGui::BeginChild(): zero
+// copies with Ctrl+C. `str_id` names the child among its window's items; null
+// or empty is one ID of the library's, which does for one view in a window.
+// `size` is the child's, as for ImGui::BeginChild(): zero
 // in a direction takes what is left of the window in it, which is NEXT TO
 // NOTHING in a window that sizes itself to its contents (ImGui gives such a
 // child a few pixels: give a height there).
@@ -1988,18 +2079,37 @@ IMTYPESET_API int ParagraphByteToCodepointOffset(const ImTypesetParagraph* parag
 // A window that shows what the library does, section by section, in the fonts
 // the host has added; its source, imtypeset_demo.cpp, is where to look up how
 // each thing is called. Call it between ImGui::NewFrame() and ImGui::Render(),
-// as ImGui::ShowDemoWindow() is. `p_open`, if given, puts a close button on
-// it. With no current context it says so. Compiled with
+// as ImGui::ShowDemoWindow() is: before the first frame, after Render() and
+// with no ImGui context it draws nothing, and so does ShowDemoSection().
+// `p_open`, if given, puts a close button on it. With no current ImTypeset
+// context it says so. Compiled with
 // IMTYPESET_DISABLE_DEMO it is still there to link against and draws nothing.
 IMTYPESET_API void ShowDemoWindow(bool* p_open = NULL);
 // One section of the demo window without the window: its contents, submitted
 // into the current window, for a host that shows it as a page of its own (in a
 // tab, a child, a window it made). Text is set at ImGui::GetFontSize(), so
-// PushFont() around the call sizes it. What a section remembers between frames
-// it remembers per context, and apart from the demo window's own copy of the
-// section: a width dragged in one is not dragged in the other. A value that is
-// not a section draws nothing; with no current ImTypeset context it says so in
-// a line of text.
+// PushFont() around the call sizes it, and a size that changes from one frame
+// to the next is followed.
+// WHAT SIZE A SECTION IS FOR. Every section runs from 10 to 40 px; what
+// follows was looked at in a window 1100 px wide, with ImGui's default font
+// for its own labels, at 10, 13, 16, 19, 24, 32 and 40 px. Text the library
+// sets and ImGui's widgets follow the size. What a section gives a slider in
+// pixels does not: the measures text is set to (250, 420 and 460 px until
+// dragged), the Specimen's samples and the Formula gallery's plates, so from
+// 32 px the labels are larger than those. Up to 24 px every section is whole
+// in that window but for Math's table of the subset; from 32 px a row of
+// controls or a caption is cut at the window's right edge in Paragraph,
+// Specimen, Formula gallery and Stress, and lines of counters wrap. Math's
+// table sets each formula unbroken, in two columns as wide as their widest
+// formulas (about 11 and 17 times the size), and its two columns of words
+// take what is left: those are whole in a window some 58 times the size wide
+// (1100 px at 19 px), break inside words in a narrower one, and a formula is
+// cut only in a window narrower than about 30 times the size. Stress and
+// Document hold a child 24 and 18 lines tall.
+// What a section remembers between frames it remembers per context, and apart
+// from the demo window's own copy of the section: a width dragged in one is
+// not dragged in the other. A value that is not a section draws nothing; with
+// no current ImTypeset context it says so in a line of text.
 IMTYPESET_API void ShowDemoSection(ImTypesetDemoSection section);
 // The section's title as the demo window's header shows it; "" for a value
 // that is not a section, and for every value when compiled with

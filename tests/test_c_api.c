@@ -347,6 +347,44 @@ static void test_fonts(void)
     CHECK(ImTypeset_FaceHasGlyph(ImTypeset_Face_Regular, 0xFFFFFFFFu) == 0);
     CHECK(ImTypeset_FaceHasGlyph(ImTypeset_Face_Italic, 'A') == 0);
     CHECK(ImTypeset_FaceHasGlyph(99, 'A') == 0);
+    /* The role's font at a size. Roboto: 2048 units to the em, an hhea
+     * ascender of 1900 and descender of -500, so a 16 px em is 18.75 px as
+     * ImGui sizes a font. Refused, and the struct zeroed, for a role without
+     * a font, a size that is not one, and a struct of another size (which is
+     * not written to). */
+    {
+        ImTypeset_FontMetrics metrics;
+        ImTypeset_FontMetrics untouched;
+        memset(&metrics, 0x7f, sizeof metrics);
+        CHECK(ImTypeset_GetFontMetrics(ImTypeset_Face_Regular, 16.0f, &metrics, sizeof metrics) ==
+              1);
+        CHECK(last_error_code() == ImTypeset_Error_None);
+        CHECK(metrics.EmSize == 16.0f);
+        CHECK(metrics.Ascent == 16.0f * 1900.0f / 2048.0f);
+        CHECK(metrics.Descent == 16.0f * 500.0f / 2048.0f);
+        CHECK(metrics.FontSize == 18.75f);
+        CHECK(metrics.XHeight > 0.0f && metrics.XHeight < metrics.Ascent);
+        CHECK(metrics.SpaceAdvance ==
+              ImTypeset_GetGlyphAdvance(ImTypeset_Face_Regular, 16.0f, ' '));
+        CHECK(ImTypeset_GetGlyphAdvance(ImTypeset_Face_Regular, 16.0f, 'M') >
+              ImTypeset_GetGlyphAdvance(ImTypeset_Face_Regular, 16.0f, 'i'));
+        CHECK(ImTypeset_GetFontMetrics(ImTypeset_Face_Italic, 16.0f, &metrics, sizeof metrics) ==
+              0);
+        CHECK(last_error_code() == ImTypeset_Error_NoFont);
+        CHECK(metrics.EmSize == 0.0f && metrics.Ascent == 0.0f);
+        CHECK(ImTypeset_GetGlyphAdvance(ImTypeset_Face_Italic, 16.0f, 'M') == 0.0f);
+        CHECK(ImTypeset_GetFontMetrics(ImTypeset_Face_Regular, 0.0f, &metrics, sizeof metrics) ==
+              0);
+        CHECK(last_error_code() == ImTypeset_Error_InvalidArgument);
+        CHECK(ImTypeset_GetFontMetrics(99, 16.0f, &metrics, sizeof metrics) == 0);
+        CHECK(ImTypeset_GetFontMetrics(ImTypeset_Face_Regular, 16.0f, NULL, sizeof metrics) == 0);
+        memset(&metrics, 0x7f, sizeof metrics);
+        memset(&untouched, 0x7f, sizeof untouched);
+        CHECK(ImTypeset_GetFontMetrics(ImTypeset_Face_Regular, 16.0f, &metrics,
+                                       sizeof metrics - 4) == 0);
+        CHECK(last_error_code() == ImTypeset_Error_VersionMismatch);
+        CHECK(memcmp(&metrics, &untouched, sizeof metrics) == 0);
+    }
 
     /* From memory, and the bytes are the caller's to free at once. */
     bytes = read_whole_file(c_api_host_data_path("fonts/Roboto-Bold.ttf"), &size);

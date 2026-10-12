@@ -75,6 +75,18 @@ class Hit(C.Structure):
     _fields_ = [("TextOffset", C.c_int), ("Line", C.c_int), ("Inside", C.c_bool), ("Tag", C.c_int)]
 
 
+class FontMetrics(C.Structure):
+    _fields_ = [
+        ("EmSize", C.c_float),
+        ("FontSize", C.c_float),
+        ("Ascent", C.c_float),
+        ("Descent", C.c_float),
+        ("LineGap", C.c_float),
+        ("XHeight", C.c_float),
+        ("SpaceAdvance", C.c_float),
+    ]
+
+
 class ErrorInfo(C.Structure):
     _fields_ = [
         ("Code", C.c_int),
@@ -447,6 +459,8 @@ PROTOTYPES = {
     "ImTypeset_GetFont": (_P, [_INT]),
     "ImTypeset_GetFontAtlasIndex": (_INT, [_INT]),
     "ImTypeset_FaceHasGlyph": (_INT, [_INT, C.c_uint]),
+    "ImTypeset_GetFontMetrics": (_INT, [_INT, _F, _ptr(FontMetrics), C.c_size_t]),
+    "ImTypeset_GetGlyphAdvance": (_F, [_INT, _F, C.c_uint]),
     "ImTypeset_TextUnformatted": (_INT, [_TEXT, _END, _INT, _F, _ptr(Style)]),
     "ImTypeset_TextWithID": (_INT, [_TEXT, _END, _TEXT, _END, _INT, _F, _ptr(Style)]),
     "ImTypeset_SelectableText": (

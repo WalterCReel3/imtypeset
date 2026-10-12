@@ -19,7 +19,9 @@ of the same name. What is written here is how it looks from Python:
     formula shown as its source, a run set in the paragraph's face, text cut at
     the limit: the codes in `Error.SOFT`) returns False and raises nothing: the
     text is on the screen, and `last_error()` or `Paragraph.error` says what
-    happened to it.
+    happened to it. A value of the wrong kind never reaches the library: it
+    is TypeError, ValueError or OverflowError here, and an index past a C int
+    is brought to the nearest one. docs/python-errors.md has every call.
   - POSITIONS IN A DOCUMENT are (block, index into that block's `str`). The
     conversion to the library's (block, byte offset) is done per block, here,
     and costs nothing for a block whose text is ASCII: see `Document`.
@@ -109,6 +111,9 @@ __all__ = [
     "current_context",
     "destroy_context",
     "face_has_glyph",
+    "font_metrics",
+    "glyph_advance",
+    "FontMetrics",
     "font_atlas_index",
     "get_context_serial",
     "get_font",
@@ -305,6 +310,24 @@ class Hit(NamedTuple):
     line: int
     inside: bool
     tag: int = 0  # Run.tag of the run the character under the point is in; 0 on none.
+
+
+class FontMetrics(NamedTuple):
+    """A role's own font at one size, in pixels: ImTypesetFontMetrics. The
+    font file's numbers, scaled by `em_size` over its units per em and not
+    rounded. `ascent` and `descent` (positive) are the hhea table's, which is
+    what ImGui sizes a font by; `font_size` is their sum, ImGui's size for
+    this em. The ratio is the face's and the same at every size, so the em at
+    which the face is `h` pixels tall as ImGui means it is
+    `h * em_size / font_size`, from the metrics at any size."""
+
+    em_size: float
+    font_size: float
+    ascent: float
+    descent: float
+    line_gap: float  # The hhea table's lineGap. Layout does not use it.
+    x_height: float
+    space_advance: float
 
 
 class Formula(NamedTuple):
@@ -711,6 +734,75 @@ def host_info() -> dict:
 # --- Text in, offsets both ways -----------------------------------------------------------
 
 
+# What a host hands over is converted here, so that what is wrong with it is said
+# in one of three ways and no other (docs/python-errors.md): TypeError for a
+# value of the wrong kind, ValueError for one of the right kind that cannot be
+# meant (a `str` with a lone surrogate, a pair that is not one), OverflowError
+# for a number no C number is near. Never a ctypes or a struct error.
+
+_INT_MIN = -0x80000000
+_INT_MAX = 0x7FFFFFFF
+
+
+def _utf8(text: str, what: str = "text") -> bytes:
+    """The UTF-8 of a `str`: UnicodeEncodeError for a lone surrogate, TypeError
+    for what is not a `str` (bytes too: the library is not asked to guess)."""
+    if not isinstance(text, str):
+        raise TypeError(f"{what} is a str, not {type(text).__name__}")
+    return text.encode("utf-8")
+
+
+def _clamp(value: int) -> int:
+    """A number the library reads as a C int, brought to the nearest one a C
+    int holds. ctypes would keep its low 32 bits, and block 2**32 + 1 would
+    then be block 1; clamped it is past every block, which the library answers
+    as it answers any block that is not there."""
+    return _INT_MIN if value < _INT_MIN else _INT_MAX if value > _INT_MAX else value
+
+
+def _index(value) -> int:
+    """`_clamp` of `int(value)`: an index, a count, a face, a member of an enum."""
+    return _clamp(int(value))
+
+
+def _bits(value) -> int:
+    """Flags or a tag as a C int: the low 32 bits, which is what ctypes keeps
+    of them everywhere else."""
+    value = int(value) & 0xFFFFFFFF
+    return value - 0x100000000 if value & 0x80000000 else value
+
+
+def _real(value: float) -> float:
+    """A length as the float the library reads (1e300 is infinity, as ctypes
+    has it). TypeError for what is not a number, OverflowError for an int
+    beyond every float: what ctypes raises as ArgumentError when left to it."""
+    return _C.c_float(value).value
+
+
+def _pair(selection) -> tuple:
+    """(start, end) of a selection. ValueError for a sequence too short to be one."""
+    try:
+        return selection[0], selection[1]
+    except LookupError:
+        raise ValueError("a selection is a (start, end)") from None
+
+
+def _address(value, what: str):
+    """An ImDrawList*, an ImFont* or a context: None, or its address as an int
+    (or a ctypes pointer to it). A `str` or `bytes` is refused here, because
+    ctypes would hand the library the address of its characters; an int that
+    is not the address of such an object cannot be told from one that is."""
+    if value is None or isinstance(value, int):
+        return value
+    if not isinstance(value, (str, bytes, bytearray)):
+        try:
+            _C.c_void_p.from_param(value)
+            return value
+        except (TypeError, _C.ArgumentError):
+            pass
+    raise TypeError(f"{what} is an address (an int) or None, not {type(value).__name__}")
+
+
 def _text_args(data: bytes):
     """(begin, end) for bytes: zero-terminated unless they hold a zero themselves."""
     if b"\0" not in data:
@@ -722,22 +814,22 @@ def _text_args(data: bytes):
 def _to_byte(data: bytes, chars: int, offset: int) -> int:
     if len(data) == chars:  # ASCII: the two kinds of offset are one.
         return min(max(int(offset), 0), chars)
-    return _lib.ImTypeset_TextCodepointToByteOffset(*_text_args(data), int(offset))
+    return _lib.ImTypeset_TextCodepointToByteOffset(*_text_args(data), _index(offset))
 
 
 def _to_codepoint(data: bytes, chars: int, offset: int) -> int:
     if len(data) == chars:
         return min(max(int(offset), 0), chars)
-    return _lib.ImTypeset_TextByteToCodepointOffset(*_text_args(data), int(offset))
+    return _lib.ImTypeset_TextByteToCodepointOffset(*_text_args(data), _index(offset))
 
 
 def codepoint_to_byte_offset(text: str, offset: int) -> int:
     """Where character `offset` of `text` starts in its UTF-8, as the library counts."""
-    return _lib.ImTypeset_TextCodepointToByteOffset(*_text_args(text.encode("utf-8")), int(offset))
+    return _lib.ImTypeset_TextCodepointToByteOffset(*_text_args(_utf8(text)), _index(offset))
 
 
 def byte_to_codepoint_offset(text: str, offset: int) -> int:
-    return _lib.ImTypeset_TextByteToCodepointOffset(*_text_args(text.encode("utf-8")), int(offset))
+    return _lib.ImTypeset_TextByteToCodepointOffset(*_text_args(_utf8(text)), _index(offset))
 
 
 # --- Errors -------------------------------------------------------------------------------
@@ -817,7 +909,7 @@ def destroy_context(ctx: Optional[int] = None) -> None:
     makes ImGui contexts in turn (a test suite does) therefore calls this
     each time, and does not ask `current_context()` whether one is "still
     there": it is, until destroyed, whatever became of ImGui's."""
-    target = ctx if ctx is not None else _lib.ImTypeset_GetCurrentContext()
+    target = _address(ctx, "ctx") if ctx is not None else _lib.ImTypeset_GetCurrentContext()
     if not target:
         return
     for paragraph in list(_paragraphs.pop(target, ())):
@@ -830,7 +922,7 @@ def current_context() -> Optional[int]:
 
 
 def set_current_context(ctx: Optional[int]) -> None:
-    _lib.ImTypeset_SetCurrentContext(ctx)
+    _lib.ImTypeset_SetCurrentContext(_address(ctx, "ctx"))
 
 
 def get_context_serial() -> int:
@@ -859,7 +951,7 @@ def set_style(style: Style) -> None:
 
 
 def set_text_cache_limits(max_paragraphs: int = 0, max_bytes: int = 0) -> None:
-    _lib.ImTypeset_SetTextCacheLimits(int(max_paragraphs), int(max_bytes))
+    _lib.ImTypeset_SetTextCacheLimits(_index(max_paragraphs), _index(max_bytes))
 
 
 # --- Fonts --------------------------------------------------------------------------------
@@ -873,10 +965,17 @@ def add_font(face: int, source: Union[str, bytes], face_index: int = 0) -> int:
     """
     if isinstance(source, str):
         name = source.encode("utf-8")
-        font = _lib.ImTypeset_AddFontFromFileTTF(int(face), *_text_args(name), int(face_index), None)
+        font = _lib.ImTypeset_AddFontFromFileTTF(
+            _index(face), *_text_args(name), _index(face_index), None
+        )
     else:
+        if isinstance(source, int):
+            # bytes(n) is n zero bytes: never a font, and n may be anything.
+            raise TypeError("source is a file name (str) or a font file's bytes, not an int")
         data = bytes(source)
-        font = _lib.ImTypeset_AddFontFromMemoryTTF(int(face), data, len(data), int(face_index), None)
+        font = _lib.ImTypeset_AddFontFromMemoryTTF(
+            _index(face), data, _clamp(len(data)), _index(face_index), None
+        )
     if not font:
         raise Error(last_error(), "add_font")
     return font
@@ -884,13 +983,13 @@ def add_font(face: int, source: Union[str, bytes], face_index: int = 0) -> int:
 
 def remove_font(face: int) -> bool:
     """False if the role had no font."""
-    return bool(_lib.ImTypeset_RemoveFont(int(face)))
+    return bool(_lib.ImTypeset_RemoveFont(_index(face)))
 
 
 def get_font(face: int) -> Optional[int]:
     """The address of the ImFont drawing a role, or None. None too while the
     Dear ImGui context the current context was made in is not the current one."""
-    return _lib.ImTypeset_GetFont(int(face)) or None
+    return _lib.ImTypeset_GetFont(_index(face)) or None
 
 
 def font_atlas_index(face: int) -> Optional[int]:
@@ -907,7 +1006,7 @@ def font_atlas_index(face: int) -> Optional[int]:
     rewritten for typesetting), so a host that wants a face for its own text
     as well uses the library's ImFont and does not add the file a second
     time. Ask again after any font is added to or removed from the atlas."""
-    index = _lib.ImTypeset_GetFontAtlasIndex(int(face))
+    index = _lib.ImTypeset_GetFontAtlasIndex(_index(face))
     return index if index >= 0 else None
 
 
@@ -921,7 +1020,51 @@ def face_has_glyph(face: int, char: Union[str, int]) -> bool:
     codepoint = ord(char) if isinstance(char, str) else int(char)
     if not 0 <= codepoint <= 0xFFFFFFFF:
         return False
-    return bool(_lib.ImTypeset_FaceHasGlyph(int(face), codepoint))
+    return bool(_lib.ImTypeset_FaceHasGlyph(_index(face), codepoint))
+
+
+def font_metrics(face: int, em_size: float) -> FontMetrics:
+    """A role's own font at an em size in pixels: see `FontMetrics`.
+
+    Needs no ImGui context and no frame. Raises `Error` for a face that is not
+    one and a size that is not a finite number above zero and at most
+    1,000,000 (`ErrorCode.InvalidArgument`), for a role with no font
+    (`ErrorCode.NoFont`) and with no context (`ErrorCode.NoContext`).
+    `CodeBold` answers for `Bold`'s font until it has its own."""
+    raw = _capi.FontMetrics()
+    ok = _lib.ImTypeset_GetFontMetrics(_index(face), _real(em_size), _C.byref(raw), _C.sizeof(raw))
+    _must(ok, "font_metrics")
+    return FontMetrics(
+        raw.EmSize,
+        raw.FontSize,
+        raw.Ascent,
+        raw.Descent,
+        raw.LineGap,
+        raw.XHeight,
+        raw.SpaceAdvance,
+    )
+
+
+def glyph_advance(face: int, em_size: float, char: Union[str, int]) -> float:
+    """How far the pen moves after one character of a role's own font at an
+    em size in pixels, kerning apart. `char` is one character or a codepoint.
+
+    A character the font lacks answers the advance of the font's missing-glyph
+    glyph, which is not what a text holding it is set with: ask
+    `face_has_glyph` first. Layout rounds each advance and kerns pairs, so the
+    width of a text is a paragraph's line, not a sum of these. Raises `Error`
+    wherever `font_metrics` does."""
+    codepoint = ord(char) if isinstance(char, str) else int(char)
+    if not 0 <= codepoint <= 0xFFFFFFFF:
+        codepoint = 0xFFFFFFFF  # No character: the missing glyph's advance.
+    advance = _lib.ImTypeset_GetGlyphAdvance(_index(face), _real(em_size), codepoint)
+    if advance == 0.0:
+        # Zero is also a font's answer for a character that does not move the
+        # pen: the last error says which this was.
+        info = last_error()
+        if info.code != ErrorCode.None_:
+            raise Error(info, "glyph_advance")
+    return advance
 
 
 # --- Widgets ------------------------------------------------------------------------------
@@ -931,8 +1074,10 @@ def text(
     text: str, *, flags: int = 0, wrap_width: float = 0.0, style: Optional[Style] = None
 ) -> bool:
     """ImTypeset::TextUnformatted: one paragraph at the cursor. False: see ERRORS."""
-    data = text.encode("utf-8")
-    ok = _lib.ImTypeset_TextUnformatted(*_text_args(data), int(flags), wrap_width, _style_arg(style))
+    data = _utf8(text)
+    ok = _lib.ImTypeset_TextUnformatted(
+        *_text_args(data), int(flags), _real(wrap_width), _style_arg(style)
+    )
     return _outcome(ok, "text")
 
 
@@ -946,10 +1091,10 @@ def text_with_id(
 ) -> bool:
     """The same, found again by `str_id`: for text that changes every frame."""
     ok = _lib.ImTypeset_TextWithID(
-        *_text_args(str_id.encode("utf-8")),
-        *_text_args(text.encode("utf-8")),
+        *_text_args(_utf8(str_id, "str_id")),
+        *_text_args(_utf8(text)),
         int(flags),
-        wrap_width,
+        _real(wrap_width),
         _style_arg(style),
     )
     return _outcome(ok, "text_with_id")
@@ -971,20 +1116,19 @@ def selectable_text(
     (start with (0, 0)). None keeps the selection inside the library and
     returns None for it.
     """
-    data = text.encode("utf-8")
+    data = _utf8(text)
     chars = len(text)
     if selection is None:
         pointer = None
     else:
-        held = _capi.TextRange(
-            _to_byte(data, chars, selection[0]), _to_byte(data, chars, selection[1])
-        )
+        start, end = _pair(selection)
+        held = _capi.TextRange(_to_byte(data, chars, start), _to_byte(data, chars, end))
         pointer = _C.byref(held)
     ok = _lib.ImTypeset_SelectableText(
-        *_text_args(str_id.encode("utf-8")),
+        *_text_args(_utf8(str_id, "str_id")),
         *_text_args(data),
         int(flags),
-        wrap_width,
+        _real(wrap_width),
         _style_arg(style),
         pointer,
     )
@@ -1000,7 +1144,11 @@ def calc_text_size(
     """The size the text would have. (0, 0) when it cannot be set at all."""
     size = _capi.Vec2()
     ok = _lib.ImTypeset_CalcTextSize(
-        *_text_args(text.encode("utf-8")), wrap_width, int(flags), _style_arg(style), _C.byref(size)
+        *_text_args(_utf8(text)),
+        _real(wrap_width),
+        int(flags),
+        _style_arg(style),
+        _C.byref(size),
     )
     _outcome(ok, "calc_text_size")
     return size.x, size.y
@@ -1062,9 +1210,9 @@ class Paragraph:
 
     def _byte(self, offset: int) -> int:
         if self._same:
-            return max(int(offset), 0)
+            return min(max(int(offset), 0), _INT_MAX)
         return _count(
-            _lib.ImTypeset_ParagraphCodepointToByteOffset(self._h(), int(offset)), "Paragraph"
+            _lib.ImTypeset_ParagraphCodepointToByteOffset(self._h(), _index(offset)), "Paragraph"
         )
 
     def _char(self, offset: int) -> int:
@@ -1073,12 +1221,13 @@ class Paragraph:
         return _count(_lib.ImTypeset_ParagraphByteToCodepointOffset(self._h(), offset), "Paragraph")
 
     def _range(self, selection: Tuple[int, int]) -> _capi.TextRange:
-        return _capi.TextRange(self._byte(selection[0]), self._byte(selection[1]))
+        start, end = _pair(selection)
+        return _capi.TextRange(self._byte(start), self._byte(end))
 
     def set_text(self, text: str, runs: Sequence[Run] = (), flags: int = 0) -> bool:
         """Replaces the text. False if something in it was done differently: `error`."""
         handle = self._h()
-        data = text.encode("utf-8")
+        data = _utf8(text)
         chars = len(text)
         array = None
         if runs:
@@ -1087,7 +1236,7 @@ class Paragraph:
                 run = Run(*run)
                 slot.Start = _to_byte(data, chars, run.start)
                 slot.End = _to_byte(data, chars, run.end)
-                slot.Face = int(run.face)
+                slot.Face = _index(run.face)
                 slot.Scale = run.scale
                 slot.Color = run.color
                 slot.Flags = int(run.flags)
@@ -1100,7 +1249,7 @@ class Paragraph:
 
     def layout(self, width: float, style: Optional[Style] = None) -> bool:
         """Breaks the paragraph into lines. Free when nothing changed."""
-        ok = _lib.ImTypeset_LayoutParagraph(self._h(), width, _style_arg(style))
+        ok = _lib.ImTypeset_LayoutParagraph(self._h(), _real(width), _style_arg(style))
         return _outcome(ok, "Paragraph.layout")
 
     @property
@@ -1127,7 +1276,8 @@ class Paragraph:
     def line(self, index: int) -> Line:
         raw = _capi.Line()
         _must(
-            _lib.ImTypeset_GetParagraphLine(self._h(), int(index), _C.byref(raw)), "Paragraph.line"
+            _lib.ImTypeset_GetParagraphLine(self._h(), _index(index), _C.byref(raw)),
+            "Paragraph.line",
         )
         return Line(
             (raw.Min.x, raw.Min.y),
@@ -1173,7 +1323,7 @@ class Paragraph:
         held = self._range(selection) if selection is not None else None
         ok = _lib.ImTypeset_DrawParagraph(
             handle,
-            draw_list,
+            _address(draw_list, "draw_list"),
             _C.byref(_capi.Vec2(*pos)),
             _C.byref(held) if held is not None else None,
         )
@@ -1246,7 +1396,7 @@ class Paragraph:
                 self._h(),
                 _C.byref(_capi.Vec2(*anchor)),
                 _C.byref(_capi.Vec2(*active)),
-                int(granularity),
+                _index(granularity),
                 _C.byref(raw),
             ),
             "Paragraph.select_range",
@@ -1376,10 +1526,130 @@ def _table_rows(rows: Sequence):
 
 
 def _pack_columns(columns: Sequence) -> list:
+    try:
+        return [
+            _COLUMN.pack(int(column.align), column.width, column.share)
+            for column in (c if type(c) is TableColumn else TableColumn(*c) for c in columns)
+        ]
+    except _UNPACKABLE:
+        return [_COLUMN.pack(*column) for column in _checked_columns(columns)]
+
+
+# THE CHECKED FORMS. An edit packs what it is given straight into the bytes the
+# library reads, and `struct` refuses there what a C field cannot hold. Only
+# then is the description gone over again, value by value, by the functions
+# below: a description that is right pays nothing for them. They bring a number
+# to what the field holds (`_clamp`, `_bits`, `_real`), and raise TypeError,
+# ValueError or OverflowError for a value that is no number at all.
+_UNPACKABLE = (_struct.error, OverflowError, AttributeError, LookupError)
+
+
+def _whole(value, what: str) -> int:
+    """An int, clamped; TypeError for anything else (a float too: an offset
+    is not rounded for the host)."""
+    if not isinstance(value, int):
+        raise TypeError(f"{what} is an int, not {type(value).__name__}")
+    return _clamp(value)
+
+
+def _color(value) -> int:
+    if not isinstance(value, int):
+        raise TypeError(f"a colour is a packed 32-bit int, not {type(value).__name__}")
+    return value & 0xFFFFFFFF
+
+
+def _checked_run(run) -> Run:
+    if type(run) is not Run:
+        run = Run(*run)
+    return Run(
+        _whole(run.start, "Run.start"),
+        _whole(run.end, "Run.end"),
+        _index(run.face),
+        _real(run.scale),
+        _color(run.color),
+        _bits(run.flags),
+        _bits(run.tag),
+    )
+
+
+def _checked_runs(runs) -> list:
+    return [_checked_run(run) for run in runs]
+
+
+def _checked_columns(columns) -> list:
     return [
-        _COLUMN.pack(int(column.align), column.width, column.share)
+        TableColumn(_index(column.align), _real(column.width), _real(column.share))
         for column in (c if type(c) is TableColumn else TableColumn(*c) for c in columns)
     ]
+
+
+def _checked_rows(rows) -> list:
+    out = []
+    for row in rows:
+        if isinstance(row, (str, Cell)):
+            raise TypeError("a row of a table is a sequence of cells, not one cell")
+        cells = []
+        for cell in row or ():
+            if type(cell) is not str:
+                if type(cell) is not Cell:
+                    cell = Cell(*cell)
+                if not isinstance(cell.text, str):
+                    raise TypeError(f"Cell.text is a str, not {type(cell.text).__name__}")
+                cell = Cell(cell.text, _checked_runs(cell.runs))
+            cells.append(cell)
+        out.append(cells)
+    return out
+
+
+def _checked_blocks(blocks) -> list:
+    out = []
+    for block in blocks:
+        if type(block) is not Block:
+            block = Block(*block)
+        for name in ("text", "marker"):
+            if not isinstance(getattr(block, name), str):
+                raise TypeError(
+                    f"Block.{name} is a str, not {type(getattr(block, name)).__name__}"
+                )
+        out.append(
+            Block(
+                kind=_index(block.kind),
+                text=block.text,
+                runs=_checked_runs(block.runs),
+                marker=block.marker,
+                style=_index(block.style),
+                left_indent=_real(block.left_indent),
+                quote_depth=_index(block.quote_depth),
+                container=_index(block.container),
+                item=_index(block.item),
+                extent=_real(block.extent),
+                flags=_bits(block.flags),
+                level=_index(block.level),
+                rows=_checked_rows(block.rows),
+                columns=_checked_columns(block.columns),
+            )
+        )
+    return out
+
+
+def _checked_marks(marks) -> list:
+    out = []
+    for mark in marks:
+        mark = Mark(*mark)
+        (start_block, start), (end_block, end) = mark.range
+        out.append(
+            Mark(
+                (
+                    (_whole(start_block, "a mark's block"), _whole(start, "a mark's offset")),
+                    (_whole(end_block, "a mark's block"), _whole(end, "a mark's offset")),
+                ),
+                _color(mark.color),
+                _index(mark.place),
+                _real(mark.thickness),
+                _real(mark.offset),
+            )
+        )
+    return out
 
 
 class Document:
@@ -1528,7 +1798,7 @@ class Document:
 
     def _position(self, position) -> _capi.Position:
         block, offset = position
-        return _capi.Position(block, self._byte(block, offset))
+        return _capi.Position(_clamp(block), _clamp(self._byte(block, offset)))
 
     def _range(self, given) -> _capi.DocumentRange:
         start, end = given
@@ -1571,10 +1841,17 @@ class Document:
             max(_lib.ImTypeset_GetDocumentBlockTextSize(handle, count - 1), 0) if count else 0
         )
 
-    @staticmethod
-    def _pack(blocks: Sequence, styles: Sequence, containers: Sequence):
+    @classmethod
+    def _pack(cls, blocks: Sequence, styles: Sequence, containers: Sequence):
         """(content, what it points into, the blocks' entries, the last
         block's bytes, the blocks' tables)."""
+        try:
+            return cls._pack_as_given(blocks, styles, containers)
+        except _UNPACKABLE:
+            return cls._pack_as_given(_checked_blocks(blocks), styles, containers)
+
+    @staticmethod
+    def _pack_as_given(blocks: Sequence, styles: Sequence, containers: Sequence):
         chunks = []
         runs = []
         cells = []
@@ -1800,7 +2077,7 @@ class Document:
         handle = self._h()
         if not self._texts:
             raise ValueError("append_text: the document has no block")
-        data = text.encode("utf-8")
+        data = _utf8(text)
         # The last block's entry as it will be once the text is appended.
         entry = self._texts[-1]
         if entry is None:
@@ -1811,12 +2088,13 @@ class Document:
         grown = self._last_size + len(data)
         array = None
         if runs:
-            given = [run if type(run) is Run else Run(*run) for run in runs]
-            array = _C.create_string_buffer(
-                b"".join(
+            byte_in = self._byte_in
+
+            def pack(given):
+                return b"".join(
                     _RUN.pack(
-                        self._byte_in(entry, run.start),
-                        self._byte_in(entry, run.end),
+                        byte_in(entry, run.start),
+                        byte_in(entry, run.end),
                         int(run.face),
                         run.scale,
                         run.color,
@@ -1825,7 +2103,12 @@ class Document:
                     )
                     for run in given
                 )
-            )
+
+            try:
+                packed = pack([run if type(run) is Run else Run(*run) for run in runs])
+            except _UNPACKABLE:
+                packed = pack(_checked_runs(runs))
+            array = _C.create_string_buffer(packed)
         ok = _lib.ImTypeset_AppendDocumentText(handle, *_text_args(data), array, len(runs))
         try:
             whole = self._edited(ok, "Document.append_text")
@@ -1855,17 +2138,44 @@ class Document:
         a row, so the block's text stays what a copy of the whole table gives.
         Rows the table had are not set again unless a column's width changes.
         One call into the library. True, False or `Error` as `set_blocks`."""
+        return self._append_cells(rows, False, "append_table_rows")
+
+    def append_table_cells(self, cells: Sequence) -> bool:
+        """Appends cells to the LAST ROW of the last block, which is a table:
+        a row that arrives a cell at a time. `cells` are as one row of
+        `Block.rows`; none is a call that does nothing. With `append_text`,
+        which grows the table's last cell, this is how a row still being
+        written is kept up without replacing the table: describe the row with
+        the cells it has so far and no empty ones after them, append text to
+        the last, and append the next cell when it starts. Each call costs the
+        cell it touches and the row it is in. A table with no row yet gets its
+        first. One call into the library. True, False or `Error` as
+        `set_blocks`."""
+        if isinstance(cells, (str, Cell)):
+            raise TypeError("append_table_cells takes a sequence of cells, not one cell")
+        row = list(cells)
+        if not row:
+            self._h()
+            return True
+        return self._append_cells([row], True, "append_table_cells")
+
+    def _append_cells(self, rows: Sequence, into_last_row: bool, where_called: str) -> bool:
         handle = self._h()
         if not self._texts:
-            raise ValueError("append_table_rows: the document has no block")
+            raise ValueError(f"{where_called}: the document has no block")
         table = self._tables[-1]
         if table is None:
-            raise ValueError("append_table_rows: the last block is not a table")
+            raise ValueError(f"{where_called}: the last block is not a table")
         text, spans, cell_runs = _table_rows(rows)
+        # Cells that go on with the row the table ends in: a tab before them,
+        # and the first is no row's start.
+        joining = into_last_row and bool(table) and bool(spans)
         if table and spans:
-            text = "\n" + text
+            text = ("\t" if joining else "\n") + text
             spans = [(first + 1, end + 1, flags) for first, end, flags in spans]
             cell_runs = [run._replace(start=run.start + 1, end=run.end + 1) for run in cell_runs]
+        if joining:
+            spans[0] = (spans[0][0], spans[0][1], 0)
         data = text.encode("utf-8")
         base = self._last_size
         if len(data) == len(text):
@@ -1882,6 +2192,8 @@ class Document:
         def byte(index: int) -> int:
             return base + (index if where is None else where[index])
 
+        # What the table gains: cells of the row it ends in, then rows.
+        joined: list = []
         added = []
         packed = []
         for first, end, flags in spans:
@@ -1889,12 +2201,19 @@ class Document:
             packed.append(_CELL.pack(first, end, flags))
             if flags:
                 added.append([])
-            added[-1].append(first)
+            (added[-1] if added else joined).append(first)
+
+        def keep() -> None:
+            if joined:
+                table[-1].extend(joined)
+            table.extend(added)
+
         cell_array = _C.create_string_buffer(b"".join(packed)) if packed else None
         run_array = None
         if cell_runs:
-            run_array = _C.create_string_buffer(
-                b"".join(
+
+            def pack(given):
+                return b"".join(
                     _RUN.pack(
                         byte(run.start),
                         byte(run.end),
@@ -1904,9 +2223,14 @@ class Document:
                         int(run.flags),
                         int(run.tag),
                     )
-                    for run in cell_runs
+                    for run in given
                 )
-            )
+
+            try:
+                packed_runs = pack(cell_runs)
+            except _UNPACKABLE:
+                packed_runs = pack(_checked_runs(cell_runs))
+            run_array = _C.create_string_buffer(packed_runs)
         # The last block's entry as it will be once the text is appended.
         entry = self._texts[-1]
         if entry is None:
@@ -1919,7 +2243,7 @@ class Document:
             handle, *_text_args(data), cell_array, len(packed), run_array, len(cell_runs)
         )
         try:
-            whole = self._edited(ok, "Document.append_table_rows")
+            whole = self._edited(ok, "Document." + where_called)
         except Error:
             # Refused. If the last block holds the text all the same (its size
             # says), it is kept here too.
@@ -1929,7 +2253,7 @@ class Document:
             ):
                 self._texts[-1] = entry
                 self._last_size = grown
-                table.extend(added)
+                keep()
             raise
         if not whole:
             # Taken in part: the library may have cut the text (ErrorCode.TextTooLong).
@@ -1941,7 +2265,7 @@ class Document:
                 grown = size
         self._texts[-1] = entry
         self._last_size = grown
-        table.extend(added)
+        keep()
         return whole
 
     def set_table_columns(self, block: int, columns: Sequence) -> bool:
@@ -1952,14 +2276,14 @@ class Document:
         packed = _pack_columns(columns)
         array = _C.create_string_buffer(b"".join(packed)) if packed else None
         return _outcome(
-            _lib.ImTypeset_SetDocumentTableColumns(self._h(), int(block), array, len(packed)),
+            _lib.ImTypeset_SetDocumentTableColumns(self._h(), _index(block), array, len(packed)),
             "Document.set_table_columns",
         )
 
     def set_block_extent(self, block: int, extent: float) -> None:
         """A Rule's thickness or a Host block's height, in pixels."""
         _outcome(
-            _lib.ImTypeset_SetDocumentBlockExtent(self._h(), int(block), extent),
+            _lib.ImTypeset_SetDocumentBlockExtent(self._h(), _index(block), _real(extent)),
             "Document.set_block_extent",
         )
 
@@ -1993,13 +2317,13 @@ class Document:
         """Says how wide the column is: ONE column's width when the document
         is shown in columns. Lays nothing out: a block is broken into lines
         when a draw, a hit test or a question first reaches it."""
-        ok = _lib.ImTypeset_LayoutDocument(self._h(), width, _style_arg(style))
+        ok = _lib.ImTypeset_LayoutDocument(self._h(), _real(width), _style_arg(style))
         return _outcome(ok, "Document.layout")
 
     def layout_window(self, top: float, bottom: float) -> bool:
         """Lays out the blocks between two heights. False if one of them has
         something wrong with it: `last_error()`, `block_error(i)`."""
-        ok = _lib.ImTypeset_LayoutDocumentWindow(self._h(), top, bottom)
+        ok = _lib.ImTypeset_LayoutDocumentWindow(self._h(), _real(top), _real(bottom))
         return _outcome(ok, "Document.layout_window")
 
     def size(self) -> Tuple[float, float]:
@@ -2021,7 +2345,7 @@ class Document:
         it has not been laid out. `codepoint_pos` indexes the block's `str`."""
         raw = _capi.ErrorInfo()
         _must(
-            _lib.ImTypeset_GetDocumentBlockError(self._h(), int(block), _C.byref(raw)),
+            _lib.ImTypeset_GetDocumentBlockError(self._h(), _index(block), _C.byref(raw)),
             "Document.block_error",
         )
         return _error_info(raw)
@@ -2031,6 +2355,12 @@ class Document:
     def pack_marks(self, marks: Sequence) -> _Marks:
         """Marks converted once, for `draw` and `view` to take every frame at
         no cost. Good until a block one of them names changes its text."""
+        try:
+            return self._pack_marks(marks)
+        except _UNPACKABLE:
+            return self._pack_marks(_checked_marks(marks))
+
+    def _pack_marks(self, marks: Sequence) -> _Marks:
         # Packed straight into the bytes the library reads, one pack a mark.
         count = len(marks)
         packed = bytearray(_MARK.size * max(count, 1))
@@ -2097,7 +2427,7 @@ class Document:
         was set differently."""
         pointer, held = self._draw_arg(selection, marks, debug)
         ok = _lib.ImTypeset_DrawDocument(
-            self._h(), draw_list, _C.byref(_capi.Vec2(*pos)), pointer
+            self._h(), _address(draw_list, "draw_list"), _C.byref(_capi.Vec2(*pos)), pointer
         )
         del held
         return _outcome(ok, "Document.draw")
@@ -2162,10 +2492,11 @@ class Document:
         the library and returns None for it.
         """
         handle = self._h()
+        name = _utf8(str_id, "str_id")
         pointer, held = self._draw_arg(None, marks, debug)
         raw = self._range(selection) if selection is not None else None
         ok = _lib.ImTypeset_DocumentView(
-            *_text_args(str_id.encode("utf-8")),
+            *_text_args(name),
             handle,
             _C.byref(_capi.Vec2(*size)),
             _C.byref(raw) if raw is not None else None,
@@ -2211,7 +2542,7 @@ class Document:
                 self._h(),
                 _C.byref(_capi.Vec2(*anchor)),
                 _C.byref(_capi.Vec2(*active)),
-                int(granularity),
+                _index(granularity),
                 _C.byref(raw),
             ),
             "Document.select_range",
@@ -2263,7 +2594,7 @@ class Document:
             between = (None, None)
         else:
             # Always (begin, end): an empty separator is not "none given".
-            encoded = separator.encode("utf-8")
+            encoded = _utf8(separator, "separator")
             begin = _C.cast(_C.c_char_p(encoded), _C.c_void_p).value or 0
             between = (encoded, begin + len(encoded))
         while True:
@@ -2282,7 +2613,7 @@ class Document:
         """Where a block is, relative to the document's top-left corner. Lays it out."""
         raw = _capi.BlockGeometry()
         _must(
-            _lib.ImTypeset_GetDocumentBlockGeometry(self._h(), int(block), _C.byref(raw)),
+            _lib.ImTypeset_GetDocumentBlockGeometry(self._h(), _index(block), _C.byref(raw)),
             "Document.block_geometry",
         )
         return BlockGeometry(
@@ -2297,9 +2628,9 @@ class Document:
     def block_line(self, block: int, line: int) -> Line:
         """Line `line` of a block, relative to the block's `full_min`."""
         raw = _capi.Line()
-        block = int(block)
+        block = _index(block)
         _must(
-            _lib.ImTypeset_GetDocumentBlockLine(self._h(), block, int(line), _C.byref(raw)),
+            _lib.ImTypeset_GetDocumentBlockLine(self._h(), block, _index(line), _C.byref(raw)),
             "Document.block_line",
         )
         return Line(
@@ -2318,7 +2649,7 @@ class Document:
         of 0, if `block` is not a table."""
         raw = _capi.TableGeometry()
         _must(
-            _lib.ImTypeset_GetDocumentTableGeometry(self._h(), int(block), _C.byref(raw)),
+            _lib.ImTypeset_GetDocumentTableGeometry(self._h(), _index(block), _C.byref(raw)),
             "Document.table_geometry",
         )
         return TableGeometry(
@@ -2336,7 +2667,7 @@ class Document:
         raw = _capi.TableColumnGeometry()
         _must(
             _lib.ImTypeset_GetDocumentTableColumn(
-                self._h(), int(block), int(column), _C.byref(raw)
+                self._h(), _index(block), _index(column), _C.byref(raw)
             ),
             "Document.table_column",
         )
@@ -2346,7 +2677,9 @@ class Document:
         """One row of a table. Lays the table out. All zero if there is none."""
         raw = _capi.TableRowGeometry()
         _must(
-            _lib.ImTypeset_GetDocumentTableRow(self._h(), int(block), int(row), _C.byref(raw)),
+            _lib.ImTypeset_GetDocumentTableRow(
+                self._h(), _index(block), _index(row), _C.byref(raw)
+            ),
             "Document.table_row",
         )
         return TableRowGeometry(raw.Min, raw.Max, raw.CellStart, raw.CellCount, bool(raw.Wrapped))
@@ -2362,7 +2695,7 @@ class Document:
             raw = None
         else:
             count, height, gutter, flags = Columns(*columns)
-            raw = _C.byref(_capi.Columns(int(count), height, gutter, int(flags)))
+            raw = _C.byref(_capi.Columns(_index(count), height, gutter, int(flags)))
         _must(_lib.ImTypeset_SetDocumentColumns(self._h(), raw), "Document.set_columns")
 
     def column_count(self) -> int:
@@ -2380,7 +2713,7 @@ class Document:
         shown uncut has column 0, which is all of it."""
         raw = _capi.ColumnGeometry()
         _must(
-            _lib.ImTypeset_GetDocumentColumn(self._h(), int(index), _C.byref(raw)),
+            _lib.ImTypeset_GetDocumentColumn(self._h(), _index(index), _C.byref(raw)),
             "Document.column",
         )
         return ColumnGeometry(
@@ -2432,7 +2765,7 @@ class Document:
     def table_position(self, block: int, row: int, column: int, offset: int = 0) -> Position:
         """The position of character `offset` of a cell's `str` (clamped to
         the cell), as an index into the block's `str`. Lays nothing out."""
-        block, row, column = int(block), int(row), int(column)
+        block, row, column = _index(block), _index(row), _index(column)
         within = min(max(int(offset), 0), _INT_MAX)
         entry = self._texts[block] if 0 <= block < len(self._texts) else None
         if entry is not None and within:

@@ -1246,3 +1246,14 @@ set it. Decisions and their reasons are D58.
 | C10 | the interline glue above the rule under a table's header, and above the row after it, is glue like any other between two boxes: a column may end between a header and its rule | under the product's rules (`DocumentRules::keep_table_header`, rule 17) those two are kerns in the list the columns are cut from: header, rule and the row under it stay in one column. Under reference rules glue | deliberate (D63): seen by eye (`swap-fixes`, `c2-end`) |
 | C11 | an overfull column is one whose least cost is `awful_bad`; the page's height is the columns' | `ImTypesetColumnGeometry::Overfull` under IN ORDER is that; under BALANCED (C4) it is never set, the page being as tall as its tallest column; and `GetDocumentSize` is as tall as the tallest overfull column cut so far holds | the port's own: no oracle (D63) |
 | C12 | a heading is not kept with anything (C5: no cut between blocks at all) | under the product's rules a heading is kept with the next block that has something in it: a paragraph with no text between them, which sets a blank line, does not part them | the port's own (D63) |
+
+## handoff-core
+
+What changed in task `handoff-core` that is not the reference's. Decisions: D66 to D70.
+
+| # | the reference | the port | class |
+|---|---|---|---|
+| H1 | a glyph is drawn through `ImFont::RenderText`, which skips it by its font's cell: the pen below the clip rectangle's bottom edge, or the whole cell above its top edge | under the product's draw rules (`DrawRules::quads_off_clip_dropped`) the test is the quad's own: emitted exactly when its top is above the bottom edge and its bottom below the top edge. A glyph whose bitmap is taller than the cell is drawn by the rows of it that are inside; and every glyph placed is loaded into the atlas, where the reference loads only those its cell test keeps. Under reference rules the cell test, as before | deliberate (D56, D69). It replaces what D56 recorded for this rule, which kept the cell test in front of the quad's |
+| H2 | a colour span or a match is applied to every line it covers; the views cull | the marks of a draw are worked out for the blocks drawn and, in a block with more than 16 of them, for the lines within reach of the clip rectangle. What is emitted inside the clip rectangle is the same; a mark's rectangles on lines the draw does not show are not emitted | the port's own (D69) |
+| H3 | no query for a face's line gap; `fontlib.metrics` answers ascent, descent, x-height, em and advances | `GetFontMetrics` answers those to the bit, as floats, and the hhea line gap beside them, which no layout reads | the port's own (D66) |
+| H4 | T20 stands as it was written: the rule under a header is stacked like a row. Measured again on `demo/tables.md` at 684 px, to the scaled point, under both sets of rules (D67) | the same | no departure: recorded because the opposite was reported |

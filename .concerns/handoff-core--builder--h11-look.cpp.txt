@@ -1,0 +1,98 @@
+// Scratch for H11: the code rows of the test, drawn under a clip rectangle
+// that ends exactly at the top of the row holding U+4E2D and U+2502, enlarged.
+//   look OUT.png CLIP_BOTTOM [fixed]
+#include "imgui.h"
+#include "imtypeset.h"
+#include "support/soft_raster.h"
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+
+int main(int argc, char** argv)
+{
+    if (argc < 3)
+        return 2;
+    const float clip_bottom = (float)std::atof(argv[2]);
+    const int zoom = 6;
+    const int w = 130, h = 90;
+    static const struct { ImTypesetFace Face; const char* File; } faces[] = {
+        {ImTypesetFace_Regular, "Roboto-Regular.ttf"}, {ImTypesetFace_Bold, "Roboto-Bold.ttf"},
+        {ImTypesetFace_Italic, "Roboto-RegularItalic.ttf"},
+        {ImTypesetFace_BoldItalic, "Roboto-BoldItalic.ttf"},
+        {ImTypesetFace_Code, "Inconsolata-Medium.ttf"}, {ImTypesetFace_Math, "latinmodern-math.otf"},
+    };
+    const std::string fonts = IMTYPESET_TEST_DATA_DIR "/fonts/";
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    io.DeltaTime = 1.0f / 60.0f;
+    io.DisplaySize = ImVec2((float)w, (float)h);
+    soft_raster::Renderer renderer;
+    renderer.init();
+    bool ok = IMTYPESET_CHECKVERSION() && ImTypeset::CreateContext() != nullptr;
+    for (int i = 0; ok && i < IM_ARRAYSIZE(faces); ++i)
+        ok = ImTypeset::AddFontFromFileTTF(faces[i].Face, (fonts + faces[i].File).c_str()) != nullptr;
+    if (!ok)
+        return 1;
+    ImTypeset::GetStyle().EmSize = 16.0f;
+    const std::string text = "line 0\nline 1\nline 2\n"
+                             "x \xE4\xB8\xAD \xE2\x94\x82 \xE2\x8C\xA0 \xE2\x9F\xA8 \xD0\x96 y\n"
+                             "line 4\nline 5";
+    ImTypesetBlock block;
+    block.Kind = ImTypesetBlockKind_Code;
+    block.Flags = ImTypesetBlockFlags_FixedLineHeight;
+    block.TextEnd = (int)text.size();
+    ImTypesetBlockStyle style;
+    style.LineHeight = 20.0f / 16.0f;
+    ImTypesetDocumentContent content;
+    content.Text = text.data();
+    content.TextSize = (int)text.size();
+    content.Blocks = &block;
+    content.BlockCount = 1;
+    content.Styles = &style;
+    content.StyleCount = 1;
+    ImTypesetDocumentOptions options;
+    options.CodeOverflow = ImTypesetCodeOverflow_Grow;
+    ImTypesetDocument* document = ImTypeset::CreateDocument();
+    ImTypeset::SetDocumentOptions(document, &options);
+    ImTypeset::SetDocumentBlocks(document, &content);
+    ImTypeset::LayoutDocument(document, 600.0f);
+    soft_raster::Image small(w, h, IM_COL32(24, 26, 30, 255));
+    int quads = 0;
+    for (int frame = 0; frame < 3; ++frame) {
+        ImGui::NewFrame();
+        ImDrawList* list = ImGui::GetBackgroundDrawList();
+        list->PushClipRect(ImVec2(0.0f, 0.0f), ImVec2((float)w, clip_bottom));
+        const int before = list->VtxBuffer.Size;
+        ImTypeset::DrawDocument(document, list, ImVec2(4.0f, 0.0f));
+        quads = (list->VtxBuffer.Size - before) / 4;
+        list->PopClipRect();
+        // The clip's bottom edge, drawn outside it, one pixel row below.
+        list->AddLine(ImVec2((float)w - 12.0f, clip_bottom + 0.5f), ImVec2((float)w, clip_bottom + 0.5f),
+                      IM_COL32(255, 80, 80, 255));
+        ImGui::Render();
+        small.clear(IM_COL32(24, 26, 30, 255));
+        renderer.render(ImGui::GetDrawData(), small);
+    }
+    soft_raster::Image big(w * zoom, h * zoom, 0);
+    for (int y = 0; y < h * zoom; ++y)
+        for (int x = 0; x < w * zoom; ++x)
+            for (int c = 0; c < 4; ++c)
+                big.rgba[((size_t)y * (size_t)(w * zoom) + (size_t)x) * 4u + (size_t)c] =
+                    small.rgba[((size_t)(y / zoom) * (size_t)w + (size_t)(x / zoom)) * 4u + (size_t)c];
+    // What the last pixel row inside the clip holds: any pixel lit?
+    int lit = 0;
+    const int row = (int)clip_bottom - 1;
+    for (int x = 0; x < w - 14 && row >= 0 && row < h; ++x) {
+        const size_t at = ((size_t)row * (size_t)w + (size_t)x) * 4u;
+        lit += small.rgba[at] != small.rgba[0] || small.rgba[at + 1] != small.rgba[1] ||
+               small.rgba[at + 2] != small.rgba[2];
+    }
+    std::printf("clip bottom %g: %d quads; pixel row %d has %d pixels that are not background\n",
+                (double)clip_bottom, quads, row, lit);
+    const bool wrote = soft_raster::write_png(argv[1], big);
+    ImTypeset::DestroyContext();
+    renderer.shutdown();
+    ImGui::DestroyContext();
+    return wrote ? 0 : 1;
+}

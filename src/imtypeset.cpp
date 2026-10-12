@@ -2553,6 +2553,83 @@ bool FaceHasGlyph(ImTypesetFace face, unsigned int codepoint)
     return data != nullptr && data->has(codepoint);
 }
 
+namespace
+{
+
+// The most pixels an em may be for a metrics query: far past any size type is
+// set at, and small enough that every answer is a finite float.
+constexpr float MAX_QUERY_EM_PX = 1.0e6f;
+
+// The file behind a role, for a query about the role's own font at a size.
+// Null, with the failure said, when there is none to answer from.
+const FaceData* queried_face(ImTypesetFace face, float em_size)
+{
+    if (g_context == nullptr) {
+        no_context();
+        return nullptr;
+    }
+    const int role = face == ImTypesetFace_Default ? 0 : role_of(face);
+    if (role < 0) {
+        fail(ImTypesetError_InvalidArgument, "not a face: " + std::to_string(face));
+        return nullptr;
+    }
+    if (!(is_finite(static_cast<double>(em_size)) && em_size > 0.0f &&
+          em_size <= MAX_QUERY_EM_PX)) {
+        fail(ImTypesetError_InvalidArgument,
+             "the em size is not a finite number above zero and at most 1,000,000");
+        return nullptr;
+    }
+    const FaceData* const data = g_context->library.face_data(static_cast<Face>(role));
+    if (data == nullptr || data->units_per_em() <= 0) {
+        fail(ImTypesetError_NoFont, std::string("no font has been added for ") + public_face(role));
+        return nullptr;
+    }
+    return data;
+}
+
+} // namespace
+
+bool GetFontMetrics(ImTypesetFace face, float em_size, ImTypesetFontMetrics* out, size_t out_size)
+{
+    if (out == nullptr)
+        return fail(ImTypesetError_InvalidArgument, "no ImTypesetFontMetrics was given");
+    if (out_size != sizeof(ImTypesetFontMetrics))
+        return fail(ImTypesetError_VersionMismatch,
+                    "ImTypesetFontMetrics is " + std::to_string(out_size) +
+                        " bytes where GetFontMetrics() is called and " +
+                        std::to_string(sizeof(ImTypesetFontMetrics)) +
+                        " in the imtypeset library: the two were compiled against different "
+                        "imtypeset.h");
+    *out = ImTypesetFontMetrics();
+    const FaceData* const data = queried_face(face, em_size);
+    if (data == nullptr)
+        return false;
+    // The reference's order (fontlib's metrics): one scale, formed once, and a
+    // product a length. The same doubles layout's FontMetrics answers.
+    const double size = static_cast<double>(em_size);
+    const double scale = size / data->units_per_em();
+    const double ascent = data->ascent() * scale;
+    const double descent = data->descent() * scale;
+    out->EmSize = em_size;
+    out->FontSize = static_cast<float>(ascent + descent);
+    out->Ascent = static_cast<float>(ascent);
+    out->Descent = static_cast<float>(descent);
+    out->LineGap = static_cast<float>(data->font().hhea_line_gap() * scale);
+    out->XHeight = static_cast<float>(data->x_height() * scale);
+    out->SpaceAdvance = static_cast<float>(data->font().advance(data->glyph(0x20)) * scale);
+    return succeed();
+}
+
+float GetGlyphAdvance(ImTypesetFace face, float em_size, unsigned int codepoint)
+{
+    const FaceData* const data = queried_face(face, em_size);
+    if (data == nullptr)
+        return 0.0f;
+    const double scale = static_cast<double>(em_size) / data->units_per_em();
+    succeed();
+    return static_cast<float>(data->font().advance(data->glyph(codepoint)) * scale);
+}
+
 bool TextUnformatted(const char* text, const char* text_end, ImTypesetTextFlags flags,
                      float wrap_width, const ImTypesetStyle* style)
 {

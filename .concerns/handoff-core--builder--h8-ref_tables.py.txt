@@ -1,0 +1,44 @@
+"""H8: demo/tables.md through the pinned reference at a width: each table's
+height as the reference STACKS it (ui._stacked extents; and the units layout
+its views draw), and as the sum of ui._table_boxes' box heights (what
+advtext's compare_tables.py took for the reference's height)."""
+import sys
+sys.path.insert(0, "tools/oracle")
+import pinned_reference
+pinned_reference.require()
+from advtext import Theme, ui
+from advtext import markdown
+from advtext.markdown import TableBlock
+from advtext.mathtext import markdown_math
+from advtext.style import char_measure, fontlib_metrics
+from advtext.units import sp_from_px
+from advtext.ui import units as U
+
+width_px = float(sys.argv[1]) if len(sys.argv) > 1 else 684.0
+theme = Theme.build()
+MEASURE = char_measure(fontlib_metrics)
+source = (pinned_reference.ROOT_DIR / "demo" / "tables.md").read_text(encoding="utf-8")
+blocks = tuple(markdown.build_document(source, theme, fontlib_metrics, math=markdown_math()).blocks)
+width = sp_from_px(width_px, theme.px_per_inch)
+extents = []
+ui._stacked(blocks, theme, width, MEASURE, ui.PROSE_BREAKING, depth=0, memo=None, extents=extents)
+layout = U.layout_units(blocks, theme, width, MEASURE)
+print("width_px", width_px, "width_sp", width, "ppi", theme.px_per_inch)
+print("rule_sp", theme.table_rule_thickness)
+k = 0
+for i, block in enumerate(blocks):
+    if not isinstance(block, TableBlock):
+        continue
+    boxes = ui._table_boxes(block, theme, width, MEASURE, ui.PROSE_BREAKING)
+    summed = sum(b.height + b.depth for b in boxes)
+    top, bottom = extents[i]
+    print("table", k, "block", i, "boxes", len(boxes), "interline", block.style.interline,
+          "stacked_sp", bottom - top, "sum_of_boxes_sp", summed, "difference_sp", bottom - top - summed,
+          "box_heights", [b.height + b.depth for b in boxes][:3])
+    k += 1
+placed = getattr(layout, "placed", None)
+if placed is not None:
+    for p in placed:
+        bl = [b for b in p.unit.blocks] if hasattr(p.unit, "blocks") else []
+        if any(isinstance(b, TableBlock) for b in bl):
+            print("unit", "offset", p.offset if hasattr(p, "offset") else "?", "height", getattr(p.unit, "height", "?"))

@@ -1,0 +1,5 @@
+# What the bundle-hosted library exports on Mach-O: the same two patterns as
+# exports_bundle.map, as Apple's ld reads them (-exported_symbols_list; one
+# name or wildcard pattern a line, each C name with its leading underscore).
+_ImTypeset_*
+_ImTypesetBundle_*

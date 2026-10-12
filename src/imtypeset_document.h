@@ -169,10 +169,41 @@ struct DocBlock {
 
     // --- From the layout whose serial is `seen`
     uint64_t seen = 0;
+    // The layout whose index-to-byte map `bytes_sorted` was read off, and
+    // whether its bytes never decrease from one index to the next: only then
+    // can the marks on the lines a clip shows be found by their bytes.
+    uint64_t bytes_seen = 0;
+    bool bytes_sorted = false;
     // How many of its first indices are the marker's.
     uint32_t marker_items = 0;
     std::vector<InkRange> inks;
     LineIndex lines;
+};
+
+// The marks of a draw, in the order they are looked for: by where each
+// starts. Kept from one draw to the next and made again only when the ranges
+// handed over are not the ranges it was made from, so a host that hands the
+// same marks over every frame pays for an order once.
+struct MarkOrder {
+    // The ranges as they were given, mark by mark: what `order` was made from.
+    std::vector<ImTypesetDocumentRange> given;
+    // The marks' numbers, by Range.Start; a stable order, so marks that start
+    // together keep the order they were given in. Empty when the marks were
+    // given in that order already.
+    std::vector<uint32_t> order;
+    // Per place in that order: the furthest Range.End of the marks up to and
+    // including it. It never decreases, which is what lets the first mark
+    // that can reach a position be found by bisection.
+    std::vector<ImTypesetPosition> reach;
+    // The marks picked for one block, by their numbers.
+    std::vector<uint32_t> picked;
+    // For a test: every mark on a block is worked out, whatever the clip
+    // rectangle shows of the block. What is drawn is the same.
+    bool every_mark = false;
+    // How many times an order was made, and how many marks were looked at
+    // closely (their range worked out against a block) by the last draw.
+    uint64_t made = 0;
+    uint64_t looked_at = 0;
 };
 
 // A block as a paragraph: see the top of this section.
@@ -238,6 +269,7 @@ struct ImTypesetDocument {
     std::vector<ImTypeset::detail::InkRange> inks;
     std::vector<ImTypeset::detail::InkRange> inks_scratch;
     ImTypeset::detail::LineIndex lines_scratch;
+    ImTypeset::detail::MarkOrder marks;
     // Table rows whose lines, colours and index-to-byte map were made (again)
     // beside a layout: all of a table's the first time, and after that the
     // rows a layout set again.

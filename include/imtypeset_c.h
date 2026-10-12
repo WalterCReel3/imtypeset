@@ -367,6 +367,16 @@ typedef struct ImTypeset_Hit { /* ImTypesetHit */
     int Tag;
 } ImTypeset_Hit;
 
+typedef struct ImTypeset_FontMetrics { /* ImTypesetFontMetrics */
+    float EmSize;
+    float FontSize;
+    float Ascent;
+    float Descent;
+    float LineGap;
+    float XHeight;
+    float SpaceAdvance;
+} ImTypeset_FontMetrics;
+
 typedef struct ImTypeset_ErrorInfo { /* ImTypesetErrorInfo */
     ImTypeset_Error Code;
     int BytePos;
@@ -761,6 +771,17 @@ IMTYPESET_C_API struct ImFont* ImTypeset_GetFont(ImTypeset_Face face);
 IMTYPESET_C_API int ImTypeset_GetFontAtlasIndex(ImTypeset_Face face);
 /* Non-zero if the role's own font has a glyph for the codepoint. */
 IMTYPESET_C_API int ImTypeset_FaceHasGlyph(ImTypeset_Face face, unsigned int codepoint);
+/* A role's own font at an em size in pixels. `out_size` is
+ * sizeof(ImTypeset_FontMetrics) where the call is compiled: a caller compiled
+ * against another header is refused (ImTypeset_Error_VersionMismatch) and not
+ * written past. 0 on failure, with `*out` zeroed when it is the library's
+ * size. */
+IMTYPESET_C_API int ImTypeset_GetFontMetrics(ImTypeset_Face face, float em_size,
+                                             ImTypeset_FontMetrics* out, size_t out_size);
+/* The advance of one character of the role's own font at an em size in
+ * pixels; 0 wherever ImTypeset_GetFontMetrics() fails. */
+IMTYPESET_C_API float ImTypeset_GetGlyphAdvance(ImTypeset_Face face, float em_size,
+                                                unsigned int codepoint);
 
 /* --- Widgets ---------------------------------------------------------------------- */
 

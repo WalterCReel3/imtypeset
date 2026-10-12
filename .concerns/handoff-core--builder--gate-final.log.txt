@@ -1,0 +1,34 @@
+== asan rerun
+50/51 Test #19: test_exception_safety ............   Passed    0.02 sec
+51/51 Test #44: test_units .......................   Passed    0.06 sec
+
+100% tests passed, 0 tests failed out of 51
+
+Total Test time (real) = 414.19 sec
+== release build
+== release ctest
+50/51 Test #51: example_specimen .................   Passed    0.37 sec
+51/51 Test #39: test_stress_font .................   Passed   64.29 sec
+
+100% tests passed, 0 tests failed out of 51
+
+Total Test time (real) =  83.65 sec
+== debug build
+== debug ctest
+50/51 Test #24: test_header_pod ..................   Passed    0.01 sec
+51/51 Test #19: test_exception_safety ............   Passed    0.00 sec
+
+100% tests passed, 0 tests failed out of 51
+
+Total Test time (real) = 177.80 sec
+== py build
+== py ctest
+51/53 Test #49: example_demo_headless ............   Passed   16.67 sec
+      Start 53: python_demo_sections
+52/53 Test #53: python_demo_sections .............   Passed    0.82 sec
+53/53 Test #52: python_binding ...................   Passed   22.75 sec
+
+100% tests passed, 0 tests failed out of 53
+
+Total Test time (real) = 195.59 sec
+== ALL-DONE

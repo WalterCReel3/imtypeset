@@ -1773,6 +1773,11 @@ void overlay(std::vector<InkRange>& inks, InkRange over, std::vector<InkRange>& 
 {
     if (over.start >= over.end)
         return;
+    // After everything there: marks handed over in the order of the text.
+    if (inks.empty() || inks.back().end <= over.start) {
+        inks.push_back(over);
+        return;
+    }
     scratch.clear();
     bool placed = false;
     for (const InkRange& ink : inks) {
@@ -1797,6 +1802,159 @@ void overlay(std::vector<InkRange>& inks, InkRange over, std::vector<InkRange>& 
 ImU32 shown(ImU32 colour)
 {
     return ImGui::GetColorU32(colour);
+}
+
+// --- Marks, found by where they are ----------------------------------------------------------
+
+// A block with more marks on it than this has them looked for by the bytes of
+// the lines the clip rectangle shows; with fewer, each is cheaper to work out
+// than the lines are to go over.
+constexpr size_t MARKS_WORKED_OUT_WHOLE = 16;
+
+// Brings the order the marks are looked for in up to date with the marks of a
+// draw: nothing to do when their ranges are the ranges it was made from.
+void order_marks(MarkOrder& m, const ImTypesetMark* marks, size_t count)
+{
+    const auto same_position = [](const ImTypesetPosition& a, const ImTypesetPosition& b) {
+        return a.Block == b.Block && a.Offset == b.Offset;
+    };
+    bool same = m.given.size() == count;
+    for (size_t k = 0; same && k < count; ++k)
+        same = same_position(m.given[k].Start, marks[k].Range.Start) &&
+               same_position(m.given[k].End, marks[k].Range.End);
+    if (same)
+        return;
+    // Nothing is kept as "made from these" until all of it is made.
+    m.given.clear();
+    ++m.made;
+    bool sorted = true;
+    for (size_t k = 1; sorted && k < count; ++k)
+        sorted = !before(marks[k].Range.Start, marks[k - 1].Range.Start);
+    m.order.clear();
+    if (!sorted) {
+        m.order.resize(count);
+        for (size_t k = 0; k < count; ++k)
+            m.order[k] = static_cast<uint32_t>(k);
+        std::stable_sort(m.order.begin(), m.order.end(), [&](uint32_t a, uint32_t b) {
+            return before(marks[a].Range.Start, marks[b].Range.Start);
+        });
+    }
+    m.reach.resize(count);
+    for (size_t k = 0; k < count; ++k) {
+        const ImTypesetPosition end = marks[m.order.empty() ? k : m.order[k]].Range.End;
+        m.reach[k] = k != 0 && !before(m.reach[k - 1], end) ? m.reach[k - 1] : end;
+    }
+    m.given.resize(count);
+    for (size_t k = 0; k < count; ++k)
+        m.given[k] = marks[k].Range;
+}
+
+// The marks that can have something on bytes `low` to `high` of block `i`,
+// into `m.picked`, in the order of `m`: every mark that starts at or before
+// the last of those bytes and ends at or after the first. `marks` are the
+// marks `m` was last ordered for.
+void pick_marks(MarkOrder& m, const ImTypesetMark* marks, size_t i, int low, int high)
+{
+    m.picked.clear();
+    const ImTypesetPosition from = {static_cast<int>(i), low};
+    const ImTypesetPosition to = {static_cast<int>(i), high};
+    const size_t count = m.reach.size();
+    const auto mark_at = [&](size_t place) {
+        return m.order.empty() ? static_cast<uint32_t>(place) : m.order[place];
+    };
+    // No mark before this place reaches `from`; none from `end` on starts by `to`.
+    size_t first = 0;
+    size_t end = count;
+    while (first < end) {
+        const size_t middle = first + (end - first) / 2;
+        if (before(m.reach[middle], from))
+            first = middle + 1;
+        else
+            end = middle;
+    }
+    size_t last = first;
+    end = count;
+    while (last < end) {
+        const size_t middle = last + (end - last) / 2;
+        if (!before(to, marks[mark_at(middle)].Range.Start))
+            last = middle + 1;
+        else
+            end = middle;
+    }
+    for (size_t place = first; place < last; ++place) {
+        const uint32_t number = mark_at(place);
+        if (!before(marks[number].Range.End, from))
+            m.picked.push_back(number);
+    }
+}
+
+// The bytes of block `i` that the lines between two heights of it hold, the
+// heights taken generously (by what a draw looks past a clip rectangle for,
+// and an em more for a bar under a line): every item of those lines has a
+// byte from `low` to `high`, and a range of the text wholly before `low` or
+// wholly after `high` covers none of them. False when that cannot be told,
+// which is when lines are not in order down the block or the bytes are not in
+// order along the items; `low` above `high` when the lines hold no item.
+bool bytes_shown(ImTypesetDocument& d, size_t i, const ImTypesetParagraph& view, Scaled from,
+                 Scaled to, int& low, int& high)
+{
+    DocBlock& b = d.blocks[i];
+    const BlockLayout& layout = d.doc.layout(i);
+    const std::vector<LineSpan>& spans = b.lines.spans;
+    const std::vector<uint32_t>& bytes = view.index_bytes;
+    if (!b.lines.sorted || spans.empty() || !spans[0].bounded || bytes.empty())
+        return false;
+    if (b.bytes_seen != layout.serial) {
+        b.bytes_sorted = std::is_sorted(bytes.begin(), bytes.end());
+        b.bytes_seen = layout.serial;
+    }
+    if (!b.bytes_sorted)
+        return false;
+    const Scaled reach =
+        add_saturating(add_saturating(b.lines.overhang, coordinate_sp(d, CULL_MARGIN_PX)),
+                       std::max<Scaled>(b.font.size, 0));
+    const Scaled top = sub_saturating(from, reach);
+    const Scaled bottom = add_saturating(to, reach);
+    const auto first = std::partition_point(
+        spans.begin(), spans.end(), [&](const LineSpan& span) { return span.bottom < top; });
+    const auto end = std::partition_point(first, spans.end(),
+                                          [&](const LineSpan& span) { return span.top <= bottom; });
+    low = 1;
+    high = 0;
+    if (first == end)
+        return true;
+    const size_t cmd_end = std::min<size_t>((end - 1)->end, layout.cmds.size());
+    uint32_t least = UINT32_MAX;
+    uint32_t most = 0;
+    for (size_t c = first->first; c < cmd_end; ++c) {
+        const DrawCmd& cmd = layout.cmds[c];
+        if (cmd.type == CmdType::RULE_RECT)
+            continue;
+        if (cmd.type == CmdType::LINE) {
+            // A line says which indices it holds; one that holds none says none.
+            if (cmd.index < cmd.end) {
+                least = std::min(least, cmd.index);
+                most = std::max(most, cmd.end - 1);
+            }
+            continue;
+        }
+        least = std::min(least, cmd.index);
+        most = std::max(most, cmd.index);
+    }
+    if (least > most)
+        return true;
+    const size_t last = bytes.size() - 1;
+    const uint32_t int_max = static_cast<uint32_t>(std::numeric_limits<int>::max());
+    // The byte before the one the first item has: a range that ends on the
+    // first item's own byte can still end past an item that shares it.
+    size_t before_first = std::min<size_t>(least, last);
+    while (before_first > 0 && bytes[before_first - 1] == bytes[std::min<size_t>(least, last)])
+        --before_first;
+    low = before_first > 0 ? static_cast<int>(std::min<uint32_t>(bytes[before_first - 1], int_max))
+                           : 0;
+    high = static_cast<int>(
+        std::min<uint32_t>(bytes[std::min<size_t>(static_cast<size_t>(most) + 1, last)], int_max));
+    return true;
 }
 
 // One block, with its top-left corner at (`left`, `top`) on the screen.
@@ -1862,9 +2020,27 @@ void draw_block(ImTypesetDocument& d, size_t i, double left, double top, const T
             d.highlights.push_back(Rect{x, 0, std::max<Scaled>(d.width - x, 0), layout.extent});
         }
     }
-    if (draw != nullptr && draw->Marks != nullptr && textual) {
-        for (int m = 0; m < draw->MarkCount; ++m) {
-            const ImTypesetMark& mark = draw->Marks[m];
+    if (draw != nullptr && draw->Marks != nullptr && draw->MarkCount > 0 && textual) {
+        // The marks on this block, and of those, when there are many, the
+        // ones on the lines the clip rectangle shows.
+        MarkOrder& marks = d.marks;
+        pick_marks(marks, draw->Marks, i, 0, std::numeric_limits<int>::max());
+        if (marks.picked.size() > MARKS_WORKED_OUT_WHOLE && !marks.every_mark) {
+            int low = 0;
+            int high = 0;
+            if (bytes_shown(d, i, view_of(d, i), see_from, see_to, low, high)) {
+                if (low <= high)
+                    pick_marks(marks, draw->Marks, i, low, high);
+                else
+                    marks.picked.clear();
+            }
+        }
+        // In the order they were given: a later mark is put over an earlier.
+        if (!marks.order.empty())
+            std::sort(marks.picked.begin(), marks.picked.end());
+        marks.looked_at += marks.picked.size();
+        for (const uint32_t number : marks.picked) {
+            const ImTypesetMark& mark = draw->Marks[number];
             if (static_cast<int>(i) < mark.Range.Start.Block ||
                 static_cast<int>(i) > mark.Range.End.Block ||
                 !before(mark.Range.Start, mark.Range.End))
@@ -2137,6 +2313,10 @@ bool draw_document(ImTypesetDocument& d, const Target& target, const ImVec2& pos
     args.palette.highlight = d.given_style.SelectionColor != 0
                                  ? shown(d.given_style.SelectionColor)
                                  : ImGui::GetColorU32(ImGuiCol_TextSelectedBg);
+
+    d.marks.looked_at = 0;
+    if (draw != nullptr && draw->Marks != nullptr && draw->MarkCount > 0)
+        order_marks(d.marks, draw->Marks, static_cast<size_t>(draw->MarkCount));
 
     const ErrorState* trouble = nullptr;
     size_t blocks = 0;
@@ -3810,8 +3990,9 @@ bool DocumentView(const char* str_id, ImTypesetDocument* document, const ImVec2&
     const ImTypesetColumns& columns = d.columns_given;
     const bool balanced = (columns.Flags & ImTypesetColumnFlags_Balance) != 0 && columns.Count >= 2;
     const bool across = balanced || columns.Height > 0.0f || columns.Count >= 2;
+    // ImGui refuses an empty ID by assertion: none given is the view's own.
     const bool open =
-        ImGui::BeginChild(str_id != nullptr ? str_id : "##document", size, 0,
+        ImGui::BeginChild(str_id != nullptr && str_id[0] != '\0' ? str_id : "##document", size, 0,
                           across && !balanced ? ImGuiWindowFlags_HorizontalScrollbar : 0);
     child.begun = true;
     bool ok = true;

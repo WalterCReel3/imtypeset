@@ -839,6 +839,10 @@ struct DemoMathState {
 
     // The candidates: which of them set, and what the others were told.
     DemoSetting Sorted;
+    // The widest formula of the subset as it is set in text and on a line of
+    // its own, in pixels, under the setting `Sorted` holds.
+    float WidestInline = 0.0f;
+    float WidestDisplay = 0.0f;
     bool Sets[IM_ARRAYSIZE(CANDIDATES)] = {};
     ImGuiTextBuffer Reasons[IM_ARRAYSIZE(CANDIDATES)];
 };
@@ -1023,11 +1027,13 @@ void ShowDemoMathStream(DemoMathState* state)
                 loose -= STREAM_SOURCE[starts[k] + at] == '$' ? 1 : 0;
         }
     }
+    ImGui::PushTextWrapPos(0.0f);
     ImGui::Text("Piece %d of %d. Formulas set: %d. Refused so far: %d. Dollar signs standing as "
                 "text: %d.",
                 state->StreamFed, pieces, set, refused, loose);
     ImGui::TextDisabled("A display block whose closing line has not come counts as refused "
                         "until it has.");
+    ImGui::PopTextWrapPos();
 }
 
 // `fonts_added`: as for ShowDemoStress().
@@ -1149,6 +1155,7 @@ void ShowDemoMath(DemoMathState* state, int fonts_added)
         ImTypesetDocumentDraw draw;
         draw.Flags = state->PlacesDebug ? ImTypesetDocumentDrawFlags_Debug : 0;
         ImTypeset::DrawDocument(places, ImGui::GetWindowDrawList(), pos, &draw);
+        ImGui::PushTextWrapPos(0.0f);
         if (ImGui::IsItemHovered()) {
             const ImVec2 mouse = ImGui::GetMousePos();
             const ImTypesetDocumentHit hit =
@@ -1160,6 +1167,7 @@ void ShowDemoMath(DemoMathState* state, int fonts_added)
         }
         ImGui::TextDisabled(
             "Not here: a table cell. The table that ends the Document section has one.");
+        ImGui::PopTextWrapPos();
     }
 
     ImGui::SeparatorText("In text that is still arriving");
@@ -1172,15 +1180,38 @@ void ShowDemoMath(DemoMathState* state, int fonts_added)
     ImTypesetStyle cell = g_style;
     cell.Align = ImTypesetAlign_Left;
     if (!SameSetting(&state->Sorted, fonts_added)) {
+        state->WidestInline = 0.0f;
+        state->WidestDisplay = 0.0f;
         for (int i = 0; i < IM_ARRAYSIZE(CANDIDATES); ++i) {
             text.resize(0);
             text.appendf("$%s$", CANDIDATES[i].Source);
-            ImTypeset::CalcTextSize(text.begin(), text.end(), 0.0f, ImTypesetTextFlags_Math, &cell);
+            const ImVec2 size = ImTypeset::CalcTextSize(text.begin(), text.end(), 0.0f,
+                                                        ImTypesetTextFlags_Math, &cell);
             const ImTypesetErrorInfo* error = ImTypeset::GetLastError();
             state->Sets[i] = error->Code != ImTypesetError_MathRefused;
             state->Reasons[i].resize(0);
-            if (!state->Sets[i])
+            if (!state->Sets[i]) {
                 state->Reasons[i].append(error->Message);
+                continue;
+            }
+            if (size.x > state->WidestInline)
+                state->WidestInline = size.x;
+            // A text that is one $$ block is centred, and the size of centred
+            // text is the width it was laid out to: its own width is its
+            // line's, in a paragraph laid out wider than any formula.
+            text.resize(0);
+            text.appendf("$$%s$$", CANDIDATES[i].Source);
+            if (ImTypesetParagraph* alone = ImTypeset::CreateParagraph()) {
+                ImTypeset::SetParagraphText(alone, text.begin(), text.end(), NULL, 0,
+                                            ImTypesetTextFlags_Math);
+                ImTypeset::LayoutParagraph(alone, 100000.0f, &cell);
+                if (ImTypeset::GetParagraphLineCount(alone) > 0) {
+                    const ImTypesetLine line = ImTypeset::GetParagraphLine(alone, 0);
+                    if (line.Max.x - line.Min.x > state->WidestDisplay)
+                        state->WidestDisplay = line.Max.x - line.Min.x;
+                }
+                ImTypeset::DestroyParagraph(alone);
+            }
         }
     }
     int sets = 0;
@@ -1192,13 +1223,21 @@ void ShowDemoMath(DemoMathState* state, int fonts_added)
     ImGui::SeparatorText("The subset, one construct at a time");
     ImGui::TextDisabled("%d of %d sources set. Click a source to edit it above.", sets,
                         IM_ARRAYSIZE(CANDIDATES));
+    // A formula is not broken, so each of its two columns is as wide as the
+    // widest formula in it and the other two share what is left. A column of
+    // a stated width takes it when the table is first made: the widths are
+    // part of the table's ID, so that at another size it is another table.
+    ImGui::PushID((int)state->WidestInline);
+    ImGui::PushID((int)state->WidestDisplay);
     if (ImGui::BeginTable("formulas", 4,
                           ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
                               ImGuiTableFlags_SizingStretchProp)) {
-        ImGui::TableSetupColumn("what", ImGuiTableColumnFlags_None, 2.0f);
-        ImGui::TableSetupColumn("source", ImGuiTableColumnFlags_None, 3.0f);
-        ImGui::TableSetupColumn("$...$", ImGuiTableColumnFlags_None, 2.0f);
-        ImGui::TableSetupColumn("$$...$$", ImGuiTableColumnFlags_None, 2.0f);
+        ImGui::TableSetupColumn("what", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+        ImGui::TableSetupColumn("source", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+        ImGui::TableSetupColumn("$...$", ImGuiTableColumnFlags_WidthFixed,
+                                state->WidestInline + 1.0f);
+        ImGui::TableSetupColumn("$$...$$", ImGuiTableColumnFlags_WidthFixed,
+                                state->WidestDisplay + 1.0f);
         ImGui::TableHeadersRow();
         for (int i = 0; i < IM_ARRAYSIZE(CANDIDATES); ++i) {
             if (!state->Sets[i])
@@ -1241,6 +1280,8 @@ void ShowDemoMath(DemoMathState* state, int fonts_added)
         }
         ImGui::EndTable();
     }
+    ImGui::PopID();
+    ImGui::PopID();
 
     // What cannot be set whole is never set as a damaged formula.
     ImGui::SeparatorText("Refused, and why");
@@ -1553,7 +1594,9 @@ void ShowDemoSelection(DemoSelectionState* state)
     if (ImGui::Button("Clear"))
         selection.Start = selection.End = 0;
     const char* clipboard = ImGui::GetClipboardText();
+    ImGui::PushTextWrapPos(0.0f);
     ImGui::TextDisabled("Clipboard: %.80s", clipboard != NULL ? clipboard : "");
+    ImGui::PopTextWrapPos();
 
     // The same from its parts, for a host that has its own idea of what a
     // click does: a paragraph object, a drag turned into a range at a chosen
@@ -1758,6 +1801,7 @@ void ShowDemoStress(DemoStressState* state, int fonts_added)
     const int shown_copies = state->SubmitEverything && state->Copies > 20 ? 20 : state->Copies;
 
     const ImTypesetStats stats = ImTypeset::GetStats();
+    ImGui::PushTextWrapPos(0.0f);
     ImGui::Text("Last frame: %llu layouts, %llu text builds, %llu paragraphs drawn, %llu culled, "
                 "%llu vertices, %llu bytes hashed",
                 (unsigned long long)g_frame.Layouts, (unsigned long long)g_frame.TextBuilds,
@@ -1768,6 +1812,7 @@ void ShowDemoStress(DemoStressState* state, int fonts_added)
                 (unsigned long long)stats.CachedParagraphs,
                 (unsigned long long)(stats.CachedBytes / 1024),
                 (unsigned long long)stats.CacheEvictions);
+    ImGui::PopTextWrapPos();
 
     ImTypesetStyle style = g_style;
     const ImTypesetTextFlags flags = ImTypesetTextFlags_Math;
@@ -1811,8 +1856,10 @@ void ShowDemoStress(DemoStressState* state, int fonts_added)
     ImGui::SetCursorPosY(top + (float)shown_copies * state->CopyHeight);
     ImGui::Dummy(ImVec2(0.0f, 0.0f));
     ImGui::EndChild();
+    ImGui::PushTextWrapPos(0.0f);
     ImGui::TextDisabled("%d paragraphs in the document, copies %d to %d submitted",
                         shown_copies * IM_ARRAYSIZE(DOCUMENT), first + 1, last + 1);
+    ImGui::PopTextWrapPos();
 }
 
 //-----------------------------------------------------------------------------
@@ -2192,6 +2239,7 @@ void ShowDemoDocument(DemoDocumentState* state, int fonts_added)
     ShowLastError();
 
     const ImTypesetDocumentStats now = ImTypeset::GetDocumentStats(state->Document);
+    ImGui::PushTextWrapPos(0.0f);
     ImGui::Text("%d blocks (the last a table), %d of them never laid out at this width.",
                 now.Blocks, now.BlocksDeferred);
     ImGui::Text("This frame: %d laid out, %d texts built, %d blocks visited by a pass over all.",
@@ -2206,6 +2254,7 @@ void ShowDemoDocument(DemoDocumentState* state, int fonts_added)
                     ImTypeset::GetDocumentColumnCount(state->Document),
                     (int)(now.ColumnsCut - state->Last.ColumnsCut),
                     (int)(now.BalanceHeightsTried - state->Last.BalanceHeightsTried));
+    ImGui::PopTextWrapPos();
     state->Last = now;
 }
 
@@ -2375,8 +2424,26 @@ ImTypesetStats StatsBetween(const ImTypesetStats& before, const ImTypesetStats& 
 // [SECTION] ShowDemoWindow()
 //-----------------------------------------------------------------------------
 
+namespace
+{
+
+// Whether widgets can be submitted now: an ImGui context, and a frame begun
+// and not rendered. NewFrame invalidates the draw data and Render makes it
+// valid again, which is the one sign imgui.h gives of being inside a frame.
+// Outside one ImGui::Begin() and the calls that read the current window do
+// not answer: they assert, or read a window that is not there.
+bool InsideFrame()
+{
+    return ImGui::GetCurrentContext() != NULL && ImGui::GetFrameCount() > 0 &&
+           ImGui::GetDrawData() == NULL;
+}
+
+} // namespace
+
 void ImTypeset::ShowDemoWindow(bool* p_open)
 {
+    if (!InsideFrame())
+        return;
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + 20.0f, viewport->WorkPos.y + 20.0f),
                             ImGuiCond_FirstUseEver);
@@ -2451,7 +2518,7 @@ void ImTypeset::ShowDemoWindow(bool* p_open)
 
 void ImTypeset::ShowDemoSection(ImTypesetDemoSection section)
 {
-    if (section < 0 || section >= ImTypesetDemoSection_COUNT)
+    if (section < 0 || section >= ImTypesetDemoSection_COUNT || !InsideFrame())
         return;
     DemoState* demo = DemoStateOfCurrentContext(g_section_states);
     if (demo == NULL) {

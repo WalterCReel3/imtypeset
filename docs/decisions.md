@@ -3437,3 +3437,214 @@ reached it.
 **Not measured:** `AppendDocumentTableCells`, `AppendDocumentText` into a cell,
 `SetDocumentTableColumns` and `DocumentView` over columns under a throwing allocator; the same
 sweep under anything but GCC 12 with ASan.
+
+## D66. A role's font metrics are a query with the struct's size in the call (task `handoff-core`, 2026-10-11)
+
+*Agent decisions, taken unattended for advtext's request H7 (`../imgui-adv-text/HANDOFF-imtypeset.md`);
+the user may overrule any.*
+
+**Read first, in advtext:** what its last uses of its own font reader ask. `Theme.at_pixel_height`
+asks a face at a probe size for `ascent`, `descent` and `em` (the ratio that turns ImGui's size
+into an em), and for the advances of the ten digits and the period (`_widest_marker_em`).
+`code_size(pixel_height=)` asks `em_size_for_pixel_height(face, h)`, the same ratio. Nothing asks
+for a kern, a glyph box or a name.
+
+**Decided.**
+
+1. **`GetFontMetrics(face, em_size, ImTypesetFontMetrics* out, size_t out_size)`** and
+   **`GetGlyphAdvance(face, em_size, codepoint)`**; `ImTypesetFontMetrics {EmSize, FontSize,
+   Ascent, Descent, LineGap, XHeight, SpaceAdvance}`, seven floats. C: `ImTypeset_GetFontMetrics`,
+   `ImTypeset_GetGlyphAdvance`, `ImTypeset_FontMetrics`. Python: `font_metrics`, `glyph_advance`,
+   `FontMetrics`. Two calls and not one struct with advances in it: which characters a host wants
+   an advance for is the host's (advtext wants eleven), and a struct cannot hold "any".
+2. **The size is the em, in pixels**, the library's own unit of type (`ImTypesetStyle::EmSize`).
+   `FontSize` in the answer is what ImGui calls the size of that em (ascent plus descent), so the
+   conversion advtext needs is `h * EmSize / FontSize` from the metrics at any size. No third
+   call for it: it is one line for a host, and the library's own conversion
+   (`FontLibrary::em_size_for_pixel_height`, used for `ImTypesetStyle::FontSize`) is the same
+   ratio.
+3. **Floats, as every length of the header is.** The doubles are the reference's own to the last
+   bit (one scale `size / unitsPerEm`, one product a length: `fontlib.py`'s order) and each field is
+   that double as a float.
+4. **From the role's file alone, not through the metrics cache.** The numbers are computed from
+   `FaceData` at the call. `FontLibrary::metrics()` would have answered the same doubles, but it
+   keeps an object a size and expires old ones (*read*, `src/fontlib.h`), and a host dragging a
+   size slider through this query would then age out sizes layout is holding.
+5. **hhea, and it is said.** `Ascent` and `Descent` are the hhea table's, as layout's and the
+   atlas's are (`docs/font-support.md`, "Where the product departs from the reference on fonts";
+   `the_atlas_sizes_a_font_by_hhea_whatever_os2_says`). `LineGap` is hhea's too and nothing in
+   layout reads it: baselines are `ImTypesetStyle::LineHeight` ems apart.
+6. **`out_size`, and no addition to `IMTYPESET_CHECKVERSION()`.** The struct's size is an argument
+   (defaulted in C++, `sizeof` in C and in the package): a caller compiled against another header
+   is refused with `ImTypesetError_VersionMismatch` and not written past. Weighed against a fourth
+   `DebugCheck...DataLayout` call with a `Sizeof` field in `ImTypeset_BuildInfo`, which is how
+   tables and columns did it: that makes a library and a package from either side of this change
+   refuse each other at import for a query most hosts never make, and it changes
+   `ImTypeset_BuildInfo` while two other tasks are writing the sidecar's gate. Here only the call
+   itself can fail.
+7. **Refused with a reason, not clamped:** a size that is not finite, not above zero, or above
+   1,000,000 px is `InvalidArgument`. Layout clamps an em to 1 to 1,024 px; a metrics query is
+   linear in the size and has no reason to answer for another size than it was asked.
+
+**Measured** (`tests/test_api_handoff.cpp`, debug, FreeType 2.12.1, GCC 12.2):
+`font_metrics_and_advances_are_the_references_as_floats` replays `tests/golden/font/*.answers.golden`
+through the public calls: 42 (role, size) answers of six fields each and 20,508 advances equal to
+the reference's doubles as floats, exactly, for the seven roles. 7 (role, size) pairs are passed
+over and counted: the reference was asked at 14.4, which no float holds. `LineGap` is not among
+the reference's answers; it is held to the raw goldens' `HHEA` record by this file's own formula.
+`the_em_for_an_imgui_size_follows_from_the_metrics_at_any_size`: a paragraph sized by
+`FontSize = h` and one sized by `EmSize = h * EmSize / FontSize` break into the same lines at 13,
+16, 19 and 24 px.
+
+**Not measured:** a font with a non-zero hhea line gap other than the bundled math face; a
+variable font; the query under the 16-bit `ImWchar` build beyond the suite running there.
+
+## D67. The table header's rule: the reference's height, measured again (task `handoff-core`, 2026-10-11)
+
+advtext's request H8 says every table with a header is 20.64 px taller than the reference's.
+`tables-fixes` said the height is the reference's own (`docs/divergences.md`, T20). Both numbers
+are right and they are numbers of different things.
+
+**Measured** (`build/handoff-core-scratch/h8/ref_tables.py`, the pinned reference at `32e3953`
+through its own interpreter, `demo/tables.md` at 684 px, 16 px body, in scaled points):
+
+| table | as the reference stacks it (`ui._stacked`, and its views' units) | sum of the heights of `ui._table_boxes`' boxes | difference |
+|---|---|---|---|
+| 0 | 6,393,984 (129.6 px) | 5,375,683 (108.96 px) | 1,018,301 |
+| 1 | 13,853,632 (280.8 px) | 12,835,331 (260.16 px) | 1,018,301 |
+| 2 | 7,459,648 (151.2 px) | 6,441,347 (130.56 px) | 1,018,301 |
+| 3 | 20,247,616 (410.4 px) | 19,229,315 (389.76 px) | 1,018,301 |
+| 4 | 8,525,312 (172.8 px) | 7,507,011 (152.16 px) | 1,018,301 |
+
+The first column is what advtext measured from the library; the second is what its
+`compare_tables.py` took for "the old core" (`height_old = sum(b.height + b.depth for b in boxes)`,
+*read*). The reference never draws that sum: `_stacked` appends each box with
+`append_to_vlist`, and the rule (47,363 sp high) gets a `\baselineskip` like a line. The
+difference is one `\baselineskip` less the rule: 1,065,664 - 47,363 = 1,018,301 sp = 20.64 px.
+
+**Through the public calls at this tree:** the replay of `tests/golden/doc-tables` (demo/tables.md
+at 360 and 660 px among its cases) holds every block's top and height
+(`GetDocumentBlockGeometry`) and every row's (`GetDocumentTableRow`) to the reference's `bspan`
+and `trow` records under reference rules; and
+`a_table_with_a_header_is_a_leading_taller_than_its_rows_under_either_set_of_rules` holds the
+first table at 684 px to 6,393,984 sp under reference rules and under product rules alike.
+`the_rule_under_a_header_takes_the_same_height_whatever_its_thickness`: 0.96, 2 and 5 px rules
+give one height; no rule gives five leadings.
+
+**Decided: nothing changed.** The product is not taller than the reference. What advtext's view
+drew before the swap was the first column too. Whether the space under a header SHOULD be a whole
+leading is the border question already written for the user (`docs/advtext-swap-status.md`); the
+header now says at `ImTypesetBlockFlags_TableHeader` what the height is.
+
+## D68. A row that arrives in pieces: described without its unwritten cells; no new call (task `handoff-core`, 2026-10-11)
+
+advtext's request H9: a 200-row table streamed 7 characters a piece cost 468 replaces and 146,304
+cell measurements, because its parser pads the unfinished row with empty cells and the cell being
+written is then not the last.
+
+**Decided: advice, a Python method over the call that exists, and no new C or C++ declaration.**
+A row may have fewer cells than the table has columns, so the unfinished row is described with the
+cells it has. The cell being written is then the table's last: `AppendDocumentText` grows it, and
+`AppendDocumentTableCells` with a first cell that is not a row's start adds the next cell to the
+row. Both existed; what did not was a way to say the second from Python
+(`Document.append_table_rows` starts a row), so the package gains
+`Document.append_table_cells(cells)`.
+
+**Declined: appending text to a named cell (row, column).** Text in the middle of a block moves
+every byte after it: the cells, the runs, the positions a host holds, the index-to-byte maps and
+the kept rows of every later cell. `TableCells::epoch` (D64: between two clears a table's cells
+change only at their end) is what makes an append cost a row, and a write into the middle is the
+one edit it rules out. **The invariant is kept, knowingly.** What it costs a host: markup that
+closes late in the row being written (`**bo` becoming bold) changes text that was already handed
+over, and that piece is a replace of the table, as before. A "replace the last row" call would
+cover it within the invariant (the last row is the open one); not built, because nothing measured
+asks for it yet.
+
+**Measured** (`a_row_arriving_in_pieces_costs_its_cells_when_described_without_the_unwritten_ones`,
+by the library's counters, which do not depend on the machine; 200 rows of three cells under a
+header, held, 7 bytes of source a piece, laid out after each piece):
+
+| the unfinished row | appends | replaces | cells measured | rows set |
+|---|---|---|---|---|
+| padded with empty cells | 370 | 944 | 288,914 | 96,418 |
+| the cells it has | 1,512 | 0 | 1,513 | 1,410 |
+| (the table given whole) | | | 603 | 201 |
+
+The three tables end equal: rows, columns, cells, every column's edges, sampled rows' tops and
+bottoms, and the copied text. The figures are this test's table, not advtext's: its 468 and
+146,304 were for its own text.
+
+## D69. Marks are looked for where the clip is; a glyph's quad is emitted when part of it is inside (task `handoff-core`, 2026-10-11)
+
+**Marks (H10).** `draw_block` worked out every mark of a draw against every block it drew, and
+put each Ink mark over the block's colours by copying them: 1,881 marks on one block were 1,881
+copies of a growing list a frame. **Decided:** the marks of a draw are kept in the order they
+start in the document (`MarkOrder`: used as given when they come in that order, sorted once
+otherwise, and made again only when a range handed over differs from the ranges it was made
+from, which a draw checks with one comparison a mark); a block's marks are found by bisection;
+and when a block has more than 16, only those on bytes the lines within reach of the clip hold
+are worked out (`bytes_shown`: the lines by bisection, their items' indices by a pass over the
+commands those lines have, the bytes from the block's index-to-byte map when it is in order). No
+precondition on the host: any order, overlapping or not, draws what it drew. A later mark is
+still put over an earlier one in the order GIVEN.
+
+*Measured* (`bench/bench_marks.cpp`, release `-O3`, GCC 12.2, the machine NOT quiet: load average
+4 to 5; medians of 2,000 warm frames; a code block of 600 lines, a window of 768 px, 1,881 marks):
+
+| a draw | before (`caaeab3`) | after |
+|---|---|---|
+| with no marks | 54 us | 45 us |
+| every mark, Ink, in text order | 2,766 us | 83 us |
+| every mark, Ink, shuffled | 8,914 us | 119 us |
+| every mark, Behind, in text order | 710 us | 75 us |
+
+The two "no marks" rows are the same code and say how far a run strays. *Held:*
+`marks_culled_to_the_clip_draw_what_every_mark_worked_out_draws` (3,000 and 40 marks, sorted and
+not, in the three places, some across blocks, windows of 40 and 300 px every 173 px down a document
+of six blocks: the quads inside the window equal, vertex for vertex, to a draw with the culling
+off; 15,302 marks looked at where working out every mark of a shown block is 96,095) and
+`the_order_of_a_mark_set_is_made_once_and_again_only_when_a_range_changes`. *The test's limit:*
+the reach a draw looks past the clip is generous (four ems where a document has a block of exact
+lines), so a culling window wrong by a line would not fail it; one wrong by twelve reaches fails
+326 checks (tried).
+
+**One quad at a clip edge (H11).** Reproduced in
+`a_glyph_quad_is_emitted_exactly_when_part_of_it_is_inside_the_clip_rectangle` (64 failed checks
+before the change): U+2502 in the bundled Inconsolata has a bitmap that starts one pixel above
+its font's cell, and with the clip's bottom edge on the row's top its quad, one row inside, was
+not emitted. *Cause:* `Drawer::emit` and `ImGuiBinder::load` kept `ImFont::RenderText`'s test on
+the font's cell (the pen below the bottom edge, or the cell above the top edge) in front of the
+product's test on the quad, so `quads_off_clip_dropped` could only drop quads the cell test had
+kept, never keep one it had dropped. (*Inferred, not run:* advtext's U+4E2D was emitted in the same
+frame because it is set from another face, whose cell starts higher; here no bundled face has it
+and it is set as U+FFFD.) **Decided:** under `quads_off_clip_dropped` the quad's
+own top and bottom are the whole test, and every glyph placed is loaded (its box is not known
+before): with lines culled those are the glyphs of the lines at the clip. The reference's rule is
+untouched and still what the goldens replay. *Looked at:*
+`.concerns/handoff-core--builder--shot-h11-{before,after}-clip60.png`, the last pixel row inside
+a clip ending on the row's top: empty before, the top of the bar and of the integral sign after
+(7 pixels lit).
+
+## D70. What a binding can hand over without ending the process, and the demo at other sizes (task `handoff-core`, 2026-10-11)
+
+**From the audit of the Python package (H12; `docs/python-errors.md`).** Three inputs ended the
+process and are now answered by the library: `DocumentView` with an empty `str_id` (ImGui asserts
+on a child with no ID; null was already the view's own ID, and empty now is too), and
+`ShowDemoWindow` and `ShowDemoSection` outside a frame (they draw nothing before the first frame,
+after `Render()` and with no ImGui context). *Reproduced by the audit in child processes against
+the debug library; the C++ tests that hold them were written after the change and were not seen
+to fail.* **Left:** a context address that is not a context, or destroyed twice, and a handle of
+the wrong kind, each of which needs the library to keep a list of what it has made; and the state
+between `EndFrame()` and `NewFrame()` with no `Render()` (D56).
+
+**In the package,** by the audit's helper: every non-`Error` exception a public call can raise on
+host input is now `TypeError`, `ValueError` or `OverflowError`; indices, counts and enums past a C
+int are clamped where ctypes kept their low 32 bits (a block `2**32 + 1` meant block 1); a `str`
+where an address goes is `TypeError` where it was a segmentation fault. A run's `tag` past 32 bits
+keeps its low 32 bits in a document, as it already did in a paragraph.
+
+**The demo at other sizes (H13).** Looked at, 11 sections at 7 sizes in a window of 1100 px. Two
+things changed in `src/imtypeset_demo.cpp`: lines of counters wrap at the window's edge where they
+were cut, and the two formula columns of Math's table are as wide as their widest formula where
+they were a share of the window, in which formulas ran under each other from 24 px and were cut
+from 16. The numbers are in the header at `ShowDemoSection`. Nothing new is exposed.

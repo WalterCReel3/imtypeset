@@ -1,0 +1,52 @@
+# Which sources each released imgui-bundle wheel is built from: the one place
+# this repository records it. python/host/fetch_headers.py reads this file and
+# refuses a wheel version that is not in it.
+#
+# A wheel ships no headers and records no commit, so "the wheel was built from
+# its release tag" is an inference: nothing in a wheel says so.
+#
+# HOW AN ENTRY IS DERIVED, in a clone of https://github.com/pthom/imgui_bundle
+# that has the release tag (T = "v" + the wheel's version) and a clone of
+# https://github.com/ocornut/imgui that has upstream's docking tag for the
+# Dear ImGui version the wheel reports (imgui.get_version()):
+#
+#   bundle_commit   git rev-parse "T^{commit}"
+#   imgui_commit    git ls-tree T external/imgui/imgui          (third field)
+#                   the submodule is https://github.com/pthom/imgui, per
+#                   .gitmodules at T
+#   config_sha256   git show T:imgui_bundle_cmake/imgui_bundle_config.h | sha256sum
+#   standin_tag     "v" + imgui.get_version() + "-docking"
+#   standin_commit  git -C <ocornut clone> rev-parse "<standin_tag>^{commit}"
+#
+# What checks a fetched file against this file:
+#
+#   the fork's headers (imgui_commit) and the stand-in's (standin_commit) are
+#       fetched with git BY COMMIT ID. Git names an object by the hash of its
+#       content, so the commit id here is the checksum of everything fetched.
+#   imgui_bundle_config.h is fetched as one file by URL and checked against
+#       config_sha256.
+#
+# The entries below were derived on 2026-10-11 from local clones
+# (../imgui_bundle, ../imgui) by the commands above, not from the network.
+# imgui_h_sha256 is absent from both: no copy of the fork's imgui.h has been on
+# the machine that wrote this file. fetch_headers.py prints the sha256 of every
+# file it fetches; an entry may record `imgui_h_sha256 = "<hex>"`, and it is
+# then checked as well.
+
+[bundle."1.92.900"]
+bundle_tag = "v1.92.900"
+bundle_commit = "a69e34a3af3bc376f068e16f6c4bca1dbca90a8a"
+imgui_version = "1.92.9"
+imgui_commit = "c9a0a84f8a4ddae794a9e1acf6a93afce73d5057"
+config_sha256 = "ccab306d04457df1130dc6b702e9499adfc0607fce63bc573284bda4122c78ea"
+standin_tag = "v1.92.9-docking"
+standin_commit = "9b4eb24cee2071e61dc1f9ef3e5228097cdde720"
+
+[bundle."1.92.801"]
+bundle_tag = "v1.92.801"
+bundle_commit = "995d44385255c9eec74b9e235e063b1cc8eade71"
+imgui_version = "1.92.8"
+imgui_commit = "eb8df947f7e319de14ad383ad5c13c802d8163f6"
+config_sha256 = "ccab306d04457df1130dc6b702e9499adfc0607fce63bc573284bda4122c78ea"
+standin_tag = "v1.92.8-docking"
+standin_commit = "b61e56346a92cfcaf1f43a545ca37b0b32239654"

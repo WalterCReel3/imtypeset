@@ -480,8 +480,12 @@ public:
     // ImFont::RenderText retries when a glyph load changes the texture under
     // it. A glyph no op will draw — its colour has no alpha, its codepoint
     // draws nothing, its pen is outside the clip rectangle vertically — is
-    // not loaded, as ImGui would not have loaded it.
-    void load(const Drawer& drawer, const ImVec4& clip)
+    // not loaded, as ImGui would not have loaded it. Under
+    // DrawRules::quads_off_clip_dropped where the pen is does not decide (a
+    // bitmap can reach outside its cell, and is not known until it is
+    // loaded), so every glyph placed that could draw is loaded: with lines
+    // culled those are the glyphs of the lines at the clip rectangle.
+    void load(const Drawer& drawer, const ImVec4& clip, const DrawRules& rules)
     {
         const std::vector<Glyph>& glyphs = drawer.glyphs();
         boxes.assign(glyphs.size(), Box());
@@ -493,7 +497,9 @@ public:
             if (op.type != OpType::TEXT || _wanted[op.glyph] != 0)
                 continue;
             const Glyph& glyph = glyphs[op.glyph];
-            if ((op.colour & IM_COL32_A_MASK) == 0 || draws_nothing(glyph.codepoint) ||
+            if ((op.colour & IM_COL32_A_MASK) == 0 || draws_nothing(glyph.codepoint))
+                continue;
+            if (!rules.quads_off_clip_dropped &&
                 outside_vertically(op.y0, keys[glyph.key].size, clip))
                 continue;
             _wanted[op.glyph] = 1;
@@ -1205,18 +1211,22 @@ void Drawer::emit(Sink& sink, const ImVec4& clip, const DrawRules& rules)
                 continue;
             }
             const ImGuiBinder::Box& box = boxes[op.glyph];
-            if (!box.visible || ImGuiBinder::outside_vertically(op.y0, box.size, clip))
+            if (!box.visible)
+                continue;
+            // ImFont::RenderText's test is on the font's cell. It keeps a
+            // glyph whose pen is ON the clip rectangle's bottom edge, though
+            // a clip rectangle ends before its bottom row and the whole quad
+            // is then under it, and one whose cell reaches the top edge
+            // though its bitmap does not; and it drops a glyph whose cell is
+            // outside while its bitmap, which may be taller than the cell,
+            // reaches in. The product's test is on the quad.
+            if (rules.quads_off_clip_dropped
+                    ? !(op.y0 + box.y0 < clip.w && op.y0 + box.y1 > clip.y)
+                    : ImGuiBinder::outside_vertically(op.y0, box.size, clip))
                 continue;
             const float x0 = op.x0 + box.x0;
             const float x1 = op.x0 + box.x1;
             if (!(x0 <= clip.z && x1 >= clip.x))
-                continue;
-            // ImFont::RenderText's test above keeps a glyph whose pen is ON
-            // the clip rectangle's bottom edge, though a clip rectangle ends
-            // before its bottom row and the whole quad is then under it; and
-            // one whose cell reaches the top edge though its bitmap does not.
-            if (rules.quads_off_clip_dropped &&
-                !(op.y0 + box.y0 < clip.w && op.y0 + box.y1 > clip.y))
                 continue;
             // A coloured glyph keeps its own colours and takes only the alpha.
             const ImU32 colour = box.coloured ? (op.colour | ~IM_COL32_A_MASK) : op.colour;
@@ -1234,7 +1244,7 @@ DrawStats Drawer::draw_runs(ImDrawList* draw_list, const DrawRun* runs, size_t r
     const ImVec4 clip = draw_list->_CmdHeader.ClipRect;
     _binder->configure(fonts, metrics, args.px_per_inch);
     const DrawStats stats = place(runs, run_count, args, *_binder, &clip);
-    _binder->load(*this, clip);
+    _binder->load(*this, clip, args.rules);
     ListSink sink(draw_list);
     emit(sink, clip, args.rules);
     return stats;
@@ -1246,7 +1256,7 @@ DrawStats Drawer::draw_runs(DrawBuffers& out, const ImVec4& clip, const DrawRun*
 {
     _binder->configure(fonts, metrics, args.px_per_inch);
     const DrawStats stats = place(runs, run_count, args, *_binder, &clip);
-    _binder->load(*this, clip);
+    _binder->load(*this, clip, args.rules);
     BufferSink sink(out);
     emit(sink, clip, args.rules);
     return stats;

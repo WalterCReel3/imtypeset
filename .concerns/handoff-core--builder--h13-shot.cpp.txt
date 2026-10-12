@@ -1,0 +1,98 @@
+// Scratch driver for H13: one demo section in a host window at a pushed size.
+//   shot SECTION SIZE_PX OUT.png [WxH] [--scroll Y] [--then SIZE2] [--frames N]
+#include "imgui.h"
+#include "imtypeset.h"
+#include "support/soft_raster.h"
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+
+int main(int argc, char** argv)
+{
+    if (argc < 4)
+        return 2;
+    const int section = std::atoi(argv[1]);
+    float size = (float)std::atof(argv[2]);
+    const char* out = argv[3];
+    int w = 1100, h = 720, frames = 14;
+    float scroll = 0.0f, then = 0.0f;
+    for (int i = 4; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--scroll") == 0 && i + 1 < argc)
+            scroll = (float)std::atof(argv[++i]);
+        else if (std::strcmp(argv[i], "--then") == 0 && i + 1 < argc)
+            then = (float)std::atof(argv[++i]);
+        else if (std::strcmp(argv[i], "--frames") == 0 && i + 1 < argc)
+            frames = std::atoi(argv[++i]);
+        else if (std::sscanf(argv[i], "%dx%d", &w, &h) != 2)
+            return 2;
+    }
+    static const struct { ImTypesetFace Face; const char* File; } faces[] = {
+        {ImTypesetFace_Regular, "Roboto-Regular.ttf"},
+        {ImTypesetFace_Bold, "Roboto-Bold.ttf"},
+        {ImTypesetFace_Italic, "Roboto-RegularItalic.ttf"},
+        {ImTypesetFace_BoldItalic, "Roboto-BoldItalic.ttf"},
+        {ImTypesetFace_Code, "Inconsolata-Medium.ttf"},
+        {ImTypesetFace_Math, "latinmodern-math.otf"},
+    };
+    const std::string fonts = IMTYPESET_TEST_DATA_DIR "/fonts/";
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    io.DeltaTime = 1.0f / 60.0f;
+    io.DisplaySize = ImVec2((float)w, (float)h);
+    ImGui::StyleColorsDark();
+    soft_raster::Renderer renderer;
+    renderer.init();
+    bool ok = IMTYPESET_CHECKVERSION() && ImTypeset::CreateContext() != nullptr;
+    io.Fonts->AddFontDefault();
+    for (int i = 0; ok && i < IM_ARRAYSIZE(faces); ++i)
+        ok = ImTypeset::AddFontFromFileTTF(faces[i].Face, (fonts + faces[i].File).c_str()) != nullptr;
+    if (!ok) {
+        std::fprintf(stderr, "shot: %s\n", ImTypeset::GetLastError()->Message);
+        return 1;
+    }
+    const ImU32 CLEAR = IM_COL32(115, 140, 153, 255);
+    soft_raster::Image image(w, h, CLEAR);
+    soft_raster::Image strip(w, 1, CLEAR);
+    const int total = then > 0.0f ? frames * 2 : frames;
+    float smx = 0, smy = 0;
+    ImU64 layouts_before = 0;
+    for (int frame = 1; frame <= total; ++frame) {
+        if (then > 0.0f && frame == frames + 1)
+            size = then;
+        if (frame == total)
+            layouts_before = ImTypeset::GetStats().Layouts;
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::Begin("A page of the host's", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                         ImGuiWindowFlags_HorizontalScrollbar);
+        ImGui::PushFont(nullptr, size);
+        ImTypeset::ShowDemoSection(section);
+        ImGui::PopFont();
+        if (scroll > 0.0f)
+            ImGui::SetScrollY(scroll);
+        smx = ImGui::GetScrollMaxX();
+        smy = ImGui::GetScrollMaxY();
+        ImGui::End();
+        ImGui::Render();
+        if (frame == total) {
+            image.clear(CLEAR);
+            renderer.render(ImGui::GetDrawData(), image);
+        } else {
+            strip.clear(CLEAR);
+            renderer.render(ImGui::GetDrawData(), strip);
+        }
+    }
+    std::printf("section %d (%s) size %g %dx%d: scrollmax x=%g y=%g, layouts in last frame=%llu\n",
+                section, ImTypeset::GetDemoSectionName(section), (double)size, w, h, (double)smx,
+                (double)smy, (unsigned long long)(ImTypeset::GetStats().Layouts - layouts_before));
+    const bool wrote = soft_raster::write_png(out, image);
+    ImTypeset::DestroyContext();
+    renderer.shutdown();
+    ImGui::DestroyContext();
+    return wrote ? 0 : 1;
+}

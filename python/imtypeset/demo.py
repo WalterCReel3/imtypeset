@@ -26,7 +26,7 @@ from __future__ import annotations
 import enum
 from typing import Tuple
 
-from . import Error, last_error, show_demo_window
+from . import Error, _index, last_error, show_demo_window
 from . import library as _library
 
 __all__ = [
@@ -67,14 +67,14 @@ def sections() -> Tuple[DemoSection, ...]:
 def section_name(section: int) -> str:
     """The section's title as the demo window's header shows it; "" for a value
     that is not a section."""
-    return (_lib.ImTypeset_GetDemoSectionName(int(section)) or b"").decode("utf-8", "replace")
+    return (_lib.ImTypeset_GetDemoSectionName(_index(section)) or b"").decode("utf-8", "replace")
 
 
 def show_demo_section(section: int) -> None:
     """ImTypeset::ShowDemoSection: the contents of one section of the demo
     window, into the current window. A value that is not a section draws
     nothing."""
-    if not _lib.ImTypeset_ShowDemoSection(int(section)):
+    if not _lib.ImTypeset_ShowDemoSection(_index(section)):
         # A C++ exception caught at the library's boundary: an assertion of
         # Dear ImGui's, in a build where those throw.
         raise Error(last_error(), "show_demo_section")
