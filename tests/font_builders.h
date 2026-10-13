@@ -582,12 +582,17 @@ inline double seconds_since(std::chrono::steady_clock::time_point start)
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 }
 
-// The process's peak resident size so far, in megabytes.
+// The process's peak resident size so far, in megabytes. ru_maxrss is in
+// kilobytes on Linux and in bytes on macOS.
 inline double peak_rss_mb()
 {
     struct rusage usage;
     getrusage(RUSAGE_SELF, &usage);
+#if defined(__APPLE__)
+    return static_cast<double>(usage.ru_maxrss) / (1024.0 * 1024.0);
+#else
     return static_cast<double>(usage.ru_maxrss) / 1024.0;
+#endif
 }
 
 // --- GPOS written from scratch ----------------------------------------------------------

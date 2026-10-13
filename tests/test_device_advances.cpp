@@ -440,9 +440,6 @@ Measured measure(Stage& stage, const Page& page, const ImVec2& pos = ImVec2(20.0
     size_t long_start = 0;
     for (int r = 0; r < LONG_ROW; ++r)
         long_start += std::strlen(CODE_ROWS[r]) + 1;
-    size_t ruler_start = 0;
-    for (int r = 0; r < RULER_ROW; ++r)
-        ruler_start += std::strlen(CODE_ROWS[r]) + 1;
     ImTypesetDocumentDraw selected;
     selected.Selection.Start.Offset = static_cast<int>(long_start) + 20;
     selected.Selection.End.Offset = static_cast<int>(long_start) + 40;
@@ -1394,7 +1391,7 @@ TEST(the_device_advance_a_host_can_ask_for_is_the_atlas_entrys_rounded_to_the_pi
             for (const ImTypesetFace face : {ImTypesetFace_Code, ImTypesetFace_Regular}) {
                 ImFontBaked* baked = library_bake(stage, page, face);
                 REQUIRE(baked != nullptr);
-                for (const unsigned int c : {'M', 'i', ' ', '0'}) {
+                for (const unsigned int c : {0x4Du, 0x69u, 0x20u, 0x30u}) { // M i space 0
                     const ImFontGlyph* glyph = baked->FindGlyph(static_cast<ImWchar>(c));
                     REQUIRE(glyph != nullptr);
                     // Copied out: the library's answer can load other glyphs

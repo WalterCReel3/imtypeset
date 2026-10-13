@@ -15,8 +15,13 @@ and 12). Three words are kept apart throughout:
 - **RAN** — done on a machine, with who and when;
 - **READ** — taken from a source or a document, with which;
 - **RECALLED** — written from memory of a tool's documentation and not checked
-  against the tool. Everything about macOS below is RECALLED until
-  `.github/workflows/sidecar-probe.yml` has run.
+  against the tool.
+
+The workflows first ran on GitHub on 2026-10-12, and that day the library was
+first built against the wheel's own headers on a developer's machine. Section
+14 is the account of both, and where it and an earlier section disagree,
+section 14 is current: sections 2 to 12 were written before any of it, and
+what they call RECALLED about macOS is marked there as RAN or still RECALLED.
 
 ## 1. Where it stands
 
@@ -30,14 +35,19 @@ and 12). Three words are kept apart throughout:
 | built against the wheel's own headers | **never**: the fetch needs the network and no session here has had it | never | no wheel |
 | Dear ImGui's own layout check passes | never (it refuses stand-in headers, as it should: `sizeof(ImGuiStyle)` 1368 against the wheel's 1372) | never | no wheel |
 
+**This table is the state of 2026-10-11, kept as it was written; section 14
+has today's.** In short: the sidecar works on macOS arm64 and on Linux x86-64
+against the wheel's own headers, and Dear ImGui's own layout check passes on
+both (RAN on GitHub's runners, and on Linux here).
+
 "RAN" in this table is by the builder of task `mac-ci`, 2026-10-11, on one
 machine (Debian 12, glibc 2.36, CPython 3.11.2), in two virtual environments:
 `../imgui-adv-text/.venv` (1.92.900, Dear ImGui 1.92.9) and `../pptmstr/.venv`
 (1.92.801, Dear ImGui 1.92.8), through `tools/ci/sidecar_probe.py`.
 
-**Whether the sidecar works on macOS is not answered here, and is not to be
-answered from this document.** The answer is the first run of the
-`sidecar-probe` workflow; section 6 says how to read it.
+**Whether the sidecar works on macOS was answered by the first run of the
+`sidecar-probe` workflow (2026-10-12): yes, on Apple Silicon.** Section 6 says
+how to read a run; section 14 what that one said.
 
 ## 2. How the library finds the wheel's Dear ImGui
 
@@ -116,7 +126,11 @@ nothing done to the process. The lookup build is kept on Linux because it
 exercises, on a machine we have, the audit and the load order that macOS
 depends on.
 
-### macOS (RECALLED; never run)
+### macOS (written from recollection; RAN on GitHub's runners 2026-10-12)
+
+What follows was written before any run. The run confirmed the link line, the
+lookup at load and the visibility of the module after a plain import (section
+14); the points it did not settle are named there.
 
 - Apple's `ld` links a dylib only against dylibs. A CPython extension module
   is expected to be a loadable bundle (`MH_BUNDLE`), which it refuses as a
@@ -189,24 +203,26 @@ definitions, in the build script (`docs/bindings-notes.md`, section 3).
   the files came from and vouches for nothing. (RAN, before the change: a
   cached `imgui.h` edited together with its line in `SOURCE.json` was used.
   After: refused, and so are a file added to or taken out of the cache.)
-- **The fork's two checksums are not recorded yet**, because no machine here
-  has held the fork. Until they are: the fork's headers are checked by commit
-  id alone, are fetched again for every build, and a release build is
-  refused (`--require-recorded`, which `build_wheel.py --release` sets). The
-  first fetch of the fork prints both values as the two lines to paste into
-  `bundle_pins.toml` and writes them on the job's summary page; a person
-  pastes them. From then on they are checked on every fetch. The stand-in
-  checksums are recorded (computed here from `../imgui` at the pinned
-  commits).
+- **The fork's two checksums are recorded for both versions** (2026-10-12),
+  from three fetches that agreed: jobs of the workflows on Linux x86-64 and on
+  macOS arm64, and a fetch on a developer's machine where each value was also
+  computed by hand with `sha256sum`. They are checked on every fetch, a cached
+  copy is used when it hashes to them, and a release build
+  (`--require-recorded`, which `build_wheel.py --release` sets) is allowed.
+  **An entry for a new imgui-bundle version starts without them**: until they
+  are pasted in, its headers are checked by commit id alone, fetched again for
+  every build, and a release build of it is refused. The first fetch prints
+  both values as the two lines to paste and writes them on the job's summary
+  page. The stand-in checksums are recorded too (computed from `../imgui` at
+  the pinned commits).
 
 RAN (17 tests, `tools/ci/test_fetch_headers.py`): the fetch, the checks, the
 cache held to the pins, each refusal, against a git repository and a `file://` URL made for the
 test; and stand-in headers for both wheels from the local `ocornut/imgui`
-clone. **Never run: any fetch from github.com**, so that GitHub serves these
-two commits by id is unconfirmed (it is what `git submodule update` relies on
-for the same commits, which is an inference). **Never compiled: the library
-against the fork's headers.** The demo window calls two functions whose
-signature the fork changes; whether that compiles as written is not known.
+clone. RAN since (2026-10-12): the fetch from github.com of both commits by
+id, on GitHub's runners and on a developer's machine, and the library
+compiled against the fork's headers by GCC 12.2 and by Apple clang 15,
+without a change to the sources.
 
 ## 4. Building one
 
@@ -342,7 +358,7 @@ sdist.
 | the CPython version | the attestation is of that CPython's `_imgui_bundle` module, and on Linux the library names that module's file, which carries the CPython tag | the Python tag `cp311`, and `Requires-Python: ==3.11.*` |
 | **not** the CPython ABI | it is loaded with `ctypes` and calls no CPython function | the ABI tag `none` |
 
-So a file is `imtypeset-0.3.0.192900-cp311-none-manylinux_2_28_x86_64.whl`.
+So a file is `imtypeset-0.4.1.192900-cp311-none-manylinux_2_28_x86_64.whl`.
 
 **The Linux platform tag is a measurement** (`build_wheel.measured_linux_tag`,
 with `objdump`). `manylinux_2_<n>_x86_64` promises that the file needs no
@@ -364,17 +380,20 @@ a tag given by hand is held to the same.
   `CXXABI_1.3.11`, `GCC_8`) and the list of system libraries, from the
   manylinux policy. auditwheel was not run: it would refuse the wheel's
   module as a library from outside.
-- NOT KNOWN: what the measurement gives on a GitHub runner. A library
-  compiled against a newer glibc can pick up newer symbol versions (2.38
-  redirects the `strtol` family, for one). On `ubuntu-latest` the tag might
-  come out `manylinux_2_38` or higher, which Debian 12 (2.36) cannot install.
-  The `wheels` workflow therefore builds Linux wheels on `ubuntu-22.04`
-  (glibc 2.35) and prints each wheel's measured tag and its basis on the
-  job's summary page. If the tag there is above what the application's users
-  have, the remedy is to build inside the `manylinux_2_28` container image,
+- MEASURED on GitHub's `ubuntu-22.04` runner (2026-10-12, six jobs): the
+  same, `GLIBC_2.14` and `GLIBCXX_3.4.21`, so `manylinux_2_28_x86_64`. A
+  library compiled against a newer glibc can pick up newer symbol versions
+  (2.38 redirects the `strtol` family, for one), so on `ubuntu-latest` the
+  tag might come out `manylinux_2_38` or higher, which Debian 12 (2.36)
+  cannot install: not measured. The `wheels` workflow therefore builds Linux
+  wheels on `ubuntu-22.04` (glibc 2.35) and prints each wheel's measured tag
+  and its basis on the job's summary page. If a tag there ever comes out
+  above what the application's users have, or plain `linux_x86_64` (which is
+  not a release, `check_wheel.py --release`), the remedy is to build inside
+  the `manylinux_2_28` container image,
   which is not written: `actions/setup-python` does not serve that image, so
   the job would take its Python from `/opt/python` and its system libraries
-  from `dnf`. That the label `ubuntu-22.04` still exists is RECALLED.
+  from `dnf`.
 
 **Two imgui-bundle versions coexist as two version lines of one distribution
 name.** The distribution's version is the library's version with the
@@ -424,8 +443,11 @@ release: its version is `0.3.0.192900.dev0+standin`, its metadata's summary
 and description say it, its attestation has `"stand_in": true`, and
 `host_info()["bundle"]["stand_in"]` is `True` with `"headers": "stand-in:..."`.
 `build_wheel.py --release`, `check_wheel.py --release` and
-`tools/ci/wheel_release.sh` each refuse one. Both wheels built here are
-stand-in wheels: this machine cannot fetch the fork's headers.
+`tools/ci/wheel_release.sh` each refuse one, and so does an index: PyPI
+takes no version with a local label (READ: packaging.python.org, "Version
+specifiers": the index "MUST NOT allow the use of local version
+identifiers"). The wheels built until 2026-10-12 were stand-in wheels; the
+release wheels since are not (section 14).
 
 `.dev0` is what keeps a stand-in wheel **below** the release of its line.
 RAN (`packaging` 26.3, in `tools/ci/test_wheel.py`): `0.3.0.192900+standin`,
@@ -454,13 +476,12 @@ to this list): `imtypeset/__init__.py`, `_bundle.py`, `_capi.py`, `demo.py`;
 `imtypeset/libimtypeset_bundle.so` (`.dylib` on macOS), 1.2 MB with its
 debugging sections taken off; `imtypeset/_attestation.json`; and in
 `imtypeset-<version>.dist-info`: `METADATA`, `WHEEL`, `RECORD`,
-`licenses/THIRD-PARTY.md`, `licenses/NOTICE.txt`. No font, no Dear ImGui, no
-FreeType. `NOTICE.txt` says what is compiled into the library (imtypeset; the
-routines that follow fontTools; the Unicode range tables; the inline functions
-of the Dear ImGui headers it was compiled against) and what is not. **No
-licence has been chosen for imtypeset** (`docs/decisions.md`, D24), and the
-metadata says so; a wheel should not be given to anyone outside until that is
-decided.
+`licenses/LICENSE`, `licenses/THIRD-PARTY.md`, `licenses/NOTICE.txt`. No font,
+no Dear ImGui, no FreeType. `NOTICE.txt` says what is compiled into the
+library (imtypeset; the routines that follow fontTools; the Unicode range
+tables; the inline functions of the Dear ImGui headers it was compiled
+against) and what is not. **imtypeset's licence is MIT** (`LICENSE`;
+`docs/decisions.md`, D82, the owner's choice of 2026-10-12).
 
 **How the package finds its library** (`_capi.library_route`). The route is
 decided by what is in the package's own directory, and by nothing else:
@@ -480,12 +501,23 @@ imtypeset is present without importing it can look for `_attestation.json`
 beside `importlib.util.find_spec("imtypeset").origin`; that survives a freezer
 that drops `dist-info` directories, which the metadata does not.
 
-**The metadata** is version 2.4, the version that has `License-File`; the two
-files it names are the notices, in `dist-info/licenses/`. It names **no
-licence** (no `License-Expression`, no `License`, no classifier), because none
-has been chosen, and its description says so in words. RECALLED: that an index
-refuses `License-File` under an older metadata version (PEP 639). RAN: pip
-26.2.1 installs the wheel.
+**The metadata** is version 2.4, the version that has `License-Expression`
+and `License-File`. It says `License-Expression: MIT` and names three files,
+which are in `dist-info/licenses/`: `LICENSE` and the two notices. It has no
+`License` field and no licence classifier: 2.4 makes `License` and
+`License-Expression` mutually exclusive ("PyPI will reject uploads" with
+both) and deprecates the classifiers (READ: packaging.python.org, "Core
+metadata specifications", 2026-10-12; the latest version there is 2.6, and
+nothing this wheel says needs more than 2.4). Beside those: the project's URLs
+(repository, changelog, this document, issues), classifiers that are all in
+`trove-classifiers` 2026.9.21.13, `Requires-Python: ==3.<n>.*`,
+`Requires-Dist: imgui-bundle==X`, and a markdown description that is
+`python/README-pypi.md`, the text of the project's page, followed by what the
+one file was built for. RAN (2026-10-12): `twine check --strict` (twine 7.0.0)
+passes, `packaging` 26.3 parses the metadata with validation and the file
+name as version `0.4.1.192900` with no local or development part, pip 26.2.1
+installs the wheel, and `check_installed.py` runs the description's usage
+example from the installed metadata.
 
 Building one, as a developer:
 
@@ -706,13 +738,31 @@ to do, and holds no path. The lines after it are for a log. `e.kind`,
 | `bundle-missing` | `import imgui_bundle` fails | "imtypeset needs imgui-bundle 1.92.900, and it cannot be imported here. Install it." |
 | `damaged` | the library is not the attested file, is cut short anywhere, or is missing; or the attestation cannot be read or is not of the shape the gate reads | "The imtypeset library is not the one imtypeset 0.3.0 was installed with: it is damaged, or an update replaced only part of it. Install imtypeset again." |
 | `package-mismatch` | the Python modules and the library are of different releases | "The imtypeset library does not export 2 of the 95 functions this imtypeset package calls: … The library and the package are installed together, from one release." / "The imtypeset library refuses this package (written for …): …" |
-| `layout` | Linux: `imgui_bundle` was imported from another directory than the package's neighbour | "imtypeset and imgui-bundle are installed in two different places, and imtypeset finds imgui-bundle only beside itself. Install both into the same environment." |
+| `layout` | **Linux only**: `imgui_bundle` was imported from another directory than the package's neighbour. Never on macOS (below) | "imtypeset and imgui-bundle are installed in two different places, and imtypeset finds imgui-bundle only beside itself. Install both into the same environment." |
 | `wrong-platform` | the package was built for another system | "This copy of imtypeset 0.3.0 was built for Darwin arm64, and this computer is Linux x86_64. Install the imtypeset built for this computer." |
 | `unchecked` | no attestation, and no probe may run (an installed package, always; a checkout where no child interpreter can be started, or with `IMTYPESET_GATE=attested`); or the check itself ended in an error | "This copy of imtypeset carries no record that it was checked against the imgui-bundle it is running beside, and it is not checked here. Install a released imtypeset wheel." / "The imtypeset library named by IMTYPESET_LIBRARY has no record that it was checked against this imgui-bundle, and it cannot be checked here: this is not a Python interpreter that can start another. …" |
 | `no-library` | a source checkout (no library and no attestation in the package), and `IMTYPESET_LIBRARY` unset | "IMTYPESET_LIBRARY is not set, and this copy of the imtypeset package carries no library: it is a source directory and not an installed wheel." |
 | `not-a-library` | the file cannot be loaded or is not imtypeset's | "The imtypeset library cannot be loaded: it is damaged, or it was built for another system or another imgui-bundle. Install imtypeset again." |
 | `refused` | a check ran and refused: a second copy of the module, a second Dear ImGui in the global symbol scope, an answer that differs from the attestation, a failed probe | "The imtypeset library does not fit imgui-bundle … in this application. Install the imtypeset built for this imgui-bundle." |
 | `configuration` | `IMTYPESET_BUNDLE_STRICT=1` over a stand-in build; in a checkout, `IMTYPESET_GATE` with a value that is not one | "This imtypeset was built against stand-in Dear ImGui headers, and IMTYPESET_BUNDLE_STRICT=1 refuses such a build. …" |
+
+**Side by side, or not: the rule is the binding's** (decided 2026-10-12,
+task `pypi-release`, after the first macOS run of `check_installed.py`
+expected a refusal there and got an import).
+
+| | how the library finds Dear ImGui | `imtypeset/` and `imgui_bundle/` in two directories |
+|---|---|---|
+| Linux | linked to the wheel's module by file name, with the run path `$ORIGIN/../imgui_bundle` (section 2) | **refused, `layout`.** The run path leads beside the package and nowhere else. Loaded anyway, the library would either fail to find the file or bring in a second copy of it |
+| macOS | by lookup: it names no file, and binds to the module the process has loaded | **accepted.** Nothing about the library depends on where the module is. Which module it binds to is settled by content, before the load: the gate hashes the file `imgui_bundle` is imported from and holds it to the attestation, and after the load checks that no second copy and no other Dear ImGui is in reach |
+
+The package decides by what the attestation records of the library
+(`run_path`), not by the platform's name, so a library bound by lookup on
+Linux (a development build) is treated as macOS's is. macOS is not made to
+refuse for symmetry: a refusal there would protect nothing, and an
+application freezer may well put the two packages in different directories
+of a bundle. `tools/wheel/check_installed.py` holds each platform to its row:
+RAN on Linux here (refused); the macOS row is what GitHub's six macOS jobs did
+on 2026-10-12, and the check as now written has not yet run there.
 
 "There is no library for this platform" (advtext's H26) has no refusal of its
 own, because it cannot arise from an install: where no wheel matches the
@@ -941,11 +991,8 @@ NEVER RUN:
   shape above is the import with a frozen interpreter's properties imitated,
   not a frozen application.
 - **CPython 3.12 and 3.13**, and pip older than 26.2.1.
-- **An upload to an index.** It would take: a licence; a name on the index
-  (`imtypeset` is not registered by this project; nobody checked whether it is
-  free); wheels that pass `check_wheel.py --release`; a publishing job with
-  the index's trusted-publisher configuration, which is a setting on the
-  index's side and a new permission (`id-token: write`) in one job.
+- **An upload to an index.** Everything for one is written (section 14 and
+  `docs/releasing.md`) and nothing has been uploaded.
 
 ## 13. After task `device-finish` (2026-10-12)
 
@@ -955,3 +1002,47 @@ ImGui that the library resolves at load like the rest. No new field of ImGui's i
 probe has the 26 rows it had; the `ImFontGlyph.AdvanceX` row stays as a check of that struct's
 layout, which the draw loop reads eight other fields of. What was run in the wheels'
 environments for this is in `.concerns/device-finish--builder--result.md`.
+
+## 14. After the first runs on GitHub, and task `pypi-release` (2026-10-12)
+
+**RAN on GitHub's runners**, 2026-10-12, at commit `5077b22` (version 0.3.0
+then); read from the runs' logs and artifacts, kept under `build/ci-artifacts`
+by the lead and read again by the builder of `pypi-release`:
+
+| what | result |
+|---|---|
+| `sidecar-probe`, macOS arm64 (macOS 14.8.9, Apple clang 15.0.0, CPython 3.11 to 3.13 with 1.92.900, 3.11 with 1.92.801) | **H1 YES, H2 YES** in all four: bound by `lookup`, the fork's headers fetched from GitHub, 117 Dear ImGui symbols needed and 0 not exported by the wheel's module, the module visible to the process after a plain import, Dear ImGui's own layout check passes |
+| `sidecar-probe`, Linux x86-64 (the same four pairs) | H1 YES, H2 YES, bound by `link` |
+| `sidecar-probe`, macOS x86-64 | NOT TESTED: no imgui-bundle wheel, as expected |
+| `wheels`, Linux x86-64, six jobs | green: `manylinux_2_28_x86_64` measured, installed, `check_installed.py` all passed |
+| `wheels`, macOS arm64, six jobs | six wheels `…-macosx_14_0_arm64.whl` built and installed; red on ONE check of `check_installed.py`, which expected the Linux-only `layout` refusal (section 9). Every other check passed, among them the frozen shape, the truncated library on a real Mach-O file, and the duplicate-module check through dyld's image list |
+| `wheels` on the tag `v0.3.0` | refused, as designed: no recorded header checksums then |
+| `ci`, job `tools/ci` | one test failed: it cut a copy of the interpreter's `_ctypes` to half its length and expected it not to load. The hosted CPython's `_ctypes` is 606,824 bytes of which the loader maps the first 133,664, so half of it loads. Reproduced on a developer's machine with that file, and the test now cuts inside what is mapped |
+
+So of what sections 2, 9 and 12 call never run on macOS, these RAN: the link
+line, the lookup at load after a plain import (no reopening needed), the
+exported-symbols list, the platform tag, the Mach-O content hash and length
+check on a real library, dyld's image list, the global-scope check. **Still
+never run:** a signed, notarised or frozen application; a re-signed library
+against the second hash; macOS on Intel; `child_interpreter()` inside a real
+freezer's application; anything on macOS with CPython 3.14.
+
+**RAN by the builder of `pypi-release`**, 2026-10-12, Debian 12, GCC 12.2,
+glibc 2.36, pip 26.2.1, every process that loads the library under `ulimit -v
+6000000` (or a container's memory limit), load average 1.4 to 6.2:
+
+| what | result |
+|---|---|
+| `fetch_headers.py` for both versions, from github.com | the four checksums the runners printed; recorded (section 3) |
+| `tools/ci/wheel_build.sh` with `IMTYPESET_RELEASE_TAG=v0.4.1`, CPython 3.11.2, for 1.92.900 and 1.92.801: a new environment, imgui-bundle from PyPI, `build_wheel.py --release`, `check_wheel.py --release --tag v0.4.1`, a second new environment, `pip install` of both, `pip check`, `check_installed.py` | **the first release wheels**: `imtypeset-0.4.1.192900-cp311-none-manylinux_2_28_x86_64.whl` and `…192801…`, 608 kB, 12 files, headers `fork:<commit>`, accepted by `imgui-check+probe`, 26 probe rows; 59 checks PASS, 0 FAIL in each (4 SKIP: they need `--dev-library`) |
+| the same in the container image `python:3.14-bookworm` (CPython 3.14.8, GCC 12.2), both versions | two `cp314` wheels, the same results. CPython 3.14 has run nowhere else |
+| `tools/ci/wheel_build.sh` with no tag, as a push to `main` runs it (1.92.900 and 1.92.801, the wheel's own headers); with `IMTYPESET_BUNDLE_HEADERS=stand-in`; with `IMTYPESET_REHEARSAL=true` and a summary file | 59 PASS each. No tag: "a release would accept this wheel". Stand-in: `imtypeset-0.4.1.192900.dev0+standin-…whl`, "NOT what a release accepts" with the three reasons. Rehearsal: built and checked as a release of `v0.4.1` |
+| `twine check --strict` (twine 7.0.0), `packaging` 26.3 on file names and metadata, `trove-classifiers` on the classifiers | pass (section 8) |
+| `tools/ci/test_wheel.py`, `test_fetch_headers.py`, `check_workflows.py`, `actionlint` on the three workflow files, `shellcheck` | 28 tests; 17 tests; three files ok, and nine edited copies of `wheels.yml` each reported (a publishing job without its condition, its environment, the wheels, or with a password; an upload outside a publishing job); clean but for one note that is deliberate |
+| `tools/ci/wheel_publish.py` and `wheel_release.sh` with `IMTYPESET_RELEASE_DRY=1` | `docs/releasing.md`, "What ran" |
+
+**Not run:** the publishing jobs of `wheels.yml` (nothing has been uploaded
+anywhere, and PyPI's side of Trusted Publishing is checked by the first tag);
+`wheels.yml` as it now is, on GitHub; CPython 3.12 and 3.13 here (they ran on
+the runners at 0.3.0); the `--dev-library`, `--other-python` and
+`--self-hosted-library` cases of `check_installed.py` on the release wheels.

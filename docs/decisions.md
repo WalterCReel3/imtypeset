@@ -4350,3 +4350,68 @@ GCC 12.2, Ryzen 7 PRO 4750U): the first frame after a density change, ONE block:
 17.0 ms at 5,000 lines and 170 / 177 / 194 ms at 50,000 (min / median / p95); as blocks of
 twenty lines 0.23 ms and 0.66 to 0.76 ms. A host with a file in one block pays that once per
 change of display or size; hunks as blocks do not.
+
+## D82. The licence is MIT; the Python wheels are published on PyPI as `imtypeset` (task `pypi-release`, 2026-10-12)
+
+**Decided by the owner, 2026-10-12**, in their words as the lead relayed them to the task: on
+the licence, "MIT, yes"; on the version of the first published release, "0.4.1 is fine"; and
+earlier the same day, "Let's work on publishing this code to PyPI and get it ready for
+imscribe." The builder of the task did not hear the owner: the words reached it through the
+coordinator, and the commit that carries this entry is the owner's confirmation of them.
+
+This supersedes one sentence of D24, "No licence has been chosen for this project". The rest of
+D24 stands as written: what may enter the tree, and how what was taken from others is recorded,
+are the rules that kept the tree fit for this licence.
+
+What follows from it, done in the same change:
+
+- `LICENSE` at the root: the MIT License, "Copyright (c) 2026 Walter Reel", the copyright line
+  of imscribe's `LICENSE` (`../imgui-adv-text/LICENSE`, read and copied whole; the two files
+  are byte-identical). Source files carry no licence header: none had one, and none was added.
+- A wheel's metadata says `License-Expression: MIT` and names three `License-File`s, which are
+  in `<dist-info>/licenses/`: `LICENSE`, `THIRD-PARTY.md`, `NOTICE.txt`. Metadata 2.4 is the
+  version that has both fields; it forbids `License` beside `License-Expression` and deprecates
+  licence classifiers, so neither is written (READ: packaging.python.org, "Core metadata
+  specifications", 2026-10-12). `tools/wheel/check_wheel.py` holds every wheel to that.
+- `THIRD-PARTY.md`, `README.md`, `vcpkg.json`, `ports/imtypeset` and `docs/distribution.md`
+  say MIT where they said none.
+
+**Decided by an agent in the same task, for the owner to overrule:**
+
+- *No source distribution is published.* A source build needs the exact imgui-bundle wheel
+  installed first, a C++17 compiler, and the fork's headers fetched from GitHub by commit id:
+  not what `pip install` should start on a user's machine when no wheel matches. Where no wheel
+  matches, pip says so and installs nothing. PyPI and its publishing action ask for no sdist
+  (`docs/releasing.md` says what was read).
+- *An upload is all the wheels of a tag or none of them, as far as this side can make it so:*
+  the publishing job needs every wheel job, checks every wheel again with
+  `check_wheel.py --release`, and refuses a set that is not the matrix's. PyPI itself accepts
+  files one at a time and never lets a file name be used again, so a failure partway through an
+  upload is repaired by running the job again (`skip-existing`), never by replacing a file.
+- *A wheel whose measured platform tag is plain `linux_<arch>` is not a release*
+  (`check_wheel.py --release`): PyPI refuses that tag (RECALLED, not read on a page today).
+
+**Not decided here:** whether the C++ library is offered through a package manager. The vcpkg
+port is still an untested outline.
+
+## D83. The strict pass bounds a glyf glyph where it is drawn (2026-10-12)
+
+*Decided* (by the agent of task `clang-clean`, confirmed by the coordinating
+session): a `glyf` glyph's outline moved by `lsb - xMin` must stay within 16
+bits and within `STRICT_REACH`; a font with a glyph that does not is refused
+by the strict pass ("a glyph's side bearing moves its outline past 16 bits",
+"... far outside the font's height").
+
+*Measured:* a 596-byte font with one `hmtx` left side bearing of 32,767 passed
+the reader and the strict pass and came back from FreeType as a 1046 x 3 px
+bitmap at 16 px (FreeType 2.12.1 and 2.13.2, `FT_LOAD_TARGET_NORMAL`), wider
+than the atlas: Dear ImGui's "Out of texture memory" assertion, which ends the
+host. Found because Clang evaluates the fuzz's argument draws in another order
+than GCC and so fuzzes another stream of mutants; it reproduces under GCC by
+replaying the file. Of 2,991 faces in the 2,925 font files installed on the
+machine, 0 are refused before and after. Four cases in
+`tests/test_stress_font.cpp` hold it; three failed before.
+
+*Not measured:* FreeType 2.14; a composite whose component lends it its
+metrics (`USE_MY_METRICS`) beyond three probed shapes. *Inferred, not read:*
+that FreeType's hinter keeps the moved coordinates in 16 bits.

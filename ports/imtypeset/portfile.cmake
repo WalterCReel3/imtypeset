@@ -4,9 +4,10 @@
 # installed Dear ImGui package, install, be found by find_package.
 #
 # Not filled in, on purpose:
-#   - REPO, REF and SHA512: the project has no published repository or release.
-#   - "license" in vcpkg.json and the copyright file: no licence has been
-#     chosen (docs/decisions.md, D24).
+#   - SHA512: of the archive GitHub serves for the tag, which exists only
+#     once a tag is pushed.
+# The licence is MIT (LICENSE; docs/decisions.md, D82): "license" in
+# vcpkg.json says so, and the copyright file installed below is LICENSE.
 #
 # Assumed and not checked: that vcpkg's imgui port installs a CMake package
 # whose target is imgui::imgui (hello_imgui's build files rely on that name),
@@ -15,7 +16,7 @@ vcpkg_check_linkage(ONLY_STATIC_LIBRARY) # as Dear ImGui's own port
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
-    REPO TO-BE-FILLED-IN/imtypeset
+    REPO WalterCReel3/imtypeset
     REF "v${VERSION}"
     SHA512 0
     HEAD_REF main
@@ -35,3 +36,4 @@ vcpkg_cmake_install()
 vcpkg_cmake_config_fixup(PACKAGE_NAME imtypeset CONFIG_PATH lib/cmake/imtypeset)
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

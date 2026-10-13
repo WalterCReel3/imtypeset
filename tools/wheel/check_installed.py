@@ -10,7 +10,8 @@ installed in, with no IMTYPESET_* or PYTHONPATH variable set:
 
   1. THE INSTALL: `import imtypeset` with no variable; the library is the one
      inside the package; the gate accepted it on its attestation; the
-     distribution's metadata pins the imgui-bundle that is running.
+     distribution's metadata pins the imgui-bundle that is running. And the
+     usage example in the metadata's description (the project's page) runs.
   2. THE FROZEN SHAPE: the same import with `sys.frozen` set, `sys.executable`
      naming a file that does not exist, every way of starting a process
      replaced by one that fails the check, and the package's directory and
@@ -276,6 +277,20 @@ def main(argv=None) -> int:
                plain["stand_in"] == distribution.version.endswith(".dev0+standin")
                and ("standin" in distribution.version) == plain["stand_in"],
                f"stand_in {plain['stand_in']}, version {distribution.version}")
+        # The usage example of the project's page (python/README-pypi.md, which
+        # is the metadata's description): the text a reader will paste, run
+        # as it is installed here.
+        import re
+
+        example = re.search(r"^```python\n(.*?)^```", distribution.read_text("METADATA") or "", re.M | re.S)
+        if not report("the metadata's description has a usage example", example is not None):
+            pass
+        else:
+            ran = subprocess.run([sys.executable, "-P", "-B", "-c", example.group(1)], capture_output=True,
+                                 text=True, env=clean_environment(), cwd=scratch, timeout=300)
+            report("the usage example of the project's page runs as written",
+                   ran.returncode == 0 and ran.stdout.startswith(plain["version"] + " "),
+                   (ran.stdout.strip() or ran.stderr.strip())[-300:])
     except importlib.metadata.PackageNotFoundError:
         report("the distribution's metadata is installed", False)
 
@@ -442,9 +457,33 @@ def main(argv=None) -> int:
     expect_refusal("the Python modules of a later release over this library (a new function)",
                    child(site, cwd=scratch), "package-mismatch", "does not export")
 
+    # The rule is the binding's, and the binding is the platform's
+    # (docs/sidecar.md, sections 2 and 9). A library LINKED to the wheel's
+    # module by name (Linux) finds it through a run path that leads beside its
+    # own package and nowhere else: apart, refused. A library bound by LOOKUP
+    # (macOS) names no file and binds to the module the process has loaded,
+    # which the gate has already held to the attestation by content: apart,
+    # accepted.
+    linked = attestation.get("run_path") == "$ORIGIN/../imgui_bundle"
+    system = attestation["platform"]["system"]
+    report("the binding is the platform's: linked by name on Linux, by lookup on macOS",
+           linked == (system == "Linux") and attestation.get("bind") == ("link" if linked else "lookup"),
+           f"{system}: bind {attestation.get('bind')!r}, run path {attestation.get('run_path')!r}")
     site = copy(with_bundle="")
-    expect_refusal("imgui_bundle imported from another directory than the package's neighbour",
-                   child(site, cwd=scratch), "layout", "same environment")
+    apart = child(site, cwd=scratch)
+    if linked:
+        expect_refusal("imgui_bundle imported from another directory than the package's neighbour "
+                       "(a library linked by name): refused",
+                       apart, "layout", "same environment")
+    else:
+        report("imgui_bundle imported from another directory than the package's neighbour "
+               "(a library bound by lookup): accepted, the module held to the attestation by content",
+               apart.get("imported") is True and apart.get("file", "").startswith(site)
+               and apart.get("checked_in") == "attestation"
+               and (apart.get("matched_by") or {}).get("module") in ("sha256", "image")
+               and str(apart.get("second_module_check")).startswith("done: "),
+               apart.get("first", "") or f"matched by {apart.get('matched_by')}, "
+               f"{apart.get('second_module_check')}")
 
     if attestation["platform"]["system"] == "Linux":
         # The loader maps nothing of an ELF file's tail, so these would load.

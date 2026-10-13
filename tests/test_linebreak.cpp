@@ -98,8 +98,6 @@ namespace
 constexpr Scaled PT = UNITY;
 constexpr Scaled LINE = 100 * PT;
 const GlueSpec SPACE{6 * PT, 4 * PT, GlueOrder::NORMAL, 2 * PT, GlueOrder::NORMAL};
-const GlueSpec STIFF{6 * PT};
-const GlueSpec FIL{0, PT, GlueOrder::FIL};
 const int SHOWCASE[] = {12, 19, 27, 14, 12, 13, 19, 15, 18};
 
 int g_violations = 0;

@@ -4,9 +4,19 @@ the rules this repository holds its workflows to.
     python3 -B tools/ci/check_workflows.py        (needs PyYAML; exit 77 without it)
 
   - `permissions` is exactly `contents: read`, at the top, and no job asks for
-    more, but one: the job `release` of wheels.yml, which attaches wheels to a
-    GitHub Release and has `contents: write`, runs only for a tag, and needs
-    every other job of the file;
+    more, but three, all in wheels.yml, each of which needs the job that
+    builds and checks the wheels:
+      release           `contents: write`; attaches wheels to a GitHub Release
+      publish-pypi      `id-token: write` (PyPI's Trusted Publishing), in the
+                        environment `pypi`, and no index URL: PyPI
+      publish-testpypi  the same in the environment `testpypi`, with
+                        TestPyPI's URL
+    `release` and `publish-pypi` run only for a PUSHED TAG v<version>;
+    `publish-testpypi` only for a run started by hand with its input set.
+    So no push to a branch sends anything anywhere;
+  - the index's action is used by those two jobs and by nothing else, takes
+    no password, and each job's step before it runs
+    tools/ci/wheel_publish.py, which refuses what is not a whole release;
   - no secret is read;
   - every action is named by a commit id, with the exact version it was on
     the same line as a comment (`owner/name@<40 hex> # vX.Y.Z`): a tag can be
@@ -37,7 +47,17 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 PINNED = re.compile(r"^[\w.-]+/[\w.-]+@[0-9a-f]{40}$")
 PINNED_LINE = re.compile(r"uses:\s*([\w.-]+/[\w.-]+@[0-9a-f]{40})\s+#\s*v\d+\.\d+\.\d+\s*$")
 SCRIPT = re.compile(r"tools/ci/[\w./-]+\.(?:sh|py)")
-WRITER = ("wheels.yml", "release")  # the one job that may write, and to releases only
+PUBLISH_ACTION = "pypa/gh-action-pypi-publish"
+TAG_PUSH = "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+BY_HAND = "github.event_name == 'workflow_dispatch' && github.event.inputs.testpypi == 'true'"
+# The jobs of wheels.yml that may do more than read: their permissions, the
+# exact condition each runs under, the environment, and the index's URL.
+PRIVILEGED = {
+    "release": ({"contents": "write"}, TAG_PUSH, None, None),
+    "publish-pypi": ({"contents": "read", "id-token": "write"}, TAG_PUSH, "pypi", None),
+    "publish-testpypi": ({"contents": "read", "id-token": "write"}, BY_HAND, "testpypi",
+                         "https://test.pypi.org/legacy/"),
+}
 
 
 def check(path: str, yaml) -> list:
@@ -72,19 +92,44 @@ def check(path: str, yaml) -> list:
     jobs = document.get("jobs")
     if not isinstance(jobs, dict) or not jobs:
         return problems + ["no jobs"]
+    if os.path.basename(path) == "wheels.yml":
+        for name in sorted(set(PRIVILEGED) - set(jobs)):
+            problems.append(f"no job {name}")
     for name, job in jobs.items():
-        if "permissions" in job:
-            if (os.path.basename(path), name) != WRITER:
+        privileged = PRIVILEGED.get(name) if os.path.basename(path) == "wheels.yml" else None
+        publishes = [step for step in job.get("steps") or []
+                     if str(step.get("uses", "")).startswith(PUBLISH_ACTION + "@")]
+        environment = job.get("environment")
+        environment = environment.get("name") if isinstance(environment, dict) else environment
+        if privileged is None:
+            if "permissions" in job:
                 problems.append(f"job {name}: has its own `permissions`")
-            else:
-                if job["permissions"] != {"contents": "write"}:
-                    problems.append(f"job {name}: `permissions` is not exactly `contents: write`")
-                if "refs/tags/v" not in str(job.get("if", "")):
-                    problems.append(f"job {name}: writes, and does not say `if` the ref is a tag")
-                needs = job.get("needs")
-                others = set(jobs) - {name, "plan"}
-                if not others <= set([needs] if isinstance(needs, str) else needs or []):
-                    problems.append(f"job {name}: writes, and does not need {sorted(others)}")
+            if publishes:
+                problems.append(f"job {name}: uploads to an index, and is not a publishing job")
+            if environment is not None:
+                problems.append(f"job {name}: runs in an environment")
+        else:
+            permissions, condition, want_environment, index = privileged
+            if job.get("permissions") != permissions:
+                problems.append(f"job {name}: `permissions` is not exactly {permissions}")
+            if " ".join(str(job.get("if", "")).split()) != condition:
+                problems.append(f"job {name}: `if` is not exactly `{condition}`")
+            needs = job.get("needs")
+            if "wheel" not in ([needs] if isinstance(needs, str) else needs or []):
+                problems.append(f"job {name}: does not need the job `wheel`")
+            if environment != want_environment:
+                problems.append(f"job {name}: environment is {environment!r}, not {want_environment!r}")
+            if (len(publishes) == 1) != (want_environment is not None):
+                problems.append(f"job {name}: {len(publishes)} steps upload to an index")
+            for step in publishes:
+                given = step.get("with") or {}
+                if given.get("repository-url") != index:
+                    problems.append(f"job {name}: the index is {given.get('repository-url')!r}, not {index!r}")
+                if "password" in given or "user" in given:
+                    problems.append(f"job {name}: the upload is given a user or a password")
+                before = job["steps"][job["steps"].index(step) - 1]
+                if "tools/ci/wheel_publish.py" not in str(before.get("run", "")):
+                    problems.append(f"job {name}: the step before the upload is not wheel_publish.py")
         if not isinstance(job.get("timeout-minutes"), int):
             problems.append(f"job {name}: no `timeout-minutes`")
         if "runs-on" not in job:

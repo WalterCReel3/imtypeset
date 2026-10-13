@@ -6,7 +6,12 @@
 # include/imtypeset.h, the pin and the tag from the interpreter built for.
 #
 # So there is no [project] table. This file names the backend, which is in
-# this tree and needs nothing installed.
+# this tree and needs nothing installed. What a [project] table would say is
+# written into each wheel's METADATA by build_wheel.metadata(): the name
+# `imtypeset`, the licence (MIT; LICENSE at the root, docs/decisions.md D82),
+# the project's URLs, the classifiers, and the description, which is
+# python/README-pypi.md, the project's page on PyPI. docs/releasing.md says
+# how a release reaches PyPI. No source distribution is built or published.
 [build-system]
 requires = []
 build-backend = "imtypeset_backend"

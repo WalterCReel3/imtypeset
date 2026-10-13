@@ -6,9 +6,42 @@ added), **changed** (a name means something else, or text is set
 differently), **fixed** (a defect, with what it did), **removed**. The release
 notes on GitHub are the section, copied by `tools/ci/wheel_release.sh`.
 
+## 0.4.1
+
+The first release published on PyPI, as the distribution `imtypeset`. A patch by
+`docs/versioning.md`: **no name and no layout differs from 0.4.0, and one meaning: a font whose glyph a side bearing moves out of range is now refused (below)**, which was
+never published (its tag was not pushed). A library of 0.4.0 and a Python package of 0.4.1
+still refuse each other, as any two versions do: they are one release.
+
+- **new (packaging)**: wheels on PyPI for Linux x86-64 (`manylinux_2_28_x86_64`) and macOS on
+  Apple Silicon (`macosx_14_0_arm64`), CPython 3.11 to 3.14, each for imgui-bundle 1.92.900
+  (`imtypeset==0.4.1.192900`) and 1.92.801 (`imtypeset==0.4.1.192801`). Every one is built
+  against the Dear ImGui headers of the fork its imgui-bundle wheel is built from, and is
+  accepted by Dear ImGui's own layout check as well as by the field probe. There is no source
+  distribution (`docs/releasing.md`).
+- **new**: the licence is MIT (`LICENSE`; `docs/decisions.md`, D82). A wheel says so in its
+  metadata and carries the file beside the third-party notices.
+- **changed (packaging)**: a wheel's metadata has the project's URLs, classifiers and a
+  description written for the project's page (`python/README-pypi.md`).
+- **fixed (the build's own checks, not the library)**: the checksums of the fork's headers are
+  recorded in `python/host/bundle_pins.toml`, so a release build is allowed and a fetched or
+  cached header that differs is refused; the check of an installation expected a refusal on
+  macOS that only a Linux library gives (on macOS `imtypeset` and `imgui_bundle` may be in two
+  directories, `docs/sidecar.md`, section 9); a test cut a library "in half" where half of the
+  file was all of what a loader maps.
+- **fixed**: a `glyf` font whose `hmtx` left side bearing moves a glyph's outline past 16 bits,
+  or further than sixteen heights from its origin, is refused when it is added
+  (`ImTypesetError_FontRefused`, "a glyph's side bearing moves its outline ..."). Before, a
+  596-byte font with one side bearing of 32,767 was accepted, and under FreeType with hinting
+  its glyph came back as a bitmap 1,046 px wide at 16 px, which Dear ImGui's atlas answers with
+  its "Out of texture memory" assertion. None of 2,991 faces of 2,925 installed fonts is
+  refused by it. This is the one difference from 0.4.0 in what the library accepts.
+- **fixed (the build, not the library)**: the tests and the drop-in file compile without a
+  warning under Clang 18 (unused constants and variables, two sign conversions).
+
 ## 0.4.0
 
-Not tagged yet. A minor version by `docs/versioning.md`: two host-filled structs grew, a
+Never published: the tag exists in one checkout and was not pushed. A minor version by `docs/versioning.md`: two host-filled structs grew, a
 library-filled one grew, a default changed, and text is set differently. **A library and a
 package of 0.3.0 and of 0.4.0 refuse each other**, by version and by struct sizes.
 

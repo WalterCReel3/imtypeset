@@ -2310,7 +2310,8 @@ TEST(a_host_compiled_against_0_3_0_is_refused_by_its_version_and_by_its_struct_s
             sizeof(ImTypesetHit), sizeof(ImTypesetFormula), sizeof(ImTypesetStats),
             sizeof(ImTypesetErrorInfo));
     };
-    CHECK_EQ(std::string(IMTYPESET_VERSION), std::string("0.4.0"));
+    // The premise: this is a version from 0.4.0 on, whichever it is.
+    CHECK(IMTYPESET_VERSION_NUM >= 400);
     CHECK(!first_part("0.3.0", sizeof(ImTypesetStyle) - 4));
     CHECK_EQ(ImTypeset::GetLastError()->Code, static_cast<int>(ImTypesetError_VersionMismatch));
     CHECK(std::strstr(ImTypeset::GetLastError()->Message, "0.3.0") != nullptr);

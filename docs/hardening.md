@@ -451,3 +451,13 @@ Those are the counts of the day the pass ended. On the tree of 2026-10-10, 13:30
   the bound were tried and none does; no argument was made that none can. If one does, the answer
   is the `LAYOUT` refusal of H1, which is what the bound is for.
 - X1 under anything but GCC 12 with ASan; see D39's own list.
+
+## A side bearing that moves an outline out of range (D83, 2026-10-12)
+
+A third route to the "Out of texture memory" assertion of item 4, and one the
+strict pass can close: a `glyf` glyph whose `hmtx` left side bearing moves its
+outline past 16 bits comes back from FreeType's hinter as a bitmap wider than
+the atlas (1046 px at 16 px, from a 596-byte font). The strict pass refuses
+it. Reproduce: `tests/test_stress_font.cpp`, the four side-bearing cases; the
+file that found it is `.concerns/clang-clean--glyf-lsb-7fff.ttf`. The `fpgm`
+route of item 4 is unchanged: not fixable by the strict pass.

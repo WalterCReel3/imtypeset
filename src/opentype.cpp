@@ -2999,6 +2999,23 @@ const char* OpenTypeFont::strict_glyf(double reach) const
     for (uint32_t g = 0; g < _glyph_count; ++g) {
         if (const char* reason = strict_glyf_glyph(g, facts, 0, reach))
             return reason;
+        // A glyph drawn for itself is moved so that its header's xMin lands on
+        // its hmtx side bearing: FreeType does it, and so does draw_glyf for
+        // layout's boxes. The reach is of the outline where it is drawn; and
+        // FreeType's autohinter holds the moved coordinates of a simple glyph
+        // in 16 bits, so that one moved past them wraps and can ask for a
+        // bitmap 65,536 units wide (seen: 1,046 px at 16 px).
+        const size_t length = _loca[g + 1] - _loca[g];
+        if (length == 0)
+            continue; // nothing is drawn, so nothing is moved
+        bool bad = false;
+        const int x_min = Reader{_glyf.data + _loca[g], length, &bad}.s16(2);
+        const double moved =
+            facts[g].reach_x + std::fabs(static_cast<double>(left_side_bearing(g) - x_min));
+        if (moved > 32767.0)
+            return "a glyph's side bearing moves its outline past 16 bits";
+        if (moved > reach)
+            return "a glyph's side bearing moves its outline far outside the font's height";
     }
     return nullptr;
 }

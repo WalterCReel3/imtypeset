@@ -31,11 +31,14 @@ not re-made since:
 [the Python host](docs/images/py-host.png),
 [a `Document` beside pptmstr's own pane, on pptmstr's wheel](docs/images/py-bundle-pptmstr-document.png).*
 
-**Status, 2026-10-12.** Version 0.3.0, not yet tagged, **no licence chosen**. Built
-and tested with one compiler on one platform: GCC 12.2 on Linux x86-64. Clang
-and MSVC have never compiled it, **nothing has run on macOS or Windows, and
-the GitHub Actions workflows in `.github/workflows` have never run**: they
-were written in a session that cannot reach GitHub. It needs Dear ImGui 1.92.0 or later and is
+**Status, 2026-10-12.** Version 0.4.1, not yet tagged, MIT ([LICENSE](LICENSE)). Built
+and tested with one compiler on one platform: GCC 12.2 on Linux x86-64. MSVC has
+never compiled it, and under Clang (Linux's and Apple's) every C++ preset was
+red on GitHub on 2026-10-12, the first time the workflows ran. That day the Python sidecar is built, loaded and checked there on
+macOS arm64 and Linux x86-64 against the imgui-bundle wheel's own headers
+(`docs/sidecar.md`, section 14), and nothing else has run on macOS; nothing at
+all on Windows. **The Python wheels are ready for PyPI as `imtypeset` and
+nothing has been uploaded** ([docs/releasing.md](docs/releasing.md)). It needs Dear ImGui 1.92.0 or later and is
 tested against 1.92.9. What works, what does not and what is rough is said
 below with the numbers that were measured; `docs/spec-status.md` holds the
 design note it started from against what was found.
@@ -382,7 +385,10 @@ build takes about a minute. `--pre` is there because a stand-in wheel is a
 development release; `--headers stand-in` and `local_env.py` are there because
 this machine has no network: on one that has, step 1 without `--headers`
 fetches the fork's headers and step 2 is `pip install` into any environment.
-**Neither of those has been done by anyone.**
+That is what `tools/ci/wheel_build.sh <imgui-bundle version> <out>` does, with
+`IMTYPESET_RELEASE_TAG=v<version>` for a release build; it ran here on
+2026-10-12 for both versions (`docs/sidecar.md`, section 14), and gave the
+first wheels a release path accepts.
 
 *Ran* on 2026-10-12, for both environments (imgui-bundle 1.92.900 in
 `../imgui-adv-text/.venv` and 1.92.801 in `../pptmstr/.venv`, each with its
@@ -400,8 +406,10 @@ environment variables being ignored.
 
 Linux x86-64 and CPython 3.11 only. The wheels for macOS arm64 and for other
 CPython versions are what the workflow `wheels` is written to build
-(`.github/workflows/wheels.yml`), and **it has never run**;
-[docs/sidecar.md](docs/sidecar.md) sections 8 to 12 say what a wheel holds,
+(`.github/workflows/wheels.yml`): it ran on 2026-10-12, and for a pushed tag
+it publishes them on PyPI ([docs/releasing.md](docs/releasing.md); that part
+has never run).
+[docs/sidecar.md](docs/sidecar.md) sections 8 to 14 say what a wheel holds,
 what the import gate checks and what an update is, and
 [docs/versioning.md](docs/versioning.md) what an application pins.
 
@@ -826,17 +834,15 @@ read-only mode and the font corpus were not run again that day.
 
 ## Licence
 
-**None has been chosen.** There is no `LICENSE` file; that is the owner's
-decision and it has not been taken. Until it is, the tree is kept compatible
-with a permissive, MIT-style licence, and `THIRD-PARTY.md` lists what was taken
-from others, what is only linked or read, and the notice each asks for (Dear
-ImGui, stb, fontTools, FreeType, Unicode data, the test fonts, SDL2 for the
-demo host). As it stands, nobody but the owner has permission to use this
-code.
+The MIT License: [LICENSE](LICENSE), the owner's choice of 2026-10-12
+(`docs/decisions.md`, D82). It is the licence of Dear ImGui and of Dear ImGui
+Bundle. `THIRD-PARTY.md` lists what was taken from others, what is only linked
+or read, and the notice each asks for (Dear ImGui, stb, fontTools, FreeType,
+Unicode data, the test fonts, SDL2 for the demo host).
 
 ## Missing before publication
 
-- A licence, and with it the port's repository, reference and hash.
+- The vcpkg port's reference and hash (it has a licence and a repository now).
 - A second compiler and a second platform: Clang, MSVC, macOS, Windows.
 - Anyone looking at it on a real display, with a GPU, HiDPI and a mouse.
 - The sidecar built against the fork's headers, so that it passes Dear ImGui's
@@ -865,7 +871,7 @@ code.
 | `tests/`, `tests/golden/`, `tools/oracle/` | tests, the reference's answers, the scripts that dump them |
 | `python/imtypeset/`, `python/host/` | the `ctypes` package; the two shared libraries |
 | `tools/wheel/`, `pyproject.toml` | the wheel: built, checked, checked once installed |
-| `.github/workflows/`, `tools/ci/` | three workflows, never run, and the scripts they call, which were run here |
+| `.github/workflows/`, `tools/ci/` | three workflows (first run 2026-10-12; the publishing jobs of `wheels.yml` never) and the scripts they call, which were run here |
 | `tools/release.sh` | what is checked before a tag; it creates nothing |
 | `docs/sidecar.md` | the sidecar and the wheel: binding, headers, the import gate, updates, what never ran |
 | `docs/versioning.md`, `docs/CHANGELOG.md` | what a version promises and what an application pins; what changed |

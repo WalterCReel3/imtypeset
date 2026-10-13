@@ -44,15 +44,20 @@
 # standin_headers_sha256 on 2026-10-12, from files fetched out of ../imgui by
 # commit id.
 #
-# imgui_h_sha256 and imgui_headers_sha256 ARE ABSENT FROM BOTH ENTRIES: no copy
-# of the fork has been on the machine that wrote this file. Until they are
-# recorded, the fork's headers are checked by commit id alone, are fetched
-# again for every build (no cache is trusted for them), and a release build
-# is refused (fetch_headers.py --require-recorded). HOW THEY GET RECORDED: the
-# first fetch of the fork prints both, as the two lines to paste under the
-# entry, and writes them to the job summary of the workflow run that did it
-# (`wheels` or `sidecar-probe`). Compare the lines of two jobs before pasting:
-# they are the same on every platform.
+# imgui_h_sha256 and imgui_headers_sha256 were recorded on 2026-10-12 from
+# three fetches of the fork that agreed on every value: GitHub Actions jobs on
+# Linux x86-64 and on macOS arm64 (workflows `wheels` and `sidecar-probe`, the
+# lines the first fetch prints), and a fetch on a third machine (Debian 12),
+# where each value was also computed by hand with the two sha256sum commands
+# above. Since then a fetch that hashes to anything else is refused, a cached
+# copy is used when it hashes to these, and a release build
+# (fetch_headers.py --require-recorded) is allowed.
+#
+# A NEW ENTRY starts without the two: the fork's headers are then checked by
+# commit id alone, fetched again for every build, and a release build is
+# refused. The first fetch prints both as the lines to paste, and writes them
+# to the job summary of the workflow run that did it. Compare the lines of two
+# jobs before pasting: they are the same on every platform.
 
 [bundle."1.92.900"]
 bundle_tag = "v1.92.900"
@@ -63,6 +68,8 @@ config_sha256 = "ccab306d04457df1130dc6b702e9499adfc0607fce63bc573284bda4122c78e
 standin_tag = "v1.92.9-docking"
 standin_commit = "9b4eb24cee2071e61dc1f9ef3e5228097cdde720"
 standin_headers_sha256 = "ccccaadb0f0b6f4d0de6c877d77e6c045775661864de6721f5459834e1f5e3c9"
+imgui_h_sha256 = "c31897472bc5024ed66512ea955dba49a56a7757360b519f811c4b5b5a90230b"
+imgui_headers_sha256 = "85dd71ab12f2959f1559def3ad2846139c2a6492637ec30921d6b207ecb03ef2"
 
 [bundle."1.92.801"]
 bundle_tag = "v1.92.801"
@@ -73,3 +80,5 @@ config_sha256 = "ccab306d04457df1130dc6b702e9499adfc0607fce63bc573284bda4122c78e
 standin_tag = "v1.92.8-docking"
 standin_commit = "b61e56346a92cfcaf1f43a545ca37b0b32239654"
 standin_headers_sha256 = "59e4539c4a110062f53993b896f0118dcb7229f0c3f301c432e36efd14105faa"
+imgui_h_sha256 = "d7210f1f5f0ae15a097affce1bf04db24cd5bed342172faaba5ee365dea9d706"
+imgui_headers_sha256 = "fd4f0799d8bda81da9f35a67657aecc9f717266fbbacc1b5ca3578428c1a5be5"

@@ -4,13 +4,15 @@ What this project took from other people, what it only links or reads, and the
 notice each asks for. Written on 2026-10-09 by opening each file named here; a
 statement that was not checked says so.
 
-**This project has no licence of its own yet.** There is no `LICENSE` or
-`COPYING` file in this repository, and none in the Python reference it is a
-port of (`../imgui-adv-text`: no licence file, no `license` key in its
-`pyproject.toml`). Both have the same owner, and choosing a licence is the
-owner's decision (`docs/decisions.md`, D24). Until then the tree is kept
-compatible with a permissive, MIT-style licence, which is what the entries
-below are checked against.
+**This project's own licence is the MIT License**: the file `LICENSE` at the
+root of this repository, "Copyright (c) 2026 Walter Reel", the owner's choice
+of 2026-10-12 (`docs/decisions.md`, D82, which supersedes D24's "no licence
+has been chosen"). It is the licence of Dear ImGui and of Dear ImGui Bundle,
+and of the Python package this began as a port of (`../imgui-adv-text`, now
+imscribe, whose `LICENSE` has the same copyright line). The entries below are
+what is in this tree, or in what is built from it, under somebody else's
+terms; each was checked for compatibility with an MIT-style licence when it
+was added, and D24's rules for what may enter the tree stand.
 
 ## Summary
 
@@ -29,8 +31,9 @@ below are checked against.
 ## What a Python wheel of this project carries
 
 A wheel built by `tools/wheel/build_wheel.py` (`docs/sidecar.md`, section 8)
-holds one shared library, the Python package and this file, with a
-`NOTICE.txt` written by the build. Compiled into that library: this project's
+holds one shared library, the Python package, this project's `LICENSE` and
+this file, with a `NOTICE.txt` written by the build (the three are in
+`<dist-info>/licenses/`, and the metadata names them as `License-File`). Compiled into that library: this project's
 own code; the routines that follow fontTools (below); the Unicode range tables
 (below); the code that reproduces Dear ImGui's output conventions (below); and
 the inline functions of the Dear ImGui headers it was compiled against, which

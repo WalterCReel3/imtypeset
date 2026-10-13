@@ -220,10 +220,10 @@ The OpenType reader is for the fonts a host brings, not for the seven under
 `tests/data/fonts` (D25): what real fonts contain is either supported or
 refused with a reason, and `docs/font-support.md` says which.
 
-## Licensing (D24)
+## Licensing (D24, and the owner's choice of 2026-10-12)
 
-No licence has been chosen; that is the user's decision. Until it is, keep the
-tree compatible with a permissive, MIT-style one.
+The licence is MIT (`LICENSE`), the owner's decision: asked "MIT, as for
+imscribe?", they answered "MIT, yes". Keep the tree compatible with it.
 
 - **Write from the specification and the Python reference, never from another
   implementation.** Reading fontTools, FreeType, HarfBuzz or MicroTeX to learn

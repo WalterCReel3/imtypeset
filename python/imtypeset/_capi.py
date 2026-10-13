@@ -17,7 +17,7 @@ import os
 from ._bundle import open_library, refusal
 
 C_ABI_VERSION = 1  # IMTYPESET_C_ABI_VERSION this file was written against.
-C_VERSION = "0.4.0"  # IMTYPESET_C_VERSION
+C_VERSION = "0.4.1"  # IMTYPESET_C_VERSION
 
 
 class Vec2(C.Structure):

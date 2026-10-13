@@ -1035,6 +1035,20 @@ std::vector<Case> structured_cases()
         // (NachlieliCLM-Bold.otf has two glyphs at 65,530), and nothing is
         // read out of bounds, so the font draws.
         add("advance width of 33,368 units", patched(base, tag("hmtx"), {{4, 0x8258, 2}}), OK);
+        // FreeType moves a glyf glyph by its hmtx side bearing less its
+        // header's xMin, and its autohinter holds the moved coordinates in 16
+        // bits: an outline moved past them can come back as a bitmap 65,536
+        // units wide, which at 16 px no atlas of these tests can place. 'A'
+        // is the square from 100 to 600, and the font is 1,000 units tall,
+        // so the outline may be moved 15,400 units and no more.
+        add("side bearing that moves the outline past 16 bits",
+            patched(base, tag("hmtx"), {{6, 0x7FFF, 2}}), STRICT);
+        add("side bearing that moves the outline below 16 bits",
+            patched(base, tag("hmtx"), {{6, 0x8000, 2}}), STRICT);
+        add("side bearing that moves the outline 16,100 units out",
+            patched(base, tag("hmtx"), {{6, 15600, 2}}), STRICT);
+        add("side bearing that moves the outline 16,000 units out",
+            patched(base, tag("hmtx"), {{6, 15500, 2}}), OK);
         add("unitsPerEm 8", patched(base, tag("head"), {{18, 8, 2}}), STRICT);
         add("ascender equal to descender", patched(base, tag("hhea"), {{4, 100, 2}, {6, 100, 2}}),
             STRICT);
@@ -2955,8 +2969,16 @@ void run_faces(const Bytes& file, Census& census, Atlases* atlases, Rng& rng, bo
 // which is the chain up to but not including ImGui. A mutant costs a full
 // parse of the font, and under the sanitisers at -O0 that is 15 to 60 ms, so
 // the count is what the build can run in about twenty seconds: the sanitiser
-// build runs a prefix of the sequence the others run.
+// build runs a prefix of the sequence the others run. GCC names that build
+// with a macro and Clang with a feature test.
 #if defined(__SANITIZE_ADDRESS__)
+#define STRESS_FONT_UNDER_ASAN 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define STRESS_FONT_UNDER_ASAN 1
+#endif
+#endif
+#if defined(STRESS_FONT_UNDER_ASAN)
 constexpr size_t MUTANTS_PER_FONT = 120;
 constexpr size_t SMALL_MUTANTS_PER_SEED = 80;
 #elif defined(__OPTIMIZE__)
@@ -3124,7 +3146,7 @@ TEST(fuzz_fonts_named_by_the_environment)
     REQUIRE(golden::read_file(list, text));
     Atlases atlases;
     Census as_shipped, mutants;
-    size_t files = 0, strict_refusals = 0, faces_read = 0, collections = 0;
+    size_t files = 0, faces_read = 0, collections = 0;
     Rng rng{0x5EED};
     size_t at = 0;
     while (at < text.size()) {
@@ -3148,7 +3170,6 @@ TEST(fuzz_fonts_named_by_the_environment)
             const Outcome outcome =
                 run_chain(file, as_shipped, &atlases, rng, false, static_cast<int>(face));
             if (outcome == Outcome::STRICT_REFUSED) {
-                ++strict_refusals;
                 std::printf("stress_font: the strict pass refuses %s, face %u\n", path.c_str(),
                             face);
             } else if (outcome != Outcome::ACCEPTED) {

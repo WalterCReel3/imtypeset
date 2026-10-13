@@ -17,15 +17,16 @@ For every wheel:
   - a build against stand-in headers says so in its version (.dev0+standin,
     a development release, which orders below the release of its line), and
     nothing else does;
-  - the metadata is version 2.4, names its two notices as License-File, and
-    names no licence (none has been chosen);
+  - the metadata is version 2.4, says License-Expression: MIT, names the
+    licence and the two notices as License-File (the licence being this
+    repository's LICENSE), has the project's URLs and a markdown description;
   - on Linux, the platform tag claims no more than the library in the archive
     supports, measured here again with objdump (build_wheel.measured_linux_tag).
 
 --release adds: no stand-in headers, accepted by Dear ImGui's own layout check
 and not by the field probe alone, no development or local version segment, the
-platform tag measured (so objdump must be there); and --tag: the library
-version is the tag's. This is the step that keeps a development build
+platform tag measured (so objdump must be there) and not plain linux_<arch>;
+and --tag: the library version is the tag's. This is the step that keeps a development build
 out of a release (.github/workflows/wheels.yml, tools/release.sh).
 
 Exit 0 when every wheel passes.
@@ -84,7 +85,8 @@ def check(path: str, release: bool, tag: str, gate) -> list:
         expected = {f"imtypeset/{m}" for m in MODULES} | {
             f"imtypeset/{libraries[0]}", "imtypeset/_attestation.json",
             f"{dist_info}/METADATA", f"{dist_info}/WHEEL", f"{dist_info}/RECORD",
-            f"{dist_info}/licenses/THIRD-PARTY.md", f"{dist_info}/licenses/NOTICE.txt",
+            f"{dist_info}/licenses/LICENSE", f"{dist_info}/licenses/THIRD-PARTY.md",
+            f"{dist_info}/licenses/NOTICE.txt",
         }
         if names != expected:
             problems.append(f"files: missing {sorted(expected - names)}, unexpected {sorted(names - expected)}")
@@ -108,6 +110,7 @@ def check(path: str, release: bool, tag: str, gate) -> list:
         wheel_file = archive.read(f"{dist_info}/WHEEL").decode("utf-8")
         attestation = json.loads(archive.read("imtypeset/_attestation.json"))
         library_bytes = archive.read(f"imtypeset/{libraries[0]}")
+        licence_bytes = archive.read(f"{dist_info}/licenses/LICENSE") if f"{dist_info}/licenses/LICENSE" in names else b""
 
     if fields.get("Name") != ["imtypeset"] or fields.get("Version") != [version]:
         problems.append(f"METADATA says {fields.get('Name')} {fields.get('Version')}; the file name says {version}")
@@ -134,12 +137,25 @@ def check(path: str, release: bool, tag: str, gate) -> list:
         problems.append(f"version {version} with stand_in {stand_in}: a stand-in build is "
                         f"{release_version}{build_wheel.STAND_IN_SUFFIX} and nothing else is")
     if fields.get("Metadata-Version") != ["2.4"]:
-        problems.append(f"Metadata-Version {fields.get('Metadata-Version')}: License-File needs 2.4")
-    if sorted(fields.get("License-File", [])) != ["NOTICE.txt", "THIRD-PARTY.md"]:
-        problems.append(f"License-File {fields.get('License-File')} is not the two notices")
-    if "License" in fields or "License-Expression" in fields or any(
-            c.startswith("License ::") for c in fields.get("Classifier", [])):
-        problems.append("the metadata names a licence, and none has been chosen")
+        problems.append(f"Metadata-Version {fields.get('Metadata-Version')}: License-Expression and "
+                        "License-File need 2.4")
+    if sorted(fields.get("License-File", [])) != ["LICENSE", "NOTICE.txt", "THIRD-PARTY.md"]:
+        problems.append(f"License-File {fields.get('License-File')} is not the licence and the two notices")
+    if fields.get("License-Expression") != ["MIT"]:
+        problems.append(f"License-Expression is {fields.get('License-Expression')}, not MIT")
+    # Metadata 2.4: `License` may not stand beside `License-Expression`, and
+    # licence classifiers are deprecated in its favour.
+    if "License" in fields or any(c.startswith("License ::") for c in fields.get("Classifier", [])):
+        problems.append("the metadata has a `License` field or a licence classifier beside License-Expression")
+    with open(os.path.join(REPO, "LICENSE"), "rb") as handle:
+        if licence_bytes != handle.read():
+            problems.append("licenses/LICENSE is not this repository's LICENSE")
+    for label in ("Repository", "Changelog", "Documentation"):
+        if not any(u.startswith(label + ", https://") for u in fields.get("Project-URL", [])):
+            problems.append(f"no Project-URL labelled {label}")
+    content_type = (fields.get("Description-Content-Type") or [""])[0]
+    if not content_type.startswith("text/markdown") or "\n\n" not in metadata or not metadata.split("\n\n", 1)[1].strip():
+        problems.append(f"no markdown description for the project's page ({content_type!r})")
     if stand_in != str(attestation.get("headers", "")).startswith("stand-in:"):
         problems.append("the attestation's stand_in and headers disagree")
     for key, want in (("distribution_version", version), ("wheel_version", wheel_version),
@@ -188,6 +204,12 @@ def check(path: str, release: bool, tag: str, gate) -> list:
         if attestation.get("accepted_by") != "imgui-check+probe" or not attestation.get("imgui_check"):
             problems.append(f"NOT A RELEASE: accepted by {attestation.get('accepted_by')!r}, and a "
                             "release is accepted by Dear ImGui's own layout check as well")
+        if not re.fullmatch(r"\d+(\.\d+)*", version):
+            problems.append(f"NOT A RELEASE: {version} has a development, pre-release or local segment, "
+                            "and an index takes none of a local one")
+        if platform_tag.startswith("linux_"):
+            problems.append(f"NOT A RELEASE: the platform tag {platform_tag} is a build for one machine; "
+                            "an index takes manylinux tags")
         if tag and tag != "v" + library_version:
             problems.append(f"NOT THIS RELEASE: the library is {library_version} and the tag is {tag}")
     if not problems:

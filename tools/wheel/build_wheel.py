@@ -50,9 +50,12 @@ WHAT A WHEEL IS, and why (docs/sidecar.md, section 8):
              because the library is loaded with ctypes and uses none.
   requires   imgui-bundle==<exactly the version it was built for>
   holds      imtypeset/*.py, imtypeset/libimtypeset_bundle.{so,dylib},
-             imtypeset/_attestation.json, and the notices. Nothing else.
+             imtypeset/_attestation.json, and in <dist-info>/licenses the
+             licence (LICENSE, MIT) and the notices. Nothing else.
+  describes  itself with python/README-pypi.md: the project's page on PyPI.
 
-THE macOS BRANCHES HAVE NEVER RUN (the platform tag, the absence of stripping).
+The macOS branches (the platform tag, the absence of stripping) ran on GitHub's
+macos-14 runners on 2026-10-12 and nowhere else.
 """
 
 import argparse
@@ -235,50 +238,80 @@ def record_hash(data: bytes) -> str:
     return "sha256=" + base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode("ascii")
 
 
+README = os.path.join(REPO, "python", "README-pypi.md")
+
+# What PyPI's page says of the systems, beside the wheel's own tag.
+SYSTEM_CLASSIFIER = {
+    "Linux": "Operating System :: POSIX :: Linux",
+    "Darwin": "Operating System :: MacOS",
+}
+
+
 def metadata(version: str, facts: dict, attestation: dict) -> str:
+    """METADATA, version 2.4: the version that has License-Expression and
+    License-File (PEP 639), the files being in <dist-info>/licenses/. 2.4
+    forbids `License` beside `License-Expression` and deprecates licence
+    classifiers, so there is neither. The description is python/README-pypi.md
+    (what the project's page on PyPI shows), then what THIS file was built
+    for."""
     stand_in = attestation["stand_in"]
+    with open(README, encoding="utf-8") as handle:
+        readme = handle.read().rstrip("\n")
     lines = [
-        # 2.4 is the version that has License-File (PEP 639), and the notices
-        # are where it says they are: <dist-info>/licenses/. There is no
-        # License-Expression and no License field: no licence has been chosen
-        # for imtypeset, and the description says so in words.
         "Metadata-Version: 2.4",
         "Name: imtypeset",
         f"Version: {version}",
-        f"Summary: Typeset text for Dear ImGui: the sidecar library for imgui-bundle {facts['wheel_version']}"
+        f"Summary: Typeset text for Dear ImGui, on TeX's box-and-glue model: the build for imgui-bundle {facts['wheel_version']}"
         + (" (STAND-IN HEADERS: a development build, not a release)" if stand_in else ""),
-        f"Project-URL: Source, {SOURCE_URL}",
-        f"Requires-Python: =={facts['python']}.*",
-        f"Requires-Dist: imgui-bundle=={facts['wheel_version']}",
+        "Author: Walter Reel",
+        "License-Expression: MIT",
+        "License-File: LICENSE",
         "License-File: THIRD-PARTY.md",
         "License-File: NOTICE.txt",
-        "Keywords: imgui,typesetting" + (",stand-in-headers" if stand_in else ""),
-        "Description-Content-Type: text/plain",
+        "Keywords: imgui,dear-imgui,imgui-bundle,typesetting,text-layout,tex,math"
+        + (",stand-in-headers" if stand_in else ""),
+        "Classifier: Development Status :: 3 - Alpha",
+        "Classifier: Intended Audience :: Developers",
+        f"Classifier: {SYSTEM_CLASSIFIER[facts['system']]}",
+        "Classifier: Programming Language :: C++",
+        "Classifier: Programming Language :: Python :: 3",
+        "Classifier: Programming Language :: Python :: 3 :: Only",
+        f"Classifier: Programming Language :: Python :: {facts['python']}",
+        "Classifier: Programming Language :: Python :: Implementation :: CPython",
+        "Classifier: Topic :: Software Development :: User Interfaces",
+        "Classifier: Topic :: Text Processing :: Markup :: LaTeX",
+        "Classifier: Topic :: Text Processing :: Fonts",
+        f"Project-URL: Repository, {SOURCE_URL}",
+        f"Project-URL: Changelog, {SOURCE_URL}/blob/main/docs/CHANGELOG.md",
+        f"Project-URL: Documentation, {SOURCE_URL}/blob/main/docs/sidecar.md",
+        f"Project-URL: Issues, {SOURCE_URL}/issues",
+        f"Requires-Python: =={facts['python']}.*",
+        f"Requires-Dist: imgui-bundle=={facts['wheel_version']}",
+        "Description-Content-Type: text/markdown; charset=UTF-8; variant=GFM",
         "",
-        f"imtypeset {attestation['imtypeset_version']}, as a shared library loaded with ctypes beside an",
-        f"unmodified imgui-bundle {facts['wheel_version']} wheel, and the Python package over its C ABI.",
-        "",
-        f"Built for: imgui-bundle=={facts['wheel_version']} (Dear ImGui {facts['imgui_version']}), "
-        f"CPython {facts['python']}, {facts['system']} {facts['machine']}.",
-        f"Headers:   {attestation['headers']}",
-        f"Checked:   {attestation['accepted_by']}, {len(attestation['probes'])} probe rows, "
-        f"on {attestation['attested_on']} ({attestation['attested_where'] or 'not said where'}).",
-        "",
-        "`import imtypeset` refuses any other imgui-bundle with a sentence (an ImportError).",
-        "",
-        "LICENCE: NONE HAS BEEN CHOSEN for imtypeset yet. This metadata therefore names no",
-        "licence and grants nothing. The two License-File entries are the notices of what",
-        "imtypeset derives from (THIRD-PARTY.md) and of what is inside the library",
-        "(NOTICE.txt); they are not a licence for imtypeset.",
     ]
     if stand_in:
         lines += [
+            "> **THIS FILE WAS BUILT AGAINST STAND-IN HEADERS** (its version ends `.dev0+standin`):",
+            "> upstream Dear ImGui's, not the headers of the fork the imgui-bundle wheel is built",
+            "> from. Dear ImGui's own layout check refuses it, and it is accepted on imtypeset's",
+            "> field probe alone. It is a development build, and no index holds one.",
             "",
-            "THIS WHEEL WAS BUILT AGAINST STAND-IN HEADERS (its version ends .dev0+standin):",
-            "upstream Dear ImGui's, not the headers",
-            "of the fork the imgui-bundle wheel is built from. Dear ImGui's own layout check refuses",
-            "it, and it is accepted on imtypeset's field probe alone. It is a development build.",
         ]
+    lines += [
+        readme,
+        "",
+        "## This file",
+        "",
+        "A release has one file per platform and CPython, and a page shows this section from one",
+        "of them.",
+        "",
+        f"- imtypeset {attestation['imtypeset_version']}, built for `imgui-bundle=={facts['wheel_version']}` "
+        f"(Dear ImGui {facts['imgui_version']}), CPython {facts['python']}, {facts['system']} {facts['machine']}.",
+        f"- Dear ImGui headers: `{attestation['headers']}`.",
+        f"- Checked: `{attestation['accepted_by']}`, {len(attestation['probes'])} probe rows, "
+        f"on {attestation['attested_on']} ({attestation['attested_where'] or 'not said where'}).",
+    ]
     return "\n".join(lines) + "\n"
 
 
@@ -288,7 +321,7 @@ def notice(version: str, facts: dict, attestation: dict) -> str:
 What is inside imtypeset/{attestation['library']['file']}, and what is not.
 
 Inside, compiled from this project's sources ({SOURCE_URL}):
-  - imtypeset itself. No licence has been chosen for it yet.
+  - imtypeset itself (MIT: LICENSE, beside this file);
   - routines in its OpenType reader that follow fontTools (MIT);
   - range tables generated from the Unicode Character Database (Unicode licence);
   - drawing code that reproduces Dear ImGui's vertex layout and clip tests (MIT);
@@ -432,8 +465,9 @@ def build(python: str, out: str, headers: str = "fork", work: str = "", bundle_c
     for name in MODULES + (os.path.basename(library), "_attestation.json"):
         with open(os.path.join(stage, "imtypeset", name), "rb") as handle:
             files.append((f"imtypeset/{name}", handle.read(), name == os.path.basename(library)))
-    with open(os.path.join(REPO, "THIRD-PARTY.md"), "rb") as handle:
-        files.append((f"{dist_info}/licenses/THIRD-PARTY.md", handle.read(), False))
+    for name in ("LICENSE", "THIRD-PARTY.md"):
+        with open(os.path.join(REPO, name), "rb") as handle:
+            files.append((f"{dist_info}/licenses/{name}", handle.read(), False))
     files.append((f"{dist_info}/licenses/NOTICE.txt", notice(version, facts, attestation).encode("utf-8"), False))
     files.append((f"{dist_info}/METADATA", metadata(version, facts, attestation).encode("utf-8"), False))
     files.append((f"{dist_info}/WHEEL", (

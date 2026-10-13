@@ -18,6 +18,7 @@ differs, and all of which this check reads:
   include/imtypeset_c.h     IMTYPESET_C_VERSION, _NUM   (static_assert in src/imtypeset_c.cpp)
   python/imtypeset/_capi.py C_VERSION   (the library refuses the package at import)
   vcpkg.json, ports/imtypeset/vcpkg.json
+  python/README-pypi.md     the versions in its examples (the page on PyPI)
 """
 
 import json
@@ -68,6 +69,13 @@ def problems(tag: str = "") -> list:
          _find("python/imtypeset/_capi.py", r'^C_VERSION = "([^"]*)"'))
     for manifest in ("vcpkg.json", "ports/imtypeset/vcpkg.json"):
         copy(manifest, json.loads(_read(manifest)).get("version"))
+    # The project's page on PyPI shows versions as examples of what to pin.
+    readme = _read("python/README-pypi.md")
+    for got in sorted(set(re.findall(r"\b(\d+\.\d+\.\d+)\.19\d{4}\b", readme)
+                          + re.findall(r"prints `(\d+\.\d+\.\d+) ", readme))):
+        copy("python/README-pypi.md, a version in an example", got)
+    if not re.search(r"imtypeset==" + re.escape(want) + r"\.19\d{4}\b", readme):
+        found.append(f"python/README-pypi.md has no example pin `imtypeset=={want}.<line>`")
     if tag:
         if tag != "v" + want:
             found.append(f"the tag is {tag!r} and the version is {want!r}: the tag must be 'v{want}'")

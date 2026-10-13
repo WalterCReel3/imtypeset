@@ -4,33 +4,33 @@
 #
 #   tools/ci/wheel_release.sh <tag> <directory holding the wheels, at any depth>
 #
-# Refuses, and creates nothing, unless: the tag is "v" + the version every copy
-# in the tree agrees on, docs/CHANGELOG.md has a section for it
-# (tools/version.py), there is at least one wheel, and every wheel passes
+# Refuses, and creates nothing, unless tools/ci/wheel_publish.py accepts the
+# wheels: the tag is "v" + the version every copy in the tree agrees on,
+# docs/CHANGELOG.md has a section for it, every wheel passes
 # tools/wheel/check_wheel.py --release for that tag (no stand-in headers;
-# accepted by Dear ImGui's own layout check).
+# accepted by Dear ImGui's own layout check), and the wheels are exactly the
+# matrix's. It is the check the upload to PyPI is behind, so a GitHub Release
+# and the index hold the same set or neither holds any.
 #
 # Then `gh release create` with the wheels and the changelog's section as the
 # notes. GH_TOKEN must allow writing releases: in the workflow it is the run's
 # own token, in the one job that has `contents: write`. IMTYPESET_RELEASE_DRY=1
 # stops before `gh`.
 #
-# Nothing is uploaded to a package index. NEVER RUN against GitHub.
+# Nothing is uploaded to a package index here. RAN with IMTYPESET_RELEASE_DRY=1
+# (docs/sidecar.md, section 14); never against GitHub.
 set -eu
 tag="$1"
 dir="$2"
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 python="${PYTHON:-python3}"
 
-"$python" -I -B "$repo/tools/version.py" --check --tag "$tag"
-list="$(mktemp)"
-find "$dir" -name 'imtypeset-*.whl' | sort > "$list"
-count="$(wc -l < "$list" | tr -d ' ')"
-[ "$count" -gt 0 ] || { echo "wheel_release.sh: no wheel under $dir" >&2; exit 1; }
+gathered="$(mktemp -d)"
+trap 'rm -rf "$gathered"' EXIT
+"$python" -I -B "$repo/tools/ci/wheel_publish.py" "$tag" "$dir" "$gathered/wheels"
 set --
-while IFS= read -r wheel; do set -- "$@" "$wheel"; done < "$list"
-rm -f "$list"
-"$python" -I -B "$repo/tools/wheel/check_wheel.py" --release --tag "$tag" "$@"
+for wheel in "$gathered"/wheels/*.whl; do set -- "$@" "$wheel"; done
+count="$#"
 
 notes="$(mktemp)"
 "$python" -I -B "$repo/tools/version.py" --notes > "$notes"

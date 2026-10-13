@@ -16,8 +16,10 @@
 #      distribution's own tests pass (tools/ci/test_wheel.py).
 #
 # It does not run the presets or build a wheel: CI does, for the tag, and
-# attaches the wheels only if every one of them passes (.github/workflows/wheels.yml).
-# docs/versioning.md is the account of what a version promises.
+# publishes the wheels on PyPI and attaches them to the GitHub Release only if
+# every one of them passes (.github/workflows/wheels.yml).
+# docs/versioning.md is the account of what a version promises, and
+# docs/releasing.md of everything a person does around this script.
 #
 # It creates nothing. The tag is created and pushed by a person.
 set -eu
@@ -62,8 +64,14 @@ cat <<TEXT
 $tag: everything this script checks holds at $head.
 Not checked here: the presets, and the wheels (CI builds and checks them for the tag).
 
+Before the tag (docs/releasing.md): $head is pushed, and the workflows "ci" and
+"wheels" are green for it. A tag is never moved and PyPI never takes a file
+name twice, so a tag whose wheels fail is a version that is spent.
+
 To release, a person runs:
     git tag -a $tag -m "imtypeset ${tag#v}" $head
     git push origin $tag
-and the workflow "wheels" attaches the wheels to the GitHub Release of $tag.
+and the workflow "wheels", once every wheel has passed: waits for the approval
+the environment "pypi" asks for, publishes the wheels on PyPI as imtypeset
+${tag#v}.<imgui-bundle line>, and attaches them to the GitHub Release of $tag.
 TEXT

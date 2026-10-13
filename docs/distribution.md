@@ -19,6 +19,12 @@ references) is `docs/distribution-notes.md`. This file is what was built from it
 
 ## 1. Python: a sidecar library inside an unmodified imgui_bundle wheel
 
+**For an application, the route is a wheel**: `imtypeset==<version>.<line>`
+beside `imgui-bundle==X`, from PyPI once the first release is published
+(`docs/releasing.md`; `docs/sidecar.md`, section 8). What follows in this
+section is the development route, a library built in place and named by
+`IMTYPESET_LIBRARY`.
+
 For an application that already runs on the `imgui_bundle` wheel from PyPI. The
 library holds no Dear ImGui of its own: its ImGui symbols are left undefined
 and resolve against the wheel's extension module, so it draws into the
@@ -302,8 +308,8 @@ configured under a vcpkg toolchain with `IMTYPESET_USE_IMGUI_PACKAGE=ON`), and
 `ports/imtypeset/` is the outline of a port. **Neither has been run**: there is
 no vcpkg on this machine and no network. Assumed and not checked: that vcpkg's
 `imgui` port installs a config package whose target is `imgui::imgui`, and how
-it spells a version floor. The port has no repository, reference, hash or
-licence to name yet.
+it spells a version floor. The port names the repository and the licence
+(MIT, D82) and has no hash: that is of a tag's archive, and no tag is pushed.
 
 ---
 

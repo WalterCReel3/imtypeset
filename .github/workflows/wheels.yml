@@ -1,26 +1,46 @@
 # Builds the imtypeset wheel for every (platform, CPython, imgui-bundle) the
 # sidecar is offered for, checks each archive, installs each into a new
 # environment beside the imgui-bundle wheel from PyPI and checks the
-# installation; uploads the wheels as artifacts on every run; and, for a tag
-# v<version>, attaches them to a GitHub Release. docs/sidecar.md, sections 8
-# and 12, and docs/versioning.md say what a wheel and a release are.
+# installation; uploads the wheels as artifacts on every run. docs/sidecar.md,
+# sections 8 and 12, and docs/versioning.md say what a wheel and a release are;
+# docs/releasing.md is the account of a release for the person who makes one.
+#
+# WHAT LEAVES THIS REPOSITORY, AND WHEN. Three jobs, and no other, send
+# anything anywhere; each needs every wheel job to have passed:
+#
+#   publish-pypi      a PUSHED TAG v<version>, and nothing else: the wheels go
+#                     to PyPI as project `imtypeset`, by Trusted Publishing
+#                     (OIDC; no token is stored), in the GitHub environment
+#                     `pypi`.
+#   release           a pushed tag v<version>: the same wheels are attached to
+#                     the GitHub Release of the tag.
+#   publish-testpypi  ONLY a run started by hand with the input `testpypi`
+#                     set to true (it is false unless a person sets it): the
+#                     wheels are built as a release of the tree's own version
+#                     from whatever ref the run was started on, and go to
+#                     TestPyPI in the environment `testpypi`. Until the owner
+#                     registers a trusted publisher on test.pypi.org and
+#                     creates that environment (docs/releasing.md), this job
+#                     fails at its upload and nothing else is affected.
+#
+# A push to a branch builds and checks wheels and sends nothing: neither
+# publishing job nor `release` can run for one (tools/ci/check_workflows.py
+# holds each job's `if` to that).
 #
 # Every step is a script under tools/ci that also runs on a developer's
 # machine; this file only says where and in what order.
 #
-# NEVER RUN. The action versions are those of sidecar-probe.yml, with
-# actions/download-artifact read the same way on 2026-10-11 (a summarising
-# fetch of its releases page). Each action is named by the commit its tag
-# pointed at on 2026-10-12, the tag in a comment: read from api.github.com
-# (repos/actions/<name>/git/ref/tags/<tag> and .../commits/<tag>, which
-# agreed) through a summarising fetch, not by git. Nothing is uploaded to a
-# package index.
+# Each action is named by the commit its tag points at, the tag in a comment.
+# Read with `gh api` on 2026-10-12: repos/<owner>/<name>/git/ref/tags/<tag>
+# (and, for pypa/gh-action-pypi-publish, whose tag is an annotated one,
+# git/tags/<that object> for the commit it names) and
+# repos/<owner>/<name>/commits/<tag>, which agreed for each of the five.
 #
 # Linux wheels are built on ubuntu-22.04 and not ubuntu-latest: the platform
 # tag is measured from the library (tools/wheel/build_wheel.py), and a library
 # compiled against a newer C library can need more of it than the systems the
-# wheel is for have. That the label exists and what the measurement gives
-# there are both unknown until the first run.
+# wheel is for have. Measured there on 2026-10-12: manylinux_2_28_x86_64
+# (GLIBC_2.14, GLIBCXX_3.4.21).
 name: wheels
 
 on:
@@ -35,6 +55,13 @@ on:
       headers:
         description: fork (the wheel's own headers) or stand-in (a development build)
         default: fork
+      testpypi:
+        description: >-
+          true: build the wheels as a release of the tree's version and upload
+          them to TestPyPI (needs a trusted publisher and the environment
+          `testpypi`; docs/releasing.md). Never PyPI.
+        type: boolean
+        default: false
   push:
     tags:
       - "v*"
@@ -93,6 +120,7 @@ jobs:
         env:
           IMTYPESET_BUNDLE_HEADERS: ${{ github.event.inputs.headers }}
           IMTYPESET_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          IMTYPESET_REHEARSAL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.testpypi || 'false' }}
           IMTYPESET_WHEEL_BUNDLE: ${{ matrix.bundle }}
         run: sh tools/ci/wheel_build.sh "$IMTYPESET_WHEEL_BUNDLE" wheel-out python
       - name: The wheel, and the build's log
@@ -106,11 +134,74 @@ jobs:
             wheel-out/work/stage/imtypeset/_attestation.json
           if-no-files-found: warn
 
-  # Only for a tag, only after every wheel job passed, and the only job that
-  # may write to the repository.
+  # PyPI. Only for a PUSHED tag v<version>, only after every wheel job passed.
+  # Trusted Publishing: PyPI accepts the run's own OIDC identity (this
+  # repository, this workflow file, the environment `pypi`), so there is no
+  # token to store and `id-token: write` is the one permission that matters.
+  # It depends on no other publishing job.
+  publish-pypi:
+    name: Publish to PyPI
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: wheel
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: pypi
+      url: https://pypi.org/project/imtypeset/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: released
+          pattern: wheel-*
+      - name: Refuse anything that is not this release, whole; gather the wheels
+        env:
+          IMTYPESET_RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 -I -B tools/ci/wheel_publish.py "$IMTYPESET_RELEASE_TAG" released upload
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: upload
+          # A file name is never accepted twice. If an upload stops partway,
+          # running this job again sends what is missing and leaves the rest.
+          skip-existing: true
+
+  # TestPyPI: a rehearsal, started by hand with the input `testpypi` set, from
+  # any ref. Never for a push. The wheels of such a run are built as a release
+  # of the tree's own version (tools/ci/wheel_build.sh, IMTYPESET_REHEARSAL).
+  publish-testpypi:
+    name: Publish to TestPyPI (a rehearsal)
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.testpypi == 'true'
+    needs: wheel
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/imtypeset/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: released
+          pattern: wheel-*
+      - name: Refuse anything that is not a release of this tree, whole; gather the wheels
+        run: python3 -I -B tools/ci/wheel_publish.py "v$(python3 -I -B tools/version.py)" released upload
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: upload
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  # The GitHub Release. Only for a pushed tag, only after every wheel job
+  # passed, and the only job that may write to the repository.
   release:
     name: Attach the wheels to the release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: wheel
     runs-on: ubuntu-latest
     timeout-minutes: 15

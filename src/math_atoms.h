@@ -219,8 +219,6 @@ enum class AtomType : uint8_t {
     SPACE,
 };
 
-constexpr int ATOM_TYPE_COUNT = 16;
-
 // The row or column an atom uses in section 764's table, 0 to 7: the t that
 // section 761 sets for each kind of noad, less ord_noad. OVER, UNDER, VCENTER,
 // RADICAL and ACCENT space as ORD, and the boundaries as OPEN and CLOSE, which
@@ -284,15 +282,21 @@ struct MuGlue {
 
 // plain.tex's \thinmuskip, \medmuskip and \thickmuskip. Macro-package values,
 // not in tex.web, which leaves the three parameters zero.
-constexpr MuGlue THIN_MU = {3, 0, 0};
-constexpr MuGlue MED_MU = {4, 2, 4};
-constexpr MuGlue THICK_MU = {5, 5, 0};
+//
+// These six are `inline`: they are the names a caller building a list by hand
+// writes, and the library reads only the first three (the rest reach it as
+// numbers in the generated command table). In the drop-in file this header is
+// the translation unit's own text, where a constant with internal linkage that
+// nothing reads is an unused variable to Clang.
+inline constexpr MuGlue THIN_MU = {3, 0, 0};
+inline constexpr MuGlue MED_MU = {4, 2, 4};
+inline constexpr MuGlue THICK_MU = {5, 5, 0};
 // \! and \quad, \qquad as eighteen and thirty-six math units. The last two are
 // not quite plain TeX's, which are an em of the font outside the formula and do
 // not shrink in a script.
-constexpr MuGlue NEGATIVE_THIN_MU = {-3, 0, 0};
-constexpr MuGlue QUAD_MU = {18, 0, 0};
-constexpr MuGlue QQUAD_MU = {36, 0, 0};
+inline constexpr MuGlue NEGATIVE_THIN_MU = {-3, 0, 0};
+inline constexpr MuGlue QUAD_MU = {18, 0, 0};
+inline constexpr MuGlue QQUAD_MU = {36, 0, 0};
 
 enum class FieldType : uint8_t {
     EMPTY = 0,
@@ -311,8 +315,6 @@ enum class FieldType : uint8_t {
     // Legal only as the nucleus of a SPACE atom.
     MU_GLUE,
 };
-
-constexpr int FIELD_TYPE_COUNT = 6;
 
 // A run of a MathList's items, or of its text bytes.
 struct MathSpan {

@@ -357,3 +357,9 @@ CJK collections were read: they are 5.4 of the 8.4 million glyphs).
 `IMTYPESET_WILD_TRACE=1` prints each face before loading it. To measure a
 different machine's fonts, regenerate the goldens there
 (`tools/oracle/FORMAT-font-wild.md`, then `tools/oracle/dump_kern_legacy.py`).
+
+**Refused since 0.4.1 (D83):** a `glyf` font with a glyph whose left side
+bearing moves its outline past 16 bits or far outside the font's height
+("a glyph's side bearing moves its outline past 16 bits", "… far outside the
+font's height"). None of the 2,991 faces installed on the machine the census
+was taken on is such a font.

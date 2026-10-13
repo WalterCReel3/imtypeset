@@ -13,16 +13,18 @@ is changed when the workflow is started by hand and not by an edit:
 The defaults were read from GitHub's documentation of its hosted runners on
 2026-10-11 through a summarising fetch, not from a run.
 
-Which wheels exist decides the rest. From PyPI's file lists for imgui-bundle
-1.92.900 and 1.92.801 (same day, same kind of read): manylinux x86-64 and
-macOS arm64 (macosx_14_0) for CPython 3.11 to 3.14, and NO macOS x86-64 wheel.
-So the Intel job expects pip to find nothing, and says so if that is true.
+Which wheels exist decides the rest. From PyPI's JSON for imgui-bundle
+1.92.900 and 1.92.801 (read 2026-10-12, pypi.org/pypi/imgui-bundle/<v>/json):
+manylinux_2_28 x86-64 and macOS arm64 (macosx_14_0) for CPython 3.11 to 3.14,
+and NO macOS x86-64 wheel. So the Intel job expects pip to find nothing, and
+says so if that is true. actions/setup-python serves 3.14 for both runners
+(read the same day: actions/python-versions' versions-manifest.json, 3.14.8).
 """
 
 import json
 import os
 
-PYTHONS = ("3.11", "3.12", "3.13")
+PYTHONS = ("3.11", "3.12", "3.13", "3.14")
 PRIMARY = "1.92.900"   # advtext's pin
 SECONDARY = "1.92.801"  # pptmstr's
 

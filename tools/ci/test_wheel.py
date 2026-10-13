@@ -451,9 +451,21 @@ class Refusals(unittest.TestCase):
         with open(_ctypes.__file__, "rb") as handle:
             data = handle.read()
         (phoff,) = struct.unpack_from("<Q", data, 0x20)
-        # Kept: the headers and half of the first segment the loader maps.
+        phentsize, phnum = struct.unpack_from("<HH", data, 0x36)
+        mapped = 0
+        for index in range(phnum):
+            p_type, _flags, p_offset, _vaddr, _paddr, p_filesz = struct.unpack_from(
+                "<IIQQQQ", data, phoff + index * phentsize)
+            if p_type == 1:  # PT_LOAD
+                mapped = max(mapped, p_offset + p_filesz)
+        self.assertGreater(mapped, 0)
+        # Kept: the headers and half of WHAT THE LOADER MAPS. Half of the file
+        # is not that: an interpreter built with debugging sections has a
+        # _ctypes whose segments end in its first quarter (GitHub's hosted
+        # CPython 3.11.17: 606,824 bytes, mapped up to 133,664), and such a
+        # file cut to half its length is whole to the loader and loads.
         with open(library, "wb") as handle:
-            handle.write(data[:len(data) // 2])
+            handle.write(data[:mapped // 2])
         with self.assertRaises(ImportError) as caught:
             gate.precheck(library, "IMTYPESET_LIBRARY")
         self.assertIn(caught.exception.kind, ("not-a-library", "refused"))
@@ -637,6 +649,92 @@ class Versions(unittest.TestCase):
         with open(os.path.join(directory, "one.whl"), "rb") as one, \
                 open(os.path.join(directory, "two.whl"), "rb") as two:
             self.assertEqual(one.read(), two.read())
+
+
+class Publishing(unittest.TestCase):
+    """What an index is given: the metadata, and which files make a release."""
+
+    FACTS = {"wheel_version": "1.92.900", "imgui_version": "1.92.9", "python": "3.11",
+             "system": "Linux", "machine": "x86_64"}
+
+    def attestation(self, stand_in=False):
+        return {"stand_in": stand_in, "imtypeset_version": "0.4.1",
+                "headers": "stand-in:ocornut-v1.92.9-docking" if stand_in else "fork:" + "c" * 40,
+                "accepted_by": "probe" if stand_in else "imgui-check+probe", "probes": [["a", True, ""]],
+                "attested_on": "2026-10-12T00:00:00Z", "attested_where": "a test",
+                "library": {"file": "libimtypeset_bundle.so"}}
+
+    def fields(self, text):
+        head, _, body = text.partition("\n\n")
+        fields = {}
+        for line in head.splitlines():
+            key, _, value = line.partition(": ")
+            fields.setdefault(key, []).append(value)
+        return fields, body
+
+    def test_the_metadata_is_what_an_index_takes(self):
+        text = build_wheel.metadata("0.4.1.192900", self.FACTS, self.attestation())
+        fields, body = self.fields(text)
+        self.assertEqual(fields["Metadata-Version"], ["2.4"])
+        self.assertEqual(fields["License-Expression"], ["MIT"])
+        self.assertEqual(fields["License-File"], ["LICENSE", "THIRD-PARTY.md", "NOTICE.txt"])
+        # Metadata 2.4: no `License` beside License-Expression, no licence classifier.
+        self.assertNotIn("License", fields)
+        self.assertFalse([c for c in fields["Classifier"] if c.startswith("License ::")])
+        self.assertEqual(fields["Requires-Dist"], ["imgui-bundle==1.92.900"])
+        self.assertEqual(fields["Requires-Python"], ["==3.11.*"])
+        self.assertEqual([u.split(",")[0] for u in fields["Project-URL"]],
+                         ["Repository", "Changelog", "Documentation", "Issues"])
+        self.assertTrue(fields["Description-Content-Type"][0].startswith("text/markdown"))
+        with open(build_wheel.README, encoding="utf-8") as handle:
+            self.assertIn(handle.read().strip(), body)
+        self.assertNotIn("STAND-IN", text)
+        for key, values in fields.items():
+            for value in values:
+                self.assertEqual(value, value.strip(), key)
+        # The body is the description as it is: no line of it may read as a header's end.
+        self.assertTrue(text.endswith("\n"))
+        try:
+            from packaging.metadata import Metadata
+        except ImportError:
+            return  # the standard library alone: what is above
+        parsed = Metadata.from_email(text.encode("utf-8"), validate=True)
+        self.assertEqual(str(parsed.version), "0.4.1.192900")
+        self.assertEqual(str(parsed.license_expression), "MIT")
+
+    def test_a_stand_in_build_says_so_on_its_page(self):
+        text = build_wheel.metadata("0.4.1.192900.dev0+standin", self.FACTS, self.attestation(True))
+        fields, body = self.fields(text)
+        self.assertIn("STAND-IN HEADERS", fields["Summary"][0])
+        self.assertTrue(body.startswith("> **THIS FILE WAS BUILT AGAINST STAND-IN HEADERS**"))
+
+    def test_the_notice_names_the_licence(self):
+        text = build_wheel.notice("0.4.1.192900", self.FACTS, self.attestation())
+        self.assertIn("MIT: LICENSE", text)
+        with open(os.path.join(REPO, "LICENSE"), encoding="utf-8") as handle:
+            self.assertTrue(handle.read().startswith("MIT License\n\nCopyright (c) "))
+
+    def test_a_release_is_every_cell_of_the_matrix(self):
+        sys.path.insert(0, os.path.join(REPO, "tools", "ci"))
+        import wheel_matrix
+        import wheel_publish
+
+        cells = wheel_publish.expected("0.4.1")
+        self.assertEqual(len(cells), len(wheel_matrix.matrix({})["include"]))
+        self.assertIn(("cp311", "0.4.1.192900", "linux-x86_64"), cells)
+        self.assertIn(("cp313", "0.4.1.192801", "macos-arm64"), cells)
+        for name, cell in (
+            ("imtypeset-0.4.1.192900-cp311-none-manylinux_2_28_x86_64.whl", ("cp311", "0.4.1.192900", "linux-x86_64")),
+            ("imtypeset-0.4.1.192801-cp312-none-macosx_14_0_arm64.whl", ("cp312", "0.4.1.192801", "macos-arm64")),
+        ):
+            self.assertEqual(wheel_publish.cell_of(name), cell)
+            self.assertIn(cell, cells)
+        for name in ("imtypeset-0.4.1.192900-cp311-none-linux_x86_64.whl",
+                     "imtypeset-0.4.1.192900-cp311-none-manylinux_2_28_aarch64.whl",
+                     "imtypeset-0.4.1.192900-cp310-none-manylinux_2_28_x86_64.whl",
+                     "imtypeset-0.4.1.192900.dev0+standin-cp311-none-manylinux_2_28_x86_64.whl",
+                     "imtypeset-0.4.0.192900-cp311-none-manylinux_2_28_x86_64.whl"):
+            self.assertNotIn(wheel_publish.cell_of(name), cells, name)
 
 
 if __name__ == "__main__":

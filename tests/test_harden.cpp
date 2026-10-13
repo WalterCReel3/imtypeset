@@ -1203,8 +1203,8 @@ TEST(d6_an_atlas_that_fills_and_is_repacked_during_a_draw_leaves_every_quad_on_i
         }
         // Every character of the text but its spaces came to a quad, and each
         // quad shows a glyph that is in the atlas as it now stands.
-        CHECK_EQ(glyph_quads,
-                 static_cast<int>(text.size() - std::count(text.begin(), text.end(), ' ')));
+        const size_t spaces = static_cast<size_t>(std::count(text.begin(), text.end(), ' '));
+        CHECK_EQ(glyph_quads, static_cast<int>(text.size() - spaces));
         CHECK_EQ(strays, 0);
         quads_checked += glyph_quads;
     }

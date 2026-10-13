@@ -509,3 +509,17 @@ layout, D80); no lazy re-layout inside a block (16 ms per 5,000-line block on a 
 NEVER RUN: macOS, any GitHub workflow, the wheel's real headers, a display other than Xvfb.
 NEXT, not started: H22-H28, H36-H42 of advtext's handoff file; prose table cells can still be drawn
 a pixel apart; a click in a wide tab; the numpy dependence of the Mac checklist's screenshot command.
+
+## Publishing (lead, 2026-10-12 evening) — a NEW session: sandbox off, network on, gh logged in
+
+USER: "Let's work on publishing this code to PyPI and get it ready for imscribe." (imscribe = advtext
+renamed; `../imgui-adv-text`, package dir `imscribe/`; owner's checklist `../imgui-adv-text/ASSIGNMENTS.md`.)
+The builder/reviewer agent types are gone; workers are `general-purpose` agents claiming board tasks.
+FACTS FROM THE FIRST CI RUNS (read with `gh run view`; logs under build/ci-artifacts/): sidecar-probe
+GREEN everywhere incl. macOS arm64 with REAL headers (H1 = yes, H2 = yes); wheels: Linux green on main,
+macOS red on one Linux-only check, tag run refused for missing header checksums (printed in the logs);
+ci: Clang stops on warnings in test files only. PyPI names imtypeset and imscribe are both free.
+RUNNING: clang-clean (tests/, src/), pypi-release (python/, tools/, .github/, docs, version 0.4.1).
+THEN: commit, push a BRANCH for CI (not main, not a tag) and iterate on macOS results; the PyPI upload,
+the tag push and the licence are the OWNER's: nothing is uploaded without their word. v0.4.0 is a
+local tag, never pushed; tags are never moved; the release is 0.4.1.
