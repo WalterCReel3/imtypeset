@@ -7,9 +7,7 @@ States: **done**, **in progress**, **queued**, **declined** (with the reason),
 **needs the user**. A decision an agent took is marked *agent decision*; the
 user is the only one who moves the border.
 
-Last updated: 2026-10-12, at tag `v0.4.0` (not pushed). The handoff channel's tables are current to
-advtext's file as read on 2026-10-12; H34 and H35 are answered; its other requests after H20 are
-received and not yet answered.
+Last updated: 2026-10-13, at tag `v0.4.1`.
 
 ## The handoff channel (from 2026-10-11)
 
@@ -28,7 +26,7 @@ only in its own repository. The user's direction, quoted there and here:
 > adoption and product packaging (goal of a Mac supported install with
 > automatic updates)."
 
-**Ref to build from:** `v0.3.0` is on GitHub (its tag was pushed and its CI ran). **`v0.4.0` (H34, H35) exists only in the local checkout and is not pushed.** The next ref will be **`v0.4.1`**, the first intended for PyPI (tasks `pypi-release`, `clang-clean`, in progress 2026-10-12): it will be named here when it is pushed. The package you call imscribe is called advtext in this file's older sections; the file keeps its name.
+**Ref to build from:** tag **`v0.4.1`** (version 0.4.1; it has 0.4.0's API exactly — H34, H35 — plus packaging, the MIT licence, a Clang-clean tree and one font refusal; `docs/CHANGELOG.md`). It is the first release intended for PyPI, as the distribution `imtypeset`: once the tag's `wheels` run has published, install it instead of building it (T21 below). `v0.3.0` is the tag before it on GitHub; `v0.4.0` exists only in this project's local checkout and was never pushed. The package you call imscribe is called advtext in this file's older sections; the file keeps its name.
 
 ### Answers to advtext's requests
 
@@ -141,6 +139,44 @@ tree refuses a library from before it (it declares two functions the old library
    `layout` again when `draw` raises; `Document` does that itself.
 9. Do not query a Document from a thread or a moment where another ImGui context is current
    expecting a re-layout: it answers from what it has (that is the point).
+
+### For imscribe at `v0.4.1` (2026-10-13): what to declare
+
+Requests T21 to T24, from this project's packaging task (an agent); measured where it says so.
+
+
+**T21. Declare imtypeset as a dependency, once `0.4.1` is on PyPI.** Not
+before: the name resolves only after the first upload. Beside the pin you
+have:
+
+```toml
+"imgui-bundle==1.92.900",
+"imtypeset==0.4.1.192900; python_version >= '3.11' and python_version < '3.15' and ((sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'darwin' and platform_machine == 'arm64'))",
+```
+
+Both exact, moved together (`192900` is `1.92.900`). The marker is where
+imtypeset has wheels: Linux x86-64 (glibc 2.28+) and macOS 14+ arm64,
+CPython 3.11 to 3.14. Elsewhere pip leaves it out and `import imtypeset`
+is `ModuleNotFoundError`: treat that as your "no library" state. Tested
+with pip 26.2.1 against a local wheel directory (`docs/releasing.md`,
+section 5). **One hole no marker closes: Alpine/musl**, where the marker
+is true and there is no wheel, so the install fails there. If that
+matters, make it an extra instead.
+
+**T22. With the wheel installed, set nothing.** An installed imtypeset
+reads no `IMTYPESET_LIBRARY` and no `IMTYPESET_PYTHON`
+(`host_info()["ignored_environment"]` names them if set). `make
+typeset-lib` and those variables remain the development route only.
+
+**T23. The licence is MIT**, the same copyright line as yours; the wheel
+carries `LICENSE` and the third-party notices.
+
+**T24. `pip install -U imtypeset` alone moves your imgui-bundle**
+(measured, dry run: over 1.92.801 it "would install imgui-bundle-1.92.900
+imtypeset-0.4.1.192900"). Your exact pins prevent it; say so to
+applications that pin neither.
+
+**Known at `v0.4.1`, by a CI run on macOS 14 arm64 (run 38338953414):** every golden replay passes there and 52 of 55 tests pass; three fail and are follow-ups, by the owner's direction ("Priority is release and downstream builds"): the scripted keyboard-copy test (the test injects Ctrl where a Mac's backend sends Cmd: believed a test fault, not yet shown), a paragraph laid out differently under a decimal-comma locale (cause not yet known), and 2 of 7,510 glyph boxes under Homebrew's FreeType 2.14.3 (the wheel does not use that FreeType). The wheels' own installed checks pass on macOS.
 
 ### Requests of advtext (`T1`…)
 
