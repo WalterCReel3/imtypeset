@@ -291,11 +291,11 @@ void script_math(int frame, ImGuiIO& io)
         io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
     } else if (frame == 6) {
         expect(io.WantTextInput, "the click on the formula's source reached no text field");
-        io.AddKeyEvent(ImGuiMod_Ctrl, true);
+        io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, true);
         io.AddKeyEvent(ImGuiKey_A, true);
     } else if (frame == 7) {
         io.AddKeyEvent(ImGuiKey_A, false);
-        io.AddKeyEvent(ImGuiMod_Ctrl, false);
+        io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, false);
     } else if (frame == 8) {
         io.AddInputCharactersUTF8("\\frac{1}{2} + \\hat{x}");
     } else if (frame == 10) {

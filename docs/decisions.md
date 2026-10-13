@@ -182,6 +182,30 @@ any other size, any loader flag other than the default, the rasterised pixels
 themselves (only boxes and advances were compared), and any other machine's
 FreeType.
 
+**Amended 2026-10-13 (D84): which FreeType, and what a test asserts under
+each.** `tests/test_font_loader.cpp`,
+`glyph_boxes_match_the_reference_rasteriser_under_freetype`, replays
+`draw/boxes.golden` (7,510 boxes over 30 sizes of the bundled faces, written
+under the reference's FreeType 2.13.3) and reads the linked release from the
+loader's name. *Measured:* 2.12.1 (this machine) and 2.13.2 (Ubuntu 24.04)
+give every box, every advance and every ascent and descent of it; 2.14.3,
+built from the release tarball in that container with the same compiler and
+the same Dear ImGui, gives two other boxes and nothing else:
+Inconsolata-Medium's U+0022 at 16 px, left edge 2 where the reference has 1,
+and at 37 px, right edge 14 where it has 13. No advance differs, so nothing
+layout reads does. Homebrew's 2.14.3 on the macOS runner reported two
+differing boxes of 7,510 and no differing ascent or descent; the run did not
+print which.
+*Decided:* under a release measured to reproduce the golden the test asserts
+every box exactly; under 2.14.3 it asserts every box exactly except those two,
+named by face, size and codepoint and not by a number of this build's, and
+asserts that those two do differ; under any other release it prints the
+differences and both versions and says it skipped; under stb_truetype as
+before. No tolerance, and the golden is the reference's. *Not measured:* any
+other release; whether Homebrew's 2.14.3 moves the same two boxes as the
+tarball's, and whether its advances agree (the next macOS run prints both; if
+they are other boxes the test fails and names them); why 2.14 moves them.
+
 ## D8. `ImWchar` is 32 bits
 
 **Decided.** The `imgui` target built here defines `IMGUI_USE_WCHAR32` (option
@@ -4415,3 +4439,71 @@ machine, 0 are refused before and after. Four cases in
 *Not measured:* FreeType 2.14; a composite whose component lends it its
 metrics (`USE_MY_METRICS`) beyond three probed shapes. *Inferred, not read:*
 that FreeType's hinter keeps the moved coordinates in 16 bits.
+
+## D84. The first macOS run: three failing tests and one sanitiser report, all four faults of tests (task `macos-three`, 2026-10-13)
+
+GitHub Actions run 38338953414 (macos-14, arm64, Apple Clang, FreeType 2.14.3)
+was the first time the suite ran on macOS. Every golden replay passed. Three
+tests failed in every preset and a fourth aborted under ASan. Each was
+reproduced on Linux before anything was changed, and none is a defect of the
+library; `src/` is unchanged by this entry.
+
+*1. The copy shortcut. Decided: the library asks for `ImGuiMod_Ctrl | ImGuiKey_C`
+and `ImGuiMod_Ctrl | ImGuiKey_A`, and that stays.* READ in the pinned Dear ImGui
+(v1.92.9, `imgui.cpp`, `ImGuiIO::AddKeyAnalogEvent`; `imgui_widgets.cpp`,
+`InputTextEx`): under `io.ConfigMacOSXBehaviors`, which is true by default
+when ImGui is compiled for an Apple platform, `AddKeyEvent()` exchanges
+`ImGuiMod_Ctrl` and `ImGuiMod_Super` (and the left and right keys) as events
+arrive; `ImGuiMod_Ctrl` is documented "Ctrl (non-macOS), Cmd (macOS)", and
+ImGui's own text field asks for copy and select-all as `ImGuiMod_Ctrl |
+ImGuiKey_C` and `ImGuiMod_Ctrl | ImGuiKey_A` on every platform. A backend
+submits the Cmd key as `ImGuiMod_Super`. So `SelectableText()` and
+`DocumentView()` copy on Cmd+C on a Mac, as ImGui's widgets do. The test
+injected `ImGuiMod_Ctrl`, which under that setting is the physical Ctrl key
+and is not the shortcut's modifier. *Measured:* with
+`io.ConfigMacOSXBehaviors = true` on Linux and the test's old injection, the
+same four checks fail with the same values as on the runner (clipboard not
+written, selection still 10 to 15). The tests now inject what a backend
+submits for the platform's shortcut key under each setting, run both settings
+on every platform, and assert that the other modifier copies and selects
+nothing (`tests/test_api.cpp`, `selectable_text_...`, three tests;
+`tests/test_api_document.cpp`, `the_view_selects_all_and_copies_...`, two, the
+first keyboard test `DocumentView()` has). *Not done, not in this task's
+files:* `python/host/imtypeset_host.cpp` `ImTypesetHost_ScriptCopyShortcut`
+and `examples/demo_headless.cpp` `script_math` inject `ImGuiMod_Ctrl` the same
+way and would script the wrong key on a Mac.
+
+*2. "A decimal comma changes the layout". It does not.* The test compared two
+vectors of `DrawCmd` with `memcmp`. `DrawCmd` has three bytes of padding after
+its one-byte `type`, which nothing writes. *Measured:* under Clang 18 on Linux
+with `LC_NUMERIC=de_DE.UTF-8` the test fails as on the runner (35 commands of
+139 "differ") while every field of every command is equal and the padding of
+135 holds something other than zero; under GCC 12 the padding happens to be
+zero and the test passes with the locale really set. The count on the runner
+changed with the preset (4, 81, 30, 75), which a locale would not do. The
+comparison is now `DrawCmd`'s `operator==`, in `test_harden` and in two places
+of `test_exception_safety`; the test lays the paragraph out twice in the
+process's own locale as well, so the comparison runs on a machine with no
+second locale, and prints the first command that differs. The locale-sensitive
+calls of `src/` were read again: `decimal_of` (`src/imtypeset.cpp`) prints a
+float with `%.7g` and parses it with `strtod` in the same locale, which gives
+the same double under either decimal mark (D39's H8, unchanged); `TextV`
+formats the host's own format string, as `ImGui::Text` does; every other
+`snprintf` and `std::to_string` writes integers or strings; `src/` includes no
+`<cctype>`, `<clocale>` or `<locale>`. *Not measured:* Apple's C library
+itself; that `strtod` there reads back what its `snprintf` wrote under
+`de_DE.UTF-8` is what the next macOS run of this test says.
+
+*3. Two glyph boxes of 7,510 under FreeType 2.14.3.* FreeType's, not the
+port's: D7's amendment has the measurement and what the test asserts.
+
+*4. `test_stress_font` aborted under ASan on macOS* ("container-overflow",
+`mutate`, `tests/test_stress_font.cpp`). The fuzz cut the file in one round
+and in a later round wrote a byte at an offset of the uncut file: an index
+past the vector's size and inside its capacity, which libc++'s annotations
+report and libstdc++ does not check. *Measured:* reproduced under GCC with
+`-D_GLIBCXX_ASSERTIONS` (the assertion of `operator[]`). Four writes are now
+dropped when they fall outside the file, as `wr16`'s already were; the order
+of the random draws is the same, so the mutants are the ones they were except
+where the write was out of range.
+

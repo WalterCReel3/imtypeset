@@ -6,21 +6,6 @@ added), **changed** (a name means something else, or text is set
 differently), **fixed** (a defect, with what it did), **removed**. The release
 notes on GitHub are the section, copied by `tools/ci/wheel_release.sh`.
 
-## Unreleased
-
-No name, no meaning and no layout differs from 0.4.1: tests, comments and documents only.
-
-- **fixed (tests, not the library)**: the four things the first run on macOS reported
-  (`docs/decisions.md`, D84). The copy and select-all tests pressed Ctrl, which is not the
-  shortcut's key on a Mac: `SelectableText()` and `DocumentView()` answer Cmd+C and Cmd+A
-  there, as Dear ImGui's own text fields do, and the tests now press each platform's key under
-  both settings of `io.ConfigMacOSXBehaviors`. The decimal-comma test compared a struct's
-  padding bytes; no layout depends on the locale. Two glyph boxes of 7,510 differ under
-  FreeType 2.14.3 from the reference's 2.13.3 (Inconsolata's `"` at 16 and 37 px, one pixel on
-  one edge, no advance), and the test says which FreeType it ran under and what it asserted. A
-  font fuzz wrote past the end of a file it had cut.
-- **documented**: `include/imtypeset.h` says which key the selection shortcuts are on a Mac.
-
 ## 0.4.1
 
 The first release published on PyPI, as the distribution `imtypeset`. A patch by
@@ -54,15 +39,23 @@ still refuse each other, as any two versions do: they are one release.
 - **fixed (the build, not the library)**: the tests and the drop-in file compile without a
   warning under Clang 18 (unused constants and variables, two sign conversions).
 
-### Known when released
+### The first run on macOS
 
-- On macOS (first run of the suite there: macOS 14 arm64, Apple Clang, FreeType
-  2.14.3) every golden replay passes and three tests fail: the scripted
-  keyboard-copy test of `SelectableText`, a paragraph compared under a
-  decimal-comma locale, and 2 of 7,510 glyph boxes against a golden made with
-  FreeType 2.13.3. Whether the first two are faults of the library or of the
-  tests is not yet established; they are tracked as issues and follow this
-  release. The wheels' own installed checks pass on macOS.
+On macOS 14 arm64 with Apple Clang every golden replay passed and three tests
+failed. All three were faults of the tests, reproduced on Linux; the library is
+unchanged by them (GitHub issues 1 to 3). The corrected tests have run on Linux
+with GCC, Clang and libc++; their first run on macOS is the release's own CI.
+
+- **fixed (tests, not the library)**: the four things the first run on macOS reported
+  (`docs/decisions.md`, D84). The copy and select-all tests pressed Ctrl, which is not the
+  shortcut's key on a Mac: `SelectableText()` and `DocumentView()` answer Cmd+C and Cmd+A
+  there, as Dear ImGui's own text fields do, and the tests now press each platform's key under
+  both settings of `io.ConfigMacOSXBehaviors`. The decimal-comma test compared a struct's
+  padding bytes; no layout depends on the locale. Two glyph boxes of 7,510 differ under
+  FreeType 2.14.3 from the reference's 2.13.3 (Inconsolata's `"` at 16 and 37 px, one pixel on
+  one edge, no advance), and the test says which FreeType it ran under and what it asserted. A
+  font fuzz wrote past the end of a file it had cut.
+- **documented**: `include/imtypeset.h` says which key the selection shortcuts are on a Mac.
 
 ## 0.4.0
 

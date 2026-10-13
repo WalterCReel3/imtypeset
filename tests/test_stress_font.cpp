@@ -2453,6 +2453,21 @@ void write_field(Bytes& file, size_t at, int width, uint32_t value)
         file[at] = static_cast<uint8_t>(value);
 }
 
+// A byte written or changed where a table was when the file was whole: an
+// earlier round may have cut the file short of it, and the write is then not
+// made, as wr16's is not.
+void poke(Bytes& file, size_t at, uint8_t value)
+{
+    if (at < file.size())
+        file[at] = value;
+}
+
+void flip(Bytes& file, size_t at, uint8_t bits)
+{
+    if (at < file.size())
+        file[at] ^= bits;
+}
+
 // One mutant of `original`. The kinds: bit flips anywhere; bytes overwritten
 // in one table; a cut at a table boundary or anywhere; a directory record's
 // offset or length replaced; a table or a run of one zeroed; an absurd value
@@ -2473,8 +2488,10 @@ Bytes mutate(const Bytes& original, const std::vector<TableSpan>& spans, Rng& rn
             break;
         case 1:
             if (span.length != 0)
-                for (size_t i = 0, n = 1 + rng.below(8); i < n; ++i)
-                    file[in_span(span)] = static_cast<uint8_t>(rng.next());
+                for (size_t i = 0, n = 1 + rng.below(8); i < n; ++i) {
+                    const uint8_t value = static_cast<uint8_t>(rng.next());
+                    poke(file, in_span(span), value);
+                }
             break;
         case 2: {
             size_t cut = rng.below(file.size());
@@ -2549,7 +2566,8 @@ Bytes mutate(const Bytes& original, const std::vector<TableSpan>& spans, Rng& rn
                 write_field(file, at, static_cast<int>(width), absurd(rng));
             } else if (which == 1) {
                 const size_t other = loca->offset + width * rng.below(entries);
-                for (size_t k = 0; k < width; ++k)
+                for (size_t k = 0; k < width && at + k < file.size() && other + k < file.size();
+                     ++k)
                     std::swap(file[at + k], file[other + k]);
             } else {
                 const size_t glyph_at =
@@ -2571,9 +2589,9 @@ Bytes mutate(const Bytes& original, const std::vector<TableSpan>& spans, Rng& rn
                 cff->offset + (rng.chance(2) ? rng.below(std::min<size_t>(cff->length, 4096))
                                              : rng.below(cff->length));
             if (rng.chance(2))
-                file[at] = static_cast<uint8_t>(absurd(rng));
+                poke(file, at, static_cast<uint8_t>(absurd(rng)));
             else
-                file[at] ^= static_cast<uint8_t>(1u << rng.below(8));
+                flip(file, at, static_cast<uint8_t>(1u << rng.below(8)));
             break;
         }
         case 10: {
@@ -2586,7 +2604,7 @@ Bytes mutate(const Bytes& original, const std::vector<TableSpan>& spans, Rng& rn
                 break;
             const size_t at = in_span(*t);
             if (rng.chance(2))
-                file[at] ^= static_cast<uint8_t>(1u << rng.below(8));
+                flip(file, at, static_cast<uint8_t>(1u << rng.below(8)));
             else
                 write_field(file, at & ~size_t(1), 2, absurd(rng));
             break;

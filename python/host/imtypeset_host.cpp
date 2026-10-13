@@ -402,7 +402,9 @@ void ImTypesetHost_ScriptCopyShortcut(int down)
     if (!g_host.ImGuiUp)
         return;
     ImGuiIO& io = ImGui::GetIO();
-    io.AddKeyEvent(ImGuiMod_Ctrl, down != 0);
+    // The shortcut key as a backend submits it: Cmd on a Mac, which Dear ImGui
+    // exchanges with Ctrl as the event arrives under ConfigMacOSXBehaviors.
+    io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, down != 0);
     io.AddKeyEvent(ImGuiKey_C, down != 0);
 }
 

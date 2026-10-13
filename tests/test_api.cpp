@@ -3022,12 +3022,31 @@ void set_clipboard(ImGuiContext*, const char* text)
     g_clipboard = text != nullptr ? text : "";
 }
 
-} // namespace
+// What a backend submits for the modifier of the platform's shortcuts, and for
+// the one that is not. ImGui's shortcuts are written with ImGuiMod_Ctrl, and
+// under io.ConfigMacOSXBehaviors (the default on an Apple platform)
+// AddKeyEvent() exchanges Ctrl and Super as they arrive: a Mac's Cmd key is
+// submitted as ImGuiMod_Super and is the one that makes ImGuiMod_Ctrl | key.
+ImGuiKey shortcut_modifier(const ImGuiIO& io)
+{
+    return io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+}
 
-TEST(selectable_text_selects_with_the_mouse_and_copies_to_the_clipboard)
+ImGuiKey other_modifier(const ImGuiIO& io)
+{
+    return io.ConfigMacOSXBehaviors ? ImGuiMod_Ctrl : ImGuiMod_Super;
+}
+
+// The mouse selects and the platform's shortcuts copy and select all, with
+// the keys of a Mac (`mac_behaviors`) or of everything else, whichever the
+// machine running this is.
+void selectable_text_scenario(bool mac_behaviors)
 {
     Stage stage;
     ImGuiIO& io = ImGui::GetIO();
+    io.ConfigMacOSXBehaviors = mac_behaviors;
+    const ImGuiKey shortcut = shortcut_modifier(io);
+    const ImGuiKey other = other_modifier(io);
     ImGui::GetPlatformIO().Platform_SetClipboardTextFn = &set_clipboard;
     g_clipboard.clear();
     const char* text = "The quick brown fox jumps over the lazy dog, twice over and again.";
@@ -3088,12 +3107,29 @@ TEST(selectable_text_selects_with_the_mouse_and_copies_to_the_clipboard)
     CHECK_EQ(selection.Start, dragged.Start);
     CHECK_EQ(selection.End, dragged.End);
 
-    // Ctrl+C puts those words on the clipboard, as they were written.
-    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    // The other modifier is not the shortcut's: with C and with A it copies
+    // nothing and selects nothing more.
+    g_clipboard = "untouched";
+    io.AddKeyEvent(other, true);
     io.AddKeyEvent(ImGuiKey_C, true);
     frame();
     io.AddKeyEvent(ImGuiKey_C, false);
-    io.AddKeyEvent(ImGuiMod_Ctrl, false);
+    io.AddKeyEvent(ImGuiKey_A, true);
+    frame();
+    io.AddKeyEvent(ImGuiKey_A, false);
+    io.AddKeyEvent(other, false);
+    frame();
+    CHECK_EQ(g_clipboard, std::string("untouched"));
+    CHECK_EQ(selection.Start, dragged.Start);
+    CHECK_EQ(selection.End, dragged.End);
+
+    // The shortcut with C puts those words on the clipboard, as they were
+    // written.
+    io.AddKeyEvent(shortcut, true);
+    io.AddKeyEvent(ImGuiKey_C, true);
+    frame();
+    io.AddKeyEvent(ImGuiKey_C, false);
+    io.AddKeyEvent(shortcut, false);
     frame();
     CHECK_EQ(g_clipboard,
              std::string(text + dragged.Start, static_cast<size_t>(dragged.End - dragged.Start)));
@@ -3114,21 +3150,21 @@ TEST(selectable_text_selects_with_the_mouse_and_copies_to_the_clipboard)
     CHECK_EQ(selection.End, brown + 5);
     CHECK_EQ(highlighted, 4);
     // The selection is bytes: at another width it is the same word.
-    // Ctrl+A is everything.
-    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    // The shortcut with A is everything.
+    io.AddKeyEvent(shortcut, true);
     io.AddKeyEvent(ImGuiKey_A, true);
     frame();
     io.AddKeyEvent(ImGuiKey_A, false);
     io.AddKeyEvent(ImGuiKey_C, true);
     frame();
     io.AddKeyEvent(ImGuiKey_C, false);
-    io.AddKeyEvent(ImGuiMod_Ctrl, false);
+    io.AddKeyEvent(shortcut, false);
     frame();
     CHECK_EQ(selection.Start, 0);
     CHECK_EQ(selection.End, static_cast<int>(std::strlen(text)));
     CHECK_EQ(g_clipboard, std::string(text));
 
-    // A click elsewhere clears it, and Ctrl+C then copies nothing of ours.
+    // A click elsewhere clears it, and the shortcut then copies nothing of ours.
     g_clipboard = "untouched";
     io.AddMousePosEvent(on_word.x, item_min.y + 250.0f);
     frame();
@@ -3157,13 +3193,42 @@ TEST(selectable_text_selects_with_the_mouse_and_copies_to_the_clipboard)
     selection = ImTypesetTextRange{0, 0};
     frame();
     CHECK_EQ(highlighted, 0);
-    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    io.AddKeyEvent(shortcut, true);
     io.AddKeyEvent(ImGuiKey_C, true);
     frame();
     io.AddKeyEvent(ImGuiKey_C, false);
-    io.AddKeyEvent(ImGuiMod_Ctrl, false);
+    io.AddKeyEvent(shortcut, false);
     frame();
     CHECK_EQ(g_clipboard, std::string("untouched"));
+}
+
+} // namespace
+
+TEST(selectable_text_selects_with_the_mouse_and_copies_to_the_clipboard)
+{
+    selectable_text_scenario(false);
+}
+
+TEST(selectable_text_copies_with_cmd_under_mac_behaviors)
+{
+    selectable_text_scenario(true);
+}
+
+// A context ImGui made itself has the platform's setting, and the shortcut is
+// then the platform's: what a host that configures nothing gets.
+TEST(selectable_text_copies_with_the_shortcut_of_the_platform_it_was_built_for)
+{
+    bool platform_default = false;
+    {
+        Stage stage;
+        platform_default = ImGui::GetIO().ConfigMacOSXBehaviors;
+    }
+#if defined(__APPLE__)
+    CHECK(platform_default);
+#else
+    CHECK(!platform_default);
+#endif
+    selectable_text_scenario(platform_default);
 }
 
 // --- The math seam --------------------------------------------------------------------

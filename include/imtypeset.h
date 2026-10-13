@@ -1791,9 +1791,12 @@ IMTYPESET_API bool TextWithID(const char* str_id, const char* text, const char* 
                               const ImTypesetStyle* style = NULL);
 // Text the user can select with the mouse and copy: a drag selects by
 // character, a double click and drag by word, a triple click by line;
-// Ctrl+C (Cmd+C) while it has focus puts the selection on the clipboard
-// through ImGui::SetClipboardText(), and Ctrl+A selects everything. A click
-// elsewhere clears the selection. The highlight is drawn behind the text in
+// Ctrl+C while it has focus puts the selection on the clipboard through
+// ImGui::SetClipboardText(), and Ctrl+A selects everything. Ctrl is ImGui's
+// ImGuiMod_Ctrl, as in ImGui's own text fields: the Cmd key where
+// io.ConfigMacOSXBehaviors is set, which is ImGui's default on an Apple
+// platform (a backend submits Cmd as ImGuiMod_Super and ImGui exchanges the
+// two). A click elsewhere clears the selection. The highlight is drawn behind the text in
 // the style's SelectionColor. `selection`, if given, IS the selection, as a
 // `bool*` is a checkbox's state: read when the call starts, so a host can set
 // it (a search hit, a restored session), and written before it returns. Null
@@ -2245,7 +2248,8 @@ IMTYPESET_API ImVec2 GetDocumentColumnPos(ImTypesetDocument* document, const ImV
 
 // A document in a child window that scrolls it: lays out and draws what is in
 // view, selects with the mouse as SelectableText() does (across blocks), and
-// copies with Ctrl+C. `str_id` names the child among its window's items; null
+// copies and selects all with the same keys (Cmd+C and Cmd+A on a Mac).
+// `str_id` names the child among its window's items; null
 // or empty is one ID of the library's, which does for one view in a window.
 // `size` is the child's, as for ImGui::BeginChild(): zero
 // in a direction takes what is left of the window in it, which is NEXT TO

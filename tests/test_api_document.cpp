@@ -1585,6 +1585,104 @@ TEST(the_view_scrolls_a_document_in_a_child_and_lays_out_only_what_it_shows)
     ImTypeset::DestroyDocument(document);
 }
 
+namespace
+{
+
+std::string g_view_clipboard;
+
+void set_view_clipboard(ImGuiContext*, const char* text)
+{
+    g_view_clipboard = text != nullptr ? text : "";
+}
+
+// A click into a view, then the platform's shortcuts. `mac_behaviors` is
+// io.ConfigMacOSXBehaviors, under which AddKeyEvent() exchanges Ctrl and
+// Super as they arrive: the Cmd key, which a backend submits as
+// ImGuiMod_Super, is then the modifier of ImGui's ImGuiMod_Ctrl shortcuts.
+void view_shortcut_scenario(bool mac_behaviors)
+{
+    Stage stage;
+    REQUIRE(stage.ctx != nullptr);
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigMacOSXBehaviors = mac_behaviors;
+    const ImGuiKey shortcut = mac_behaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+    const ImGuiKey other = mac_behaviors ? ImGuiMod_Ctrl : ImGuiMod_Super;
+    ImGui::GetPlatformIO().Platform_SetClipboardTextFn = &set_view_clipboard;
+    g_view_clipboard = "untouched";
+
+    const Content content = paragraphs(3);
+    ImTypesetDocument* document = ImTypeset::CreateDocument();
+    REQUIRE(document != nullptr);
+    const ImTypesetDocumentContent described = content.view();
+    CHECK(ImTypeset::SetDocumentBlocks(document, &described));
+    ImTypesetDocumentRange selection = {{0, 0}, {0, 0}};
+    const auto frame = [&] {
+        Frame f;
+        ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+        ImGui::SetNextWindowSize(ImVec2(500.0f, 400.0f));
+        ImGui::Begin("host", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings);
+        CHECK(ImTypeset::DocumentView("doc", document, ImVec2(0.0f, 0.0f), &selection));
+        ImGui::End();
+    };
+    const auto chord = [&](ImGuiKey modifier, ImGuiKey key) {
+        io.AddKeyEvent(modifier, true);
+        io.AddKeyEvent(key, true);
+        frame();
+        io.AddKeyEvent(key, false);
+        io.AddKeyEvent(modifier, false);
+        frame();
+    };
+    const auto selected = [&] {
+        return selection.Start.Block != selection.End.Block ||
+               selection.Start.Offset != selection.End.Offset;
+    };
+    io.AddMousePosEvent(60.0f, 60.0f);
+    frame();
+    frame();
+    // Before a click the view has no focus of ours, and the shortcut is not its.
+    chord(shortcut, ImGuiKey_A);
+    CHECK(!selected());
+    io.AddMouseButtonEvent(0, true);
+    frame();
+    io.AddMouseButtonEvent(0, false);
+    frame();
+    CHECK(!selected());
+    // Nothing selected: nothing copied.
+    chord(shortcut, ImGuiKey_C);
+    CHECK_EQ(g_view_clipboard, std::string("untouched"));
+    // The modifier that is not the shortcut's selects and copies nothing.
+    chord(other, ImGuiKey_A);
+    CHECK(!selected());
+    chord(other, ImGuiKey_C);
+    CHECK_EQ(g_view_clipboard, std::string("untouched"));
+    // The shortcut's with A selects every block, and with C copies them.
+    chord(shortcut, ImGuiKey_A);
+    CHECK_EQ(selection.Start.Block, 0);
+    CHECK_EQ(selection.Start.Offset, 0);
+    CHECK_EQ(selection.End.Block, 2);
+    CHECK_EQ(selection.End.Offset, content.blocks[2].TextEnd - content.blocks[2].TextStart);
+    chord(other, ImGuiKey_C);
+    CHECK_EQ(g_view_clipboard, std::string("untouched"));
+    chord(shortcut, ImGuiKey_C);
+    const std::string all = copied(document, selection.Start, selection.End);
+    CHECK(all.size() > 3 * std::strlen(SENTENCE));
+    CHECK_EQ(g_view_clipboard, all);
+    ImTypeset::DestroyDocument(document);
+}
+
+} // namespace
+
+TEST(the_view_selects_all_and_copies_with_the_shortcuts_of_ctrl)
+{
+    view_shortcut_scenario(false);
+}
+
+TEST(the_view_selects_all_and_copies_with_the_shortcuts_of_cmd_under_mac_behaviors)
+{
+    view_shortcut_scenario(true);
+}
+
 // Nothing a host hands over is trusted. Every count, offset, index and length
 // below is wrong in some way; none may read outside what was given, loop
 // without end or ask for memory in proportion to a number that names none.

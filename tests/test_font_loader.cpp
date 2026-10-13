@@ -11,6 +11,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -347,6 +348,46 @@ TEST(a_minted_glyph_has_coverage_in_the_atlas_texture)
     CHECK(covered < area);
 }
 
+namespace
+{
+
+struct FreeTypeVersion {
+    int major = 0, minor = 0, patch = 0;
+
+    friend bool operator==(const FreeTypeVersion& a, const FreeTypeVersion& b)
+    {
+        return a.major == b.major && a.minor == b.minor && a.patch == b.patch;
+    }
+};
+
+// The FreeType this build runs, from the loader's name as imgui_freetype.cpp
+// writes it: "FreeType (<compiled against>; <linked>)".
+bool linked_freetype(const char* loader_name, FreeTypeVersion* out)
+{
+    FreeTypeVersion built;
+    return loader_name != nullptr &&
+           std::sscanf(loader_name, "FreeType (%d.%d.%d; %d.%d.%d)", &built.major, &built.minor,
+                       &built.patch, &out->major, &out->minor, &out->patch) == 6;
+}
+
+// Releases under which this test has been run and every box of
+// draw/boxes.golden came back as the reference has it. 2.13.3 is the
+// reference's own.
+const FreeTypeVersion FREETYPE_REPRODUCING_THE_GOLDEN[] = {{2, 12, 1}, {2, 13, 2}, {2, 13, 3}};
+
+// The boxes FreeType 2.14.3 gives another edge than 2.13.3 does, by the
+// golden's own keys: Inconsolata's quotation mark, one pixel narrower on the
+// left at 16 px and one wider on the right at 37 px. Which boxes, and not
+// what they become: the numbers stay the reference's.
+struct KnownBox {
+    const char* face;
+    double size;
+    uint32_t codepoint;
+};
+const KnownBox BOXES_FREETYPE_2_14_3_MOVES[] = {{"code", 16.0, 0x22}, {"code", 37.0, 0x22}};
+
+} // namespace
+
 TEST(glyph_boxes_match_the_reference_rasteriser_under_freetype)
 {
     FontLibrary library;
@@ -374,13 +415,20 @@ TEST(glyph_boxes_match_the_reference_rasteriser_under_freetype)
     const FaceData* face = nullptr;
     ImFont* font = nullptr;
     ImFontBaked* baked = nullptr;
-    int boxes = 0, differing = 0, presence = 0, metrics = 0, sizes = 0;
+    int boxes = 0, differing = 0, unexpected = 0, advances = 0, presence = 0, metrics = 0,
+        sizes = 0;
+    std::string face_name;
+    double size = 0.0;
+    // Each box that differs, for the report: a count alone does not say
+    // whether another FreeType moved an edge by a pixel or lost a glyph.
+    std::string report;
     for (const golden::Record& r : file) {
         CHECK_CONTEXT("line %d", r.line);
         golden::Cursor c(r);
         if (r.is("face")) {
             Face role = Face::PROSE;
-            REQUIRE(face_from_value(c.str(), &role));
+            face_name = c.str();
+            REQUIRE(face_from_value(face_name, &role));
             face = library.face_data(role);
             font = fonts[static_cast<int>(role)];
             REQUIRE(font != nullptr);
@@ -392,7 +440,8 @@ TEST(glyph_boxes_match_the_reference_rasteriser_under_freetype)
                      static_cast<double>(font->GetFontBaked(static_cast<float>(requested))->Size));
         } else if (r.is("size")) {
             REQUIRE(font != nullptr);
-            baked = font->GetFontBaked(static_cast<float>(c.f64()));
+            size = c.f64();
+            baked = font->GetFontBaked(static_cast<float>(size));
             ++sizes;
             if (c.f64() != static_cast<double>(baked->Ascent) ||
                 c.f64() != static_cast<double>(baked->Descent))
@@ -417,9 +466,28 @@ TEST(glyph_boxes_match_the_reference_rasteriser_under_freetype)
             const bool visible = c.boolean();
             c.boolean();
             const double x0 = c.f64(), y0 = c.f64(), x1 = c.f64(), y1 = c.f64();
+            if (c.f64() != static_cast<double>(glyph->AdvanceX))
+                ++advances;
             if ((glyph->Visible != 0) != visible || glyph->X0 != x0 || glyph->Y0 != y0 ||
-                glyph->X1 != x1 || glyph->Y1 != y1)
-                ++differing;
+                glyph->X1 != x1 || glyph->Y1 != y1) {
+                bool expected = false;
+                for (const KnownBox& known : BOXES_FREETYPE_2_14_3_MOVES)
+                    expected = expected || (face_name == known.face && size == known.size &&
+                                            asked == known.codepoint);
+                unexpected += expected ? 0 : 1;
+                if (++differing <= 40) {
+                    char line[320];
+                    std::snprintf(line, sizeof line,
+                                  "    %s at %g px, U+%04X (golden line %d): the reference's box "
+                                  "is (%g, %g)-(%g, %g)%s, this build's (%g, %g)-(%g, %g)%s\n",
+                                  face_name.c_str(), size, static_cast<unsigned>(asked), r.line, x0,
+                                  y0, x1, y1, visible ? "" : " not visible",
+                                  static_cast<double>(glyph->X0), static_cast<double>(glyph->Y0),
+                                  static_cast<double>(glyph->X1), static_cast<double>(glyph->Y1),
+                                  glyph->Visible != 0 ? "" : " not visible");
+                    report += line;
+                }
+            }
         }
     }
     // Every box of the golden that this build's ImWchar can ask for: all of
@@ -427,20 +495,48 @@ TEST(glyph_boxes_match_the_reference_rasteriser_under_freetype)
     // for because the build has no codepoint to ask by.
     CHECK_EQ(boxes, ATLAS_WCHAR_BITS < 32 ? 7505 : 7510);
     CHECK_EQ(presence, 0);
-    // The reference's numbers were taken under FreeType 2.13.3. Under
-    // FreeType this build must reproduce every one of them; under
-    // stb_truetype they are a different rasteriser's and are only reported
-    // (decision D7).
-    if (context.freetype()) {
+    // The reference's numbers were taken under FreeType 2.13.3, and a glyph's
+    // box is the rasteriser's answer: which FreeType is linked decides what
+    // can be asserted (decision D7).
+    //  - a release measured to reproduce every box: every box, exactly;
+    //  - 2.14.3: every box exactly but the ones it is measured to move, and
+    //    those must differ, so that the list cannot outlive its reason;
+    //  - any other release: reported and not gated;
+    //  - stb_truetype: another rasteriser's numbers, reported and not gated.
+    const char* const loader = context.atlas()->FontLoaderName;
+    std::printf("font_loader: %d of %d glyph boxes and %d advances differ from the reference's "
+                "(FreeType 2.13.3); ascent or descent differs at %d of %d sizes; this build's "
+                "loader is %s\n",
+                differing, boxes, advances, metrics, sizes, loader);
+    std::printf("%s", report.c_str());
+    if (!context.freetype()) {
+        std::printf("    SKIPPED the box comparison: not FreeType's numbers under %s\n", loader);
+        return;
+    }
+    FreeTypeVersion linked;
+    REQUIRE(linked_freetype(loader, &linked));
+    bool reproduces = false;
+    for (const FreeTypeVersion& v : FREETYPE_REPRODUCING_THE_GOLDEN)
+        reproduces = reproduces || v == linked;
+    if (reproduces) {
         CHECK_EQ(differing, 0);
+        CHECK_EQ(advances, 0);
+        CHECK_EQ(metrics, 0);
+    } else if (linked == FreeTypeVersion{2, 14, 3}) {
+        CHECK_EQ(unexpected, 0);
+        // Fewer at 16 bits would be a box the build cannot ask for; none of
+        // the listed ones is.
+        CHECK_EQ(differing, static_cast<int>(sizeof BOXES_FREETYPE_2_14_3_MOVES /
+                                             sizeof BOXES_FREETYPE_2_14_3_MOVES[0]));
+        CHECK_EQ(advances, 0);
         CHECK_EQ(metrics, 0);
     } else {
-        std::printf("font_loader: the box comparison is not gated under %s\n",
-                    context.atlas()->FontLoaderName);
+        std::printf("    SKIPPED the box comparison: this build links FreeType %d.%d.%d, the "
+                    "golden was written under 2.13.3, and %d.%d.%d has not been measured against "
+                    "it (2.12.1, 2.13.2 and 2.13.3 reproduce it; 2.14.3 moves two boxes)\n",
+                    linked.major, linked.minor, linked.patch, linked.major, linked.minor,
+                    linked.patch);
     }
-    std::printf("font_loader: %d of %d glyph boxes differ from the reference's (FreeType 2.13.3); "
-                "ascent or descent differs at %d of %d sizes; this build's loader is %s\n",
-                differing, boxes, metrics, sizes, context.atlas()->FontLoaderName);
 }
 
 TEST(a_font_can_be_removed_and_the_atlas_torn_down_with_nothing_left_behind)

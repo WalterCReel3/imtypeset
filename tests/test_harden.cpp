@@ -671,21 +671,56 @@ TEST(h8_a_paragraph_is_laid_out_the_same_under_a_decimal_comma)
     lay_out(plain, plain_size);
     REQUIRE(plain.size() > 100);
 
+    // Field by field, with DrawCmd's own equality: the struct has padding
+    // after `type`, which nothing writes and a comparison of bytes would read.
+    const auto check_same = [&](const char* where, const std::vector<DrawCmd>& other,
+                                ImVec2 other_size) {
+        CHECK_CONTEXT("%s", where);
+        REQUIRE_EQ(other.size(), plain.size());
+        size_t different = 0;
+        for (size_t i = 0; i < plain.size(); ++i) {
+            if (plain[i] == other[i])
+                continue;
+            if (different++ == 0) {
+                const DrawCmd& a = plain[i];
+                const DrawCmd& b = other[i];
+                std::printf("    command %zu of %zu differs first:\n"
+                            "      type %d/%d codepoint %u/%u x %lld/%lld y %lld/%lld width "
+                            "%lld/%lld height %lld/%lld depth %lld/%lld a %lld/%lld index %u/%u "
+                            "end %u/%u\n",
+                            i, plain.size(), static_cast<int>(a.type), static_cast<int>(b.type),
+                            a.codepoint, b.codepoint, static_cast<long long>(a.x),
+                            static_cast<long long>(b.x), static_cast<long long>(a.y),
+                            static_cast<long long>(b.y), static_cast<long long>(a.width),
+                            static_cast<long long>(b.width), static_cast<long long>(a.height),
+                            static_cast<long long>(b.height), static_cast<long long>(a.depth),
+                            static_cast<long long>(b.depth), static_cast<long long>(a.a),
+                            static_cast<long long>(b.a), a.index, b.index, a.end, b.end);
+            }
+        }
+        CHECK_EQ(different, size_t(0));
+        CHECK_EQ(other_size.x, plain_size.x);
+        CHECK_EQ(other_size.y, plain_size.y);
+    };
+    // Twice in the locale the process has: what the comparison below must
+    // also say when nothing has changed, on a machine with no other locale.
+    {
+        std::vector<DrawCmd> again;
+        ImVec2 again_size;
+        lay_out(again, again_size);
+        check_same("laid out again in the same locale", again, again_size);
+    }
+
     DecimalComma comma;
     if (comma.name == nullptr) {
         std::printf("    SKIPPED: no locale with a decimal comma on this machine (see h3)\n");
         return;
     }
+    std::printf("    LC_NUMERIC = %s\n", comma.name);
     std::vector<DrawCmd> other;
     ImVec2 other_size;
     lay_out(other, other_size);
-    REQUIRE_EQ(other.size(), plain.size());
-    size_t different = 0;
-    for (size_t i = 0; i < plain.size(); ++i)
-        different += std::memcmp(&plain[i], &other[i], sizeof(DrawCmd)) != 0 ? 1u : 0u;
-    CHECK_EQ(different, size_t(0));
-    CHECK_EQ(other_size.x, plain_size.x);
-    CHECK_EQ(other_size.y, plain_size.y);
+    check_same(comma.name, other, other_size);
 }
 
 // --- H4: a reason is a C string ------------------------------------------------------

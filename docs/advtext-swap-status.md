@@ -176,7 +176,7 @@ carries `LICENSE` and the third-party notices.
 imtypeset-0.4.1.192900"). Your exact pins prevent it; say so to
 applications that pin neither.
 
-**Known at `v0.4.1`, by a CI run on macOS 14 arm64 (run 38338953414):** every golden replay passes there and 52 of 55 tests pass; three fail and are follow-ups, by the owner's direction ("Priority is release and downstream builds"): the scripted keyboard-copy test (the test injects Ctrl where a Mac's backend sends Cmd: believed a test fault, not yet shown), a paragraph laid out differently under a decimal-comma locale (cause not yet known), and 2 of 7,510 glyph boxes under Homebrew's FreeType 2.14.3 (the wheel does not use that FreeType). The wheels' own installed checks pass on macOS.
+**The first run of the suite on macOS** (macOS 14 arm64, run 38338953414, at `cf7466e`): every golden replay passed and three tests failed. All three were faults of the tests, each reproduced on Linux by this project's agent before it was changed, and the library is unchanged: the scripted copy test pressed Ctrl where a Mac's shortcut key is Cmd (`SelectableText` and `DocumentView` answer Cmd+C and Cmd+A on a Mac, as Dear ImGui's own text fields do); the decimal-comma test compared a struct's padding bytes (no layout depends on the locale); and 2 of 7,510 glyph boxes differ under FreeType 2.14.3 from the golden's 2.13.3 (the wheel does not use that FreeType). The corrected tests are in `v0.4.1`; their first run on macOS is that tag's CI.
 
 ### Requests of advtext (`T1`…)
 

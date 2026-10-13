@@ -288,7 +288,7 @@ TEST(a_throw_from_anywhere_in_setting_and_laying_out_a_paragraph_leaves_it_usabl
         REQUIRE_EQ(cmds.size(), expected.size());
         size_t different = 0;
         for (size_t i = 0; i < cmds.size(); ++i)
-            different += std::memcmp(&cmds[i], &expected[i], sizeof(DrawCmd)) != 0 ? 1u : 0u;
+            different += cmds[i] != expected[i] ? 1u : 0u;
         CHECK_EQ(different, size_t(0));
         CHECK_EQ(ImTypeset::GetParagraphSize(p).x, expected_size.x);
         CHECK_EQ(ImTypeset::GetParagraphSize(p).y, expected_size.y);
@@ -606,7 +606,7 @@ TEST(a_throw_from_anywhere_in_adding_a_font_leaves_the_role_empty_or_filled)
         REQUIRE_EQ(cmds.size(), expected.size());
         size_t different = 0;
         for (size_t i = 0; i < cmds.size(); ++i)
-            different += std::memcmp(&cmds[i], &expected[i], sizeof(DrawCmd)) != 0 ? 1u : 0u;
+            different += cmds[i] != expected[i] ? 1u : 0u;
         CHECK_EQ(different, size_t(0));
         ImTypeset::DestroyParagraph(p);
         if (completed)
