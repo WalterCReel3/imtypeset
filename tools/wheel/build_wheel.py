@@ -48,7 +48,10 @@ WHAT A WHEEL IS, and why (docs/sidecar.md, section 8):
              attestation is of that CPython's imgui_bundle module (and, on
              Linux, the library names that module's file); no CPython ABI,
              because the library is loaded with ctypes and uses none.
-  requires   imgui-bundle==<exactly the version it was built for>
+  requires   imgui-bundle==<exactly the version it was built for>, and Python
+             in the release's one range (tools/ci/wheel_matrix.requires_python:
+             the same in every file, because an index keeps one per release;
+             the tag, not this, is what limits a file to its CPython)
   holds      imtypeset/*.py, imtypeset/libimtypeset_bundle.{so,dylib},
              imtypeset/_attestation.json, and in <dist-info>/licenses the
              licence (LICENSE, MIT) and the notices. Nothing else.
@@ -73,6 +76,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(REPO, "tools"))
 import version as imtypeset_version  # noqa: E402  (tools/version.py)
+sys.path.insert(0, os.path.join(REPO, "tools", "ci"))
+import wheel_matrix  # noqa: E402  (tools/ci/wheel_matrix.py: the release's CPythons)
 
 PACKAGE = os.path.join(REPO, "python", "imtypeset")
 MODULES = ("__init__.py", "_bundle.py", "_capi.py", "demo.py")
@@ -272,11 +277,15 @@ def metadata(version: str, facts: dict, attestation: dict) -> str:
         + (",stand-in-headers" if stand_in else ""),
         "Classifier: Development Status :: 3 - Alpha",
         "Classifier: Intended Audience :: Developers",
-        f"Classifier: {SYSTEM_CLASSIFIER[facts['system']]}",
+        # The systems and CPythons of the whole release, the same in every file:
+        # an index keeps one set of classifiers per release, as it keeps one
+        # Requires-Python (below). Which system and CPython a file is for is its tag.
+        *(f"Classifier: {classifier}" for classifier in sorted(SYSTEM_CLASSIFIER.values())),
         "Classifier: Programming Language :: C++",
         "Classifier: Programming Language :: Python :: 3",
         "Classifier: Programming Language :: Python :: 3 :: Only",
-        f"Classifier: Programming Language :: Python :: {facts['python']}",
+        *(f"Classifier: Programming Language :: Python :: {python}"
+          for python in wheel_matrix.sidecar_matrix.PYTHONS),
         "Classifier: Programming Language :: Python :: Implementation :: CPython",
         "Classifier: Topic :: Software Development :: User Interfaces",
         "Classifier: Topic :: Text Processing :: Markup :: LaTeX",
@@ -285,7 +294,9 @@ def metadata(version: str, facts: dict, attestation: dict) -> str:
         f"Project-URL: Changelog, {SOURCE_URL}/blob/main/docs/CHANGELOG.md",
         f"Project-URL: Documentation, {SOURCE_URL}/blob/main/docs/sidecar.md",
         f"Project-URL: Issues, {SOURCE_URL}/issues",
-        f"Requires-Python: =={facts['python']}.*",
+        # One value for every file of the release: an index keeps it per release and an
+        # installer filters every file by it (docs/releasing.md, section 6).
+        f"Requires-Python: {wheel_matrix.requires_python()}",
         f"Requires-Dist: imgui-bundle=={facts['wheel_version']}",
         "Description-Content-Type: text/markdown; charset=UTF-8; variant=GFM",
         "",
@@ -360,6 +371,11 @@ def build(python: str, out: str, headers: str = "fork", work: str = "", bundle_c
                      "for development and are not published")
     python = os.path.abspath(python) if os.sep in python else (shutil.which(python) or python)
     facts = target_facts(python)
+    if facts["python"] not in wheel_matrix.sidecar_matrix.PYTHONS:
+        raise Failed(f"CPython {facts['python']} is not in the release's matrix "
+                     f"{list(wheel_matrix.sidecar_matrix.PYTHONS)} (tools/ci/sidecar_matrix.py): every "
+                     f"wheel declares Requires-Python {wheel_matrix.requires_python()}, which would "
+                     "exclude this one; add the CPython there first")
     library_version = imtypeset_version.version()
     copies = imtypeset_version.problems()
     if copies:

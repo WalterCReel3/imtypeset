@@ -523,3 +523,26 @@ RUNNING: clang-clean (tests/, src/), pypi-release (python/, tools/, .github/, do
 THEN: commit, push a BRANCH for CI (not main, not a tag) and iterate on macOS results; the PyPI upload,
 the tag push and the licence are the OWNER's: nothing is uploaded without their word. v0.4.0 is a
 local tag, never pushed; tags are never moved; the release is 0.4.1.
+
+## Handoff round after 0.4.1 (lead, 2026-10-14) — sandboxed session, no network
+
+USER: "[Continue with the Handoff work] Please resume. You may pause if you need me to run something you
+don't have access to or if there is an important question/concern." Channel: imscribe's half
+`../imgui-adv-text/HANDOFF-imtypeset.md` (newest: H52, 2026-10-14 08:32); ours
+`docs/advtext-swap-status.md` (ONLY THE LEAD edits it; builders put row text in result files).
+Environment: sandbox ON, no network (PyPI/GitHub refused), CPython 3.11 only, no Docker, no Mac. The
+user pushes, tags remotely, uploads. Lead commits locally at stage boundaries, explicit file lists, NO
+attribution of any kind.
+
+Plan:
+- `h52` (RUNNING): one Requires-Python per release (all wheels of a release declare the matrix's range;
+  the cp3XY-none tag keeps each file to its CPython), checks updated, a release-level check that every
+  file of a release agrees, version 0.4.2, a cp311 wheel built and checked locally. Agent decision:
+  0.4.2 carries H52 and test-only fixes and NO behaviour change, so imscribe can move its exact pin
+  without a re-gate of layout; behaviour fixes go in the next release.
+- `issue4` (RUNNING): `test_stress_font`'s kern-table linearity check counts work, not seconds.
+- `triage` (a reviewer, RUNNING): every open request H22-H28, H36-H51 and H27 read against the code at
+  v0.4.1: already answered / small fix / design question for the owner, with file:line. Fix tasks are
+  declared from its findings.
+- THEN: fix tasks, a gate (presets from clean that this sandbox can run), commit, the status file
+  answered by number, and what the user must run (push, tag, CI, upload).

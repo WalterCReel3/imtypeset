@@ -17,6 +17,8 @@ For every wheel:
   - a build against stand-in headers says so in its version (.dev0+standin,
     a development release, which orders below the release of its line), and
     nothing else does;
+  - Requires-Python is the release's one range (tools/ci/wheel_matrix.py),
+    the same in every file, and it admits the wheel's own CPython;
   - the metadata is version 2.4, says License-Expression: MIT, names the
     licence and the two notices as License-File (the licence being this
     repository's LICENSE), has the project's URLs and a markdown description;
@@ -47,6 +49,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import build_wheel  # noqa: E402
+import wheel_matrix  # noqa: E402  (tools/ci, put on the path by build_wheel)
 
 MODULES = {"__init__.py", "_bundle.py", "_capi.py", "demo.py"}
 LIBRARIES = {"libimtypeset_bundle.so", "libimtypeset_bundle.dylib"}
@@ -63,6 +66,25 @@ def _gate():
 def bundle_line(wheel_version: str) -> str:
     major, minor, patch = (int(part) for part in wheel_version.split("."))
     return str(major * 100000 + minor * 1000 + patch)
+
+
+def tag_python(python_tag: str) -> str:
+    """"cp312" -> "3.12"; "" for anything that is not cp3XY."""
+    return f"3.{python_tag[3:]}" if re.fullmatch(r"cp3\d+", python_tag) else ""
+
+
+def requires_python_problems(values: list, python_tag: str) -> list:
+    """The wheel's Requires-Python is the release's range, the one every file
+    of the release declares (tools/ci/wheel_matrix.requires_python), and that
+    range admits the CPython of the wheel's own tag."""
+    want = wheel_matrix.requires_python()
+    if values != [want]:
+        return [f"Requires-Python {values} is not the release's {want!r}, which every file of a "
+                "release declares (an index keeps one per release)"]
+    python = tag_python(python_tag)
+    if wheel_matrix.admits(want, python) is not True:
+        return [f"Requires-Python {want!r} does not admit {python_tag}, the wheel's own CPython"]
+    return []
 
 
 def check(path: str, release: bool, tag: str, gate) -> list:
@@ -123,8 +145,7 @@ def check(path: str, release: bool, tag: str, gate) -> list:
         problems.append("WHEEL's Tag is not the file name's")
     if abi_tag != "none" or not re.fullmatch(r"cp3\d+", python_tag):
         problems.append(f"the tag is {python_tag}-{abi_tag}; expected cp3XY-none")
-    if fields.get("Requires-Python") != [f"=={python_tag[2]}.{python_tag[3:]}.*"]:
-        problems.append(f"Requires-Python {fields.get('Requires-Python')} is not the tag's CPython")
+    problems += requires_python_problems(fields.get("Requires-Python", []), python_tag)
 
     stand_in = bool(attestation.get("stand_in"))
     library_version = str(attestation.get("imtypeset_version"))

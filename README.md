@@ -31,14 +31,7 @@ not re-made since:
 [the Python host](docs/images/py-host.png),
 [a `Document` beside pptmstr's own pane, on pptmstr's wheel](docs/images/py-bundle-pptmstr-document.png).*
 
-**Status, 2026-10-12.** Version 0.4.1, not yet tagged, MIT ([LICENSE](LICENSE)). Built
-and tested with one compiler on one platform: GCC 12.2 on Linux x86-64. MSVC has
-never compiled it, and under Clang (Linux's and Apple's) every C++ preset was
-red on GitHub on 2026-10-12, the first time the workflows ran. That day the Python sidecar is built, loaded and checked there on
-macOS arm64 and Linux x86-64 against the imgui-bundle wheel's own headers
-(`docs/sidecar.md`, section 14), and nothing else has run on macOS; nothing at
-all on Windows. **The Python wheels are ready for PyPI as `imtypeset` and
-nothing has been uploaded** ([docs/releasing.md](docs/releasing.md)). It needs Dear ImGui 1.92.0 or later and is
+**Status, 2026-10-14.** Version 0.4.1 is on PyPI as `imtypeset` (tag `v0.4.1`); 0.4.2, which changes packaging only, is prepared in this tree and not yet tagged ([docs/CHANGELOG.md](docs/CHANGELOG.md)). MIT ([LICENSE](LICENSE)). Built and tested here with GCC 12.2 on Linux x86-64, and with Clang 18 in a Linux container (`.concerns/clang-clean--result.md`); the library's tests and the wheels have run on macOS arm64 only in GitHub's workflows (`docs/sidecar.md`, section 14). MSVC has never compiled it, and nothing has run on Windows. On PyPI, 0.4.1 installs only on CPython 3.11, which 0.4.2 corrects ([docs/releasing.md](docs/releasing.md)). It needs Dear ImGui 1.92.0 or later and is
 tested against 1.92.9. What works, what does not and what is rough is said
 below with the numbers that were measured; `docs/spec-status.md` holds the
 design note it started from against what was found.

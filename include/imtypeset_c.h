@@ -103,8 +103,8 @@
 #endif
 
 /* The same numbers as IMTYPESET_VERSION and IMTYPESET_VERSION_NUM. */
-#define IMTYPESET_C_VERSION     "0.4.1"
-#define IMTYPESET_C_VERSION_NUM 401
+#define IMTYPESET_C_VERSION     "0.4.2"
+#define IMTYPESET_C_VERSION_NUM 402
 /* The revision of THIS header's own shape: raised when a function of it
  * changes its parameters or a rule above changes. Adding a function does not
  * raise it. */

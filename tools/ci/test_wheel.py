@@ -682,7 +682,7 @@ class Publishing(unittest.TestCase):
         self.assertNotIn("License", fields)
         self.assertFalse([c for c in fields["Classifier"] if c.startswith("License ::")])
         self.assertEqual(fields["Requires-Dist"], ["imgui-bundle==1.92.900"])
-        self.assertEqual(fields["Requires-Python"], ["==3.11.*"])
+        self.assertEqual(fields["Requires-Python"], [">=3.11,<3.15"])
         self.assertEqual([u.split(",")[0] for u in fields["Project-URL"]],
                          ["Repository", "Changelog", "Documentation", "Issues"])
         self.assertTrue(fields["Description-Content-Type"][0].startswith("text/markdown"))
@@ -735,6 +735,135 @@ class Publishing(unittest.TestCase):
                      "imtypeset-0.4.1.192900.dev0+standin-cp311-none-manylinux_2_28_x86_64.whl",
                      "imtypeset-0.4.0.192900-cp311-none-manylinux_2_28_x86_64.whl"):
             self.assertNotIn(wheel_publish.cell_of(name), cells, name)
+
+
+class RequiresPython(unittest.TestCase):
+    """One Requires-Python per release. An index keeps one per release and an
+    installer filters every file by it; 0.4.1 declared `==3.11.*` in its
+    cp311 files and `==3.12.*` ... in the others, the index kept `==3.11.*`,
+    and no CPython but 3.11 could install any file of it (request H52)."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(REPO, "tools", "ci"))
+        self.addCleanup(sys.path.remove, os.path.join(REPO, "tools", "ci"))
+        import check_wheel
+        import dependent_check
+        import wheel_matrix
+        import wheel_publish
+        self.check_wheel, self.dependent_check = check_wheel, dependent_check
+        self.wheel_matrix, self.wheel_publish = wheel_matrix, wheel_publish
+
+    def test_the_range_is_the_matrix(self):
+        m = self.wheel_matrix
+        self.assertEqual(m.requires_python(), ">=3.11,<3.15")
+        self.assertEqual(m.requires_python(("3.12", "3.11")), ">=3.11,<3.13")
+        cpythons = {entry["python"] for entry in m.matrix({})["include"]}
+        self.assertEqual(cpythons, set(m.sidecar_matrix.PYTHONS))
+        for python in cpythons:
+            self.assertIs(m.admits(m.requires_python(), python), True, python)
+        for python in ("3.10", "3.15", "4.0"):
+            self.assertIs(m.admits(m.requires_python(), python), False, python)
+        for hole in (("3.11", "3.13"), (), ("2.7",), ("3.11.2",)):
+            with self.assertRaises(ValueError, msg=str(hole)):
+                m.requires_python(hole)
+
+    def test_admits(self):
+        admits = self.wheel_matrix.admits
+        for spec, python, want in (
+                ("==3.11.*", "3.11", True), ("==3.11.*", "3.12", False),
+                (">=3.11,<3.15", "3.14", True), (">=3.11, <3.15", "3.11", True),
+                (">=3.11,<3.15", "3.15", False), (">3.11", "3.11", False), (">3.11", "3.12", True),
+                ("<=3.14", "3.14", False),  # 3.14.1 is above 3.14
+                ("==3.11", "3.11", False),  # 3.11.0 only
+                ("!=3.12.*", "3.12", False), ("!=3.12.*", "3.13", True),
+                ("~=3.11", "3.12", None), (">=3.11a1", "3.12", None), ("", "3.12", None),
+                (">=3.11,", "3.12", None), (">=3.*", "3.12", None)):
+            self.assertIs(admits(spec, python), want, f"{spec!r} {python}")
+        try:
+            from packaging.specifiers import SpecifierSet
+        except ImportError:
+            return  # the standard library alone: what is above
+        for spec in (">=3.11,<3.15", "==3.11.*", ">3.11", "<=3.14", "!=3.12.*", ">=3.12"):
+            for python in ("3.10", "3.11", "3.12", "3.14", "3.15"):
+                both = [SpecifierSet(spec).contains(python + patch) for patch in (".0", ".99")]
+                self.assertEqual(admits(spec, python), all(both), f"{spec!r} {python}")
+
+    def test_every_file_writes_the_same_range(self):
+        facts = dict(Publishing.FACTS)
+        texts = []
+        for python, system in (("3.11", "Linux"), ("3.14", "Darwin"), ("3.12", "Linux")):
+            facts.update(python=python, system=system)
+            text = build_wheel.metadata("0.4.2.192900", facts, Publishing.attestation(Publishing()))
+            fields, _body = Publishing.fields(Publishing(), text)
+            texts.append(fields)
+        for fields in texts:
+            self.assertEqual(fields["Requires-Python"], [">=3.11,<3.15"])
+            self.assertEqual(fields["Classifier"], texts[0]["Classifier"])
+        for python in ("3.11", "3.12", "3.13", "3.14"):
+            self.assertIn(f"Programming Language :: Python :: {python}", texts[0]["Classifier"])
+
+    def test_a_wheel_is_held_to_the_range(self):
+        problems = self.check_wheel.requires_python_problems
+        self.assertEqual(problems([">=3.11,<3.15"], "cp311"), [])
+        self.assertEqual(problems([">=3.11,<3.15"], "cp314"), [])
+        # 0.4.1's files, each as it was written.
+        for python in ("11", "12", "13", "14"):
+            self.assertTrue(problems([f"==3.{python}.*"], f"cp3{python}"), python)
+        self.assertTrue(problems([], "cp312"))
+        self.assertTrue(problems([">=3.11,<3.15", ">=3.11,<3.15"], "cp312"))
+        self.assertTrue(problems([">=3.11,<3.15"], "cp315"))
+        self.assertTrue(problems([">=3.11,<3.15"], "py3"))
+
+    def rows(self, spec_of):
+        return [(f"imtypeset-0.4.1.{line}-cp3{minor}-none-{platform}.whl", f"cp3{minor}", spec_of(minor))
+                for line in ("192900", "192801") for minor in (11, 12, 13, 14)
+                for platform in ("manylinux_2_28_x86_64", "macosx_14_0_arm64")]
+
+    def test_a_release_is_held_to_one_range(self):
+        problems = self.wheel_publish.requires_python_problems
+        self.assertEqual(problems(self.rows(lambda minor: [">=3.11,<3.15"])), [])
+        # 0.4.1 as it was built: each file its own CPython. Refused as disagreeing.
+        found = problems(self.rows(lambda minor: [f"==3.{minor}.*"]))
+        self.assertEqual(len(found), 1)
+        self.assertIn("disagree", found[0])
+        # 0.4.1 as the index kept it: every file `==3.11.*`. Refused for each
+        # file of 3.12 to 3.14, which no installer would take.
+        found = problems(self.rows(lambda minor: ["==3.11.*"]))
+        self.assertEqual(len(found), 12)
+        self.assertTrue(all("does not admit cp31" in p for p in found))
+        self.assertFalse([p for p in found if "-cp311-" in p])
+        # One range that leaves a CPython of the set out.
+        found = problems(self.rows(lambda minor: [">=3.11,<3.14"]))
+        self.assertEqual(len(found), 4)
+        self.assertTrue(all("cp314" in p for p in found))
+        # A specifier the check cannot read is not taken as a yes.
+        self.assertEqual(len(problems(self.rows(lambda minor: ["~=3.11"]))), 16)
+        self.assertTrue(problems(self.rows(lambda minor: [])))
+
+    def test_the_dependents_marker_is_the_range(self):
+        marker = self.dependent_check.MARKER
+        self.assertTrue(marker.startswith("python_version >= '3.11' and python_version < '3.15' and "))
+        self.assertEqual(self.dependent_check.python_marker(("3.11", "3.12")),
+                         "python_version >= '3.11' and python_version < '3.13'")
+        with open(os.path.join(REPO, "docs", "releasing.md"), encoding="utf-8") as handle:
+            self.assertIn(f"; {marker}\"", handle.read())
+
+    def test_a_cpython_takes_only_its_own_cp_tag(self):
+        """Why the range is safe: the per-CPython restriction is the tag. With
+        `packaging` (what pip vendors), CPython 3.12 does not take a
+        cp311-none-<platform> wheel, nor any cp3XY-none but its own."""
+        try:
+            from packaging import tags
+        except ImportError:
+            self.skipTest("packaging is not installed")
+        for minor in (11, 12, 13, 14):
+            for platform_tag in ("manylinux_2_28_x86_64", "macosx_14_0_arm64"):
+                accepted = {str(t) for t in tags.cpython_tags((3, minor), abis=[f"cp3{minor}"],
+                                                              platforms=[platform_tag])}
+                accepted |= {str(t) for t in tags.compatible_tags((3, minor), interpreter=f"cp3{minor}",
+                                                                  platforms=[platform_tag])}
+                ours = sorted(t for t in accepted if t.startswith("cp") and t.endswith("-none-" + platform_tag))
+                self.assertEqual(ours, [f"cp3{minor}-none-{platform_tag}"])
 
 
 if __name__ == "__main__":

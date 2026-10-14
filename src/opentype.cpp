@@ -2883,6 +2883,7 @@ GlyphBounds OpenTypeFont::bounds(uint32_t glyph) const
         return GlyphBounds{};
     if (_bounds_known[glyph])
         return _bounds[glyph];
+    ++_outlines_run;
     BoundsPen pen;
     bool ok;
     if (_is_cff) {

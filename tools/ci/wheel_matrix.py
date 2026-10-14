@@ -38,5 +38,63 @@ def matrix(environ=os.environ) -> dict:
     return {"include": include}
 
 
+def requires_python(pythons=None) -> str:
+    """The Requires-Python every wheel of a release declares: the CPythons the
+    matrix builds, as one range. One value for the whole release, because an
+    index keeps one per release and an installer filters every file of the
+    release by it (docs/releasing.md, section 6); which CPython a file is for
+    is its tag, `cp3XY-none-<platform>`. A matrix with a hole in it cannot be
+    one range, and is refused rather than written as one."""
+    pythons = sidecar_matrix.PYTHONS if pythons is None else pythons
+    versions = sorted(tuple(int(part) for part in python.split(".")) for python in pythons)
+    if not versions or any(len(v) != 2 or v[0] != 3 for v in versions) or \
+            [v[1] for v in versions] != list(range(versions[0][1], versions[-1][1] + 1)):
+        raise ValueError(f"the matrix's CPythons {list(pythons)} are not one run of 3.X minors")
+    return f">=3.{versions[0][1]},<3.{versions[-1][1] + 1}"
+
+
+def _release(text: str):
+    parts = text.split(".")
+    if not parts or not all(part.isdigit() for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
+
+
+def admits(specifier: str, python: str):
+    """Whether every CPython `python` ("3.12": 3.12.0 and each patch after it)
+    satisfies the Requires-Python `specifier`. Reads the clauses a range of
+    final releases is written with (>=, >, <=, <, ==, !=, the last two with or
+    without .*); anything else answers None, which a caller takes as "cannot
+    say", never as yes."""
+    low = _release(python)
+    if low is None:
+        return None
+    candidates = (low + (0,), low + (10**6,))
+    for clause in (part.strip() for part in specifier.split(",")):
+        for op in (">=", "<=", "==", "!=", ">", "<"):
+            if clause.startswith(op):
+                value = clause[len(op):].strip()
+                break
+        else:
+            return None
+        prefix = value.endswith(".*")
+        bound = _release(value[:-2] if prefix else value)
+        if bound is None or (prefix and op not in ("==", "!=")):
+            return None
+        for candidate in candidates:
+            if prefix:
+                hit = candidate[:len(bound)] == bound
+                ok = hit if op == "==" else not hit
+            else:
+                width = max(len(candidate), len(bound))
+                c = candidate + (0,) * (width - len(candidate))
+                b = bound + (0,) * (width - len(bound))
+                ok = {">=": c >= b, ">": c > b, "<=": c <= b, "<": c < b,
+                      "==": c == b, "!=": c != b}[op]
+            if not ok:
+                return False
+    return True
+
+
 if __name__ == "__main__":
     print("matrix=" + json.dumps(matrix(), separators=(",", ":")))

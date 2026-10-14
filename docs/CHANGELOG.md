@@ -6,6 +6,31 @@ added), **changed** (a name means something else, or text is set
 differently), **fixed** (a defect, with what it did), **removed**. The release
 notes on GitHub are the section, copied by `tools/ci/wheel_release.sh`.
 
+## 0.4.2
+
+A patch by `docs/versioning.md`, and **packaging only: no name, no meaning and no layout
+differs from 0.4.1**, so an application that pins exactly moves its pin
+(`imtypeset==0.4.2.192900` beside `imgui-bundle==1.92.900`) without anything else changing.
+
+- **fixed (packaging)**: on PyPI only CPython 3.11 could install 0.4.1 (imscribe's request
+  H52). Each of its wheels declared `Requires-Python` of its own CPython (`==3.12.*` in a
+  `cp312` file); PyPI kept one value for the release, `==3.11.*`, and pip filtered every file
+  by it, so on 3.12 to 3.14 pip answered "No matching distribution". Every wheel of 0.4.2
+  declares the same `Requires-Python: >=3.11,<3.15`, the CPythons the release has wheels for;
+  which CPython a file is for is its tag (`cp312-none-…`), and a CPython takes no file of
+  another's. The classifiers are likewise the release's in every file (both systems, the four
+  CPythons). A release is refused before upload when its files disagree on `Requires-Python`
+  or the range leaves out a file's CPython (`tools/ci/wheel_publish.py`). `docs/releasing.md`,
+  section 6.
+- **fixed (tests only)**: `tests/test_stress_font.cpp` holds its hostile-font cases to counts
+  of allocations and bytes, and to the number of outlines run, where it held them to seconds;
+  a check that failed once on a hosted runner because the runner was slow (issue #4, D86). For
+  that, the internal `src/opentype.h` gained `OpenTypeFont::outlines_run()`, a counter only the
+  test reads: no public name, no meaning and no layout changed.
+
+0.4.1 stays on PyPI as it is (a file on PyPI cannot be replaced); with Python 3.11 it installs
+and works as before.
+
 ## 0.4.1
 
 The first release published on PyPI, as the distribution `imtypeset`. A patch by

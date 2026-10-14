@@ -355,7 +355,7 @@ sdist.
 |---|---|---|
 | the platform and architecture | it is machine code | the platform tag, **measured from the library that was built and never asserted** (below). macOS: `macosx_14_0_arm64`, never built |
 | one imgui-bundle wheel's binary | its Dear ImGui symbols and struct layouts are that module's | `Requires-Dist: imgui-bundle==X`, exactly; and the version line below |
-| the CPython version | the attestation is of that CPython's `_imgui_bundle` module, and on Linux the library names that module's file, which carries the CPython tag | the Python tag `cp311`, and `Requires-Python: ==3.11.*` |
+| the CPython version | the attestation is of that CPython's `_imgui_bundle` module, and on Linux the library names that module's file, which carries the CPython tag | the Python tag `cp311`, and only the tag: `Requires-Python` is the release's range of CPythons, `>=3.11,<3.15`, the same in every file, because an index keeps one per release (`docs/releasing.md`, section 8) |
 | **not** the CPython ABI | it is loaded with `ctypes` and calls no CPython function | the ABI tag `none` |
 
 So a file is `imtypeset-0.4.1.192900-cp311-none-manylinux_2_28_x86_64.whl`.
@@ -510,7 +510,9 @@ both) and deprecates the classifiers (READ: packaging.python.org, "Core
 metadata specifications", 2026-10-12; the latest version there is 2.6, and
 nothing this wheel says needs more than 2.4). Beside those: the project's URLs
 (repository, changelog, this document, issues), classifiers that are all in
-`trove-classifiers` 2026.9.21.13, `Requires-Python: ==3.<n>.*`,
+`trove-classifiers` 2026.9.21.13 and the same in every file of a release,
+`Requires-Python: >=3.11,<3.15` (the matrix's CPythons; through 0.4.1 it
+was the one CPython, `docs/releasing.md`, section 8),
 `Requires-Dist: imgui-bundle==X`, and a markdown description that is
 `python/README-pypi.md`, the text of the project's page, followed by what the
 one file was built for. RAN (2026-10-12): `twine check --strict` (twine 7.0.0)

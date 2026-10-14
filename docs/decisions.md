@@ -4507,3 +4507,75 @@ dropped when they fall outside the file, as `wr16`'s already were; the order
 of the random draws is the same, so the mutants are the ones they were except
 where the write was out of range.
 
+
+## D85. One Requires-Python per release; 0.4.2 is packaging only (task `h52`, 2026-10-14)
+
+*Decided (an agent, unattended; the lead's brief for the task).* Every wheel
+of a release declares the same `Requires-Python`, the range of CPythons the
+release's matrix builds: `>=3.11,<3.15` today, derived by
+`tools/ci/wheel_matrix.requires_python()` from `sidecar_matrix.PYTHONS` and
+nowhere copied. A file is held to its CPython by its tag
+(`cp3XY-none-<platform>`) alone. The classifiers are the release's in every
+file as well (both systems, the four CPythons): an index keeps them per release
+in the same way. `check_wheel.py` holds each wheel to the range,
+`wheel_publish.py` refuses a set whose files disagree or whose range leaves
+out a file's CPython (read from the files, not the tree), and
+`dependent_check.py` writes the dependents' marker from the same range.
+`build_wheel.py` refuses a CPython outside the matrix rather than write a range
+that excludes the file itself: a developer on a CPython the matrix lacks adds
+it to the matrix first.
+
+*Why.* 0.4.1 wrote `==3.X.*` into each wheel. PyPI keeps one value per
+release, set when the first file of the version creates it, and serves it as
+every file's `requires-python`. pip drops a file whose `requires-python` does
+not admit the target before it looks at the tag. So only 3.11 could install
+0.4.1 (imscribe's H52). *Read:* Warehouse's `forklift/legacy.py` and
+`packaging/utils.py` through a summarising fetch, and pip 26.2.1's
+`package_finder.py` (`docs/releasing.md`, section 8). *Measured:* packaging
+26.3 and pip's vendored copy, CPython 3.11 to 3.14 on both platforms, each
+take no `cp3X-none-<platform>` but their own. A matrix with a gap (3.11 and
+3.13 without 3.12) is refused instead of being written as a range with `!=`:
+a gap in it would be a decision, and nobody has taken one.
+
+*0.4.2 is a patch with no behaviour change* (the lead's decision): imscribe
+pins exactly and moves the pin without gating layout again. `git log
+v0.4.1..HEAD` held two commits when this was written, both documents under
+`.concerns/` and `docs/advtext-swap-status.md`, with nothing in `src/`,
+`include/` or `python/imtypeset/`. Beside it, uncommitted, task `issue4` was
+changing `tests/test_stress_font.cpp` and adding a counter of outlines run to
+the internal `Font` of `src/opentype.h` for that test to read. That counter has
+no public name, and nothing reads it but the test. Whoever tags 0.4.2 checks
+`git diff v0.4.1 -- src include python/imtypeset` again before tagging. 0.4.1 is not yanked: with 3.11
+it installs and works, and an exact pin of it keeps working there.
+
+*Not measured:* any upload; PyPI's answer for 0.4.2. `docs/releasing.md`,
+section 8, has the commands.
+
+## D86. The stress tests hold hostile shapes to counts of work, not to seconds (task `issue4`, 2026-10-14)
+
+*Decided.* `tests/test_stress_font.cpp` replaces global `operator new` and
+`delete` for its binary and counts allocations and bytes asked for, as
+`tests/test_selection.cpp` already did. The n1, n2 and n3 cases are held to
+those counts instead of to seconds: n3's 65,535 one-pair `kern` subtables may
+take at most 32 more allocations than 16,384 do, and bytes at most 16 times
+the table's size over a load with no `kern` table; n1's phases under a
+megabyte each and its 100,000-group format 12 load under 64 KB; n2's load at
+most twice the file. The n5 seconds bound is dropped, because its warning
+already says the budget stopped the glyph. s5's "asked again it is
+remembered" is held by `OpenTypeFont::outlines_run()`, a count of outlines
+`bounds()` has run, one increment beside each outline interpreted and none on
+a remembered box. Every time is still printed. n4 keeps its ceilings (5 s and
+10 s, against 0.17 s and 0.18 s under the sanitisers): counting from ".1" for
+every duplicate allocates nothing more, so no count separates it.
+
+*Why.* The n3 ratio of two times failed once on a hosted runner (issue #4):
+seconds are a property of the machine at the moment, and allocations a
+property of the build. *Measured:* debug, release and ASan+UBSan give the
+same counts to the byte (n3: 60 and 54 allocations, 3,015,062 bytes for a
+1,310,720 byte table). With the exact `reserve()` of W-D2 put back in a
+scratch copy of the tree, the four n3 count checks fail (65,578 against 54
+allocations; 25.8 GB asked for); with `bounds()`' early return removed, s5's
+count reads 1,001; with the CFF budget at 2^31 - 1, n5's warning check fails.
+*Not measured:* any other standard library's counts (the bounds allow a
+growth factor of 1.5); a regression in n1 or n2 put back to see their bounds
+fail.

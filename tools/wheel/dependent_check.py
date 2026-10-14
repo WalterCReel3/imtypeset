@@ -26,11 +26,21 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import build_wheel  # noqa: E402
+import wheel_matrix  # noqa: E402  (tools/ci, put on the path by build_wheel)
 
-# Where imtypeset has wheels: Linux x86-64 and macOS arm64, CPython 3.11 to
-# 3.14 (tools/ci/wheel_matrix.py). The upper bound is a wheel that does not
-# exist yet, not a judgement of that CPython.
-MARKER = ("python_version >= '3.11' and python_version < '3.15' and "
+
+def python_marker(pythons=None) -> str:
+    """The marker's CPython range, the one every wheel's Requires-Python states
+    (wheel_matrix.requires_python), written as a marker."""
+    low, high = wheel_matrix.requires_python(pythons)[2:].split(",<")
+    return f"python_version >= '{low}' and python_version < '{high}'"
+
+
+# Where imtypeset has wheels: Linux x86-64 and macOS arm64, the CPythons of
+# tools/ci/wheel_matrix.py (3.11 to 3.14 today: `python_version >= '3.11' and
+# python_version < '3.15'`). The upper bound is a wheel that does not exist
+# yet, not a judgement of that CPython.
+MARKER = (python_marker() + " and "
           "((sys_platform == 'linux' and platform_machine == 'x86_64') or "
           "(sys_platform == 'darwin' and platform_machine == 'arm64'))")
 
@@ -91,6 +101,18 @@ def main(argv=None) -> int:
                                "python_version": python, "python_full_version": python + ".0"})
         failed += got != wheel
         print(f"{'ok  ' if got == wheel else 'FAIL'} {what}: the marker is {got}, a wheel {'exists' if wheel else 'does not'}")
+    # The marker and the wheels' Requires-Python agree on every CPython from one
+    # below the matrix to one above it.
+    pythons = wheel_matrix.sidecar_matrix.PYTHONS
+    minors = [int(python.split(".")[1]) for python in pythons]
+    for minor in range(min(minors) - 1, max(minors) + 2):
+        python = f"3.{minor}"
+        got = marker.evaluate({"sys_platform": "linux", "platform_machine": "x86_64",
+                               "python_version": python, "python_full_version": python + ".0"})
+        admitted = wheel_matrix.admits(wheel_matrix.requires_python(), python)
+        failed += got != admitted
+        print(f"{'ok  ' if got == admitted else 'FAIL'} CPython {python}: the marker is {got}, "
+              f"Requires-Python {wheel_matrix.requires_python()} admits it: {admitted}")
     if args.out:
         os.makedirs(args.out, exist_ok=True)
         print(write_dependent(args.out, "dependent_stand_in", requires))

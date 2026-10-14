@@ -248,8 +248,8 @@
 
 #include "imgui.h"
 
-#define IMTYPESET_VERSION     "0.4.1"
-#define IMTYPESET_VERSION_NUM 401 // XYYZZ: 0.04.01
+#define IMTYPESET_VERSION     "0.4.2"
+#define IMTYPESET_VERSION_NUM 402 // XYYZZ: 0.04.02
 
 // The ImGui release this is built and tested against, and the oldest it is
 // written for: 1.92.0 introduced the dynamic font atlas (ImFontBaked, sizes

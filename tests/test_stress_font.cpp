@@ -69,6 +69,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -77,6 +78,97 @@
 using namespace ImTypeset::detail;
 
 using namespace font_builders;
+
+// --- Counting allocations ----------------------------------------------------------------
+// Replaced for the whole test binary, so that what a hostile shape costs can
+// be held to a bound in work rather than in seconds: the number of
+// allocations and the bytes asked for are the same on every run of one build,
+// however loaded the machine is. Work that reallocates what it has read so far
+// at every step shows as a number of allocations in proportion to the steps,
+// and as bytes in proportion to their square.
+
+namespace
+{
+size_t g_allocations = 0;
+size_t g_allocated_bytes = 0;
+
+void* counted_malloc(std::size_t size) noexcept
+{
+    ++g_allocations;
+    g_allocated_bytes += size;
+    return std::malloc(size != 0 ? size : 1);
+}
+
+// Out of line, so that the compiler, which sees a replaced operator new as an
+// allocation function of its own, does not see the free() a delete ends in and
+// call the pair mismatched (-Wmismatched-new-delete, at -O2 and above).
+#if defined(__GNUC__)
+__attribute__((noinline))
+#endif
+void free_out_of_line(void* p) noexcept
+{
+    std::free(p);
+}
+
+// What was allocated between two points of a test.
+struct AllocationCount {
+    size_t allocations = 0, bytes = 0;
+};
+
+struct CountAllocations {
+    size_t allocations = g_allocations, bytes = g_allocated_bytes;
+    AllocationCount since() const
+    {
+        return {g_allocations - allocations, g_allocated_bytes - bytes};
+    }
+};
+} // namespace
+
+void* operator new(std::size_t size)
+{
+    void* p = counted_malloc(size);
+    if (p == nullptr)
+        std::abort();
+    return p;
+}
+void* operator new[](std::size_t size)
+{
+    return operator new(size);
+}
+// The nothrow forms too: the standard library's temporary buffers (stable_sort)
+// are allocated with them and released with the plain delete.
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept
+{
+    return counted_malloc(size);
+}
+void* operator new[](std::size_t size, const std::nothrow_t&) noexcept
+{
+    return counted_malloc(size);
+}
+void operator delete(void* p) noexcept
+{
+    free_out_of_line(p);
+}
+void operator delete(void* p, const std::nothrow_t&) noexcept
+{
+    free_out_of_line(p);
+}
+void operator delete[](void* p, const std::nothrow_t&) noexcept
+{
+    free_out_of_line(p);
+}
+void operator delete[](void* p) noexcept
+{
+    free_out_of_line(p);
+}
+void operator delete(void* p, std::size_t) noexcept
+{
+    free_out_of_line(p);
+}
+void operator delete[](void* p, std::size_t) noexcept
+{
+    free_out_of_line(p);
+}
 
 namespace
 {
@@ -1593,9 +1685,11 @@ TEST(n1_a_format_13_cmap_over_the_whole_code_space_stays_one_range)
     const Bytes file = whole_code_space_format13();
     const double rss_before = peak_rss_mb();
     auto start = std::chrono::steady_clock::now();
+    CountAllocations count;
     OpenTypeFont font;
     std::string why;
     REQUIRE(font.load(file.data(), file.size(), &why));
+    const AllocationCount load = count.since();
     const double load_seconds = seconds_since(start);
     const double load_rss = peak_rss_mb() - rss_before;
     REQUIRE_EQ(font.cmap().size(), size_t(1));
@@ -1609,23 +1703,28 @@ TEST(n1_a_format_13_cmap_over_the_whole_code_space_stays_one_range)
     CHECK(!font.lookup(0x110000, nullptr));
 
     start = std::chrono::steady_clock::now();
+    count = CountAllocations();
     FontLibrary library;
     REQUIRE(library.register_font(Face::PROSE, file.data(), file.size(), "lastresort", &why));
+    const AllocationCount registered = count.since();
     const double register_seconds = seconds_since(start);
     const FaceData* face = library.face_data(Face::PROSE);
     start = std::chrono::steady_clock::now();
+    count = CountAllocations();
     Bytes built;
     REQUIRE(build_atlas_font(*face, 32, built, &why));
+    const AllocationCount build = count.since();
     const double build_seconds = seconds_since(start);
     const double all_rss = peak_rss_mb() - rss_before;
     std::printf("stress_font N1: a %zu byte font whose cmap is one format 13 group over "
-                "U+0000..U+10FFFF: %zu ranges; load %.3f s, peak RSS +%.0f MB; register_font "
-                "%.3f s; build_atlas_font %.3f s, a %zu byte font for the atlas; peak RSS +%.0f "
-                "MB in all\n",
-                file.size(), font.cmap().size(), load_seconds, load_rss, register_seconds,
-                build_seconds, built.size(), all_rss);
-    // Generous enough for the sanitiser build; what is measured is above.
-    CHECK(load_seconds < 10.0 && register_seconds < 10.0 && build_seconds < 10.0);
+                "U+0000..U+10FFFF: %zu ranges; load %zu bytes allocated, %.3f s, peak RSS +%.0f "
+                "MB; register_font %zu bytes, %.3f s; build_atlas_font %zu bytes, %.3f s, a %zu "
+                "byte font for the atlas; peak RSS +%.0f MB in all\n",
+                file.size(), font.cmap().size(), load.bytes, load_seconds, load_rss,
+                registered.bytes, register_seconds, build.bytes, build_seconds, built.size(),
+                all_rss);
+    // Nothing a code: 1,114,112 codes at four bytes each would be 4.25 MB.
+    CHECK(load.bytes < 1048576 && registered.bytes < 1048576 && build.bytes < 1048576);
     CHECK(all_rss < 768.0);
     // The font for the atlas is the file with a cmap of one group, and maps
     // what the file maps.
@@ -1640,14 +1739,18 @@ TEST(n1_a_format_13_cmap_over_the_whole_code_space_stays_one_range)
     // 100,000 format 12 groups that each replace the one before: one range.
     const Bytes same = same_code_format12(100000);
     start = std::chrono::steady_clock::now();
+    count = CountAllocations();
     REQUIRE(font.load(same.data(), same.size(), &why));
+    const AllocationCount same_load = count.since();
     REQUIRE_EQ(font.cmap().size(), size_t(1));
     CHECK_EQ(font.cmap()[0].first, uint32_t('A'));
     CHECK_EQ(font.cmap()[0].last, uint32_t('A'));
     CHECK_EQ(font.cmap()[0].glyph, 1u + (99999u % 5u));
-    std::printf("stress_font N1: a format 12 cmap of 100,000 groups at one code: %.3f s\n",
-                seconds_since(start));
-    CHECK(seconds_since(start) < 5.0);
+    std::printf("stress_font N1: a format 12 cmap of 100,000 groups at one code: %zu "
+                "allocations, %zu bytes, %.3f s\n",
+                same_load.allocations, same_load.bytes, seconds_since(start));
+    // Each group takes the place of the one before: the ranges never grow.
+    CHECK(same_load.bytes < 65536);
 }
 
 // 256 Font DICTs, the most FDSelect can name, whose Private DICTs all name
@@ -1658,9 +1761,11 @@ TEST(n2_font_dicts_that_name_one_subrs_index_have_it_read_once)
     const Bytes file = cid_font(dicts_sharing_subrs(256, 65535)).build();
     const double rss_before = peak_rss_mb();
     const auto start = std::chrono::steady_clock::now();
+    const CountAllocations count;
     OpenTypeFont font;
     std::string why;
     REQUIRE(font.load(file.data(), file.size(), &why));
+    const AllocationCount load = count.since();
     const double load_seconds = seconds_since(start);
     const double rss = peak_rss_mb() - rss_before;
     CHECK(font.is_cid_keyed());
@@ -1673,9 +1778,11 @@ TEST(n2_font_dicts_that_name_one_subrs_index_have_it_read_once)
     if (!font.strict_check(&why))
         FAIL("strict: %s", why.c_str());
     std::printf("stress_font N2: a %zu byte CID-keyed font, 256 Font DICTs naming one Subrs "
-                "INDEX of 65,535: load %.3f s, peak RSS +%.1f MB\n",
-                file.size(), load_seconds, rss);
-    CHECK(load_seconds < 5.0);
+                "INDEX of 65,535: load %zu allocations, %zu bytes, %.3f s; peak RSS +%.1f MB\n",
+                file.size(), load.allocations, load.bytes, load_seconds, rss);
+    // The INDEX's 65,536 offsets once: a quarter of a megabyte, where 256
+    // copies would be 64 MB.
+    CHECK(load.bytes <= 2 * file.size());
     CHECK(rss < 16.0);
 
     // 256 INDEXes that are different and lie over one another: kept while
@@ -1695,16 +1802,37 @@ TEST(n2_font_dicts_that_name_one_subrs_index_have_it_read_once)
 }
 
 // The kern table states its subtable count in 16 bits. 65,535 subtables of
-// one pair each are sorted once, not once a subtable.
+// one pair each are gathered and sorted once, not once a subtable.
+//
+// What that costs is held to a count of allocations, not to seconds: reading
+// all of them takes a handful more allocations than reading a quarter of them
+// (a vector that grows geometrically grows twice more for four times the
+// pairs), and asks for bytes in proportion to the table. A reader that
+// reallocates its pairs at every subtable takes one allocation a subtable and
+// asks for bytes in proportion to the square of their number, gigabytes here.
+// The seconds are printed, for the record, and not held to anything.
 TEST(n3_a_kern_table_of_65535_subtables_is_read_in_one_pass)
 {
     const MiniFont six = six_squares();
+    const Bytes plain = six.build();
+    // What loading the font costs with no kern table at all.
+    AllocationCount without_kern;
+    {
+        const CountAllocations count;
+        OpenTypeFont font;
+        std::string why;
+        REQUIRE(font.load(plain.data(), plain.size(), &why));
+        without_kern = count.since();
+    }
     {
         const Bytes file = mini_with(six, tag("kern"), kern_of_one_pair_subtables(65535, false));
+        const size_t kern_bytes = file.size() - plain.size();
         const auto start = std::chrono::steady_clock::now();
+        const CountAllocations count;
         OpenTypeFont font;
         std::string why;
         REQUIRE(font.load(file.data(), file.size(), &why));
+        const AllocationCount all = count.since();
         const double seconds = seconds_since(start);
         // Subtable k kerns (1 + k / 251, k % 251) by 3.
         CHECK_EQ(font.legacy_kern_keys().size(), size_t(65535));
@@ -1712,41 +1840,51 @@ TEST(n3_a_kern_table_of_65535_subtables_is_read_in_one_pass)
         CHECK_EQ(font.pair_kern(1 + 65534 / 251, 65534 % 251), 3);
         CHECK_EQ(font.pair_kern(1 + 65535 / 251, 65535 % 251), 0);
         CHECK(font.warnings().empty());
-        // A quarter as many, for how the cost grows: four times for work in
-        // proportion, sixteen for work that goes over what was read so far
-        // again with every subtable.
+        // A quarter as many, for how the cost grows.
         const Bytes quarter = mini_with(six, tag("kern"), kern_of_one_pair_subtables(16384, false));
         const auto quarter_start = std::chrono::steady_clock::now();
+        const CountAllocations quarter_count;
         OpenTypeFont small;
         REQUIRE(small.load(quarter.data(), quarter.size(), &why));
+        const AllocationCount part = quarter_count.since();
         const double quarter_seconds = seconds_since(quarter_start);
         CHECK_EQ(small.legacy_kern_keys().size(), size_t(16384));
         std::printf("stress_font N3: a %zu byte kern table of 65,535 subtables of one pair each: "
-                    "load %.3f s; of 16,384: %.3f s (%.1f times less)\n",
-                    file.size() - six.build().size(), seconds, quarter_seconds,
-                    seconds / std::max(quarter_seconds, 1e-9));
-        CHECK(seconds < 5.0);
-        // Below a few milliseconds the ratio is noise.
-        if (seconds > 0.02)
-            CHECK(seconds < 8.0 * quarter_seconds);
+                    "load %zu allocations, %zu bytes, %.3f s; of 16,384: %zu allocations, %zu "
+                    "bytes, %.3f s; with no kern table: %zu allocations, %zu bytes\n",
+                    kern_bytes, all.allocations, all.bytes, seconds, part.allocations, part.bytes,
+                    quarter_seconds, without_kern.allocations, without_kern.bytes);
+        // Four times the subtables: a few more allocations, not 49,151 more.
+        CHECK(all.allocations >= part.allocations);
+        CHECK(all.allocations - part.allocations <= 32);
+        // Bytes in proportion to the table: the pairs, the sort's buffer and
+        // the keys and values kept, each with a vector's spare room.
+        CHECK(all.bytes >= without_kern.bytes);
+        CHECK(all.bytes - without_kern.bytes <= 16 * kern_bytes);
     }
     {
         // 16,384 of them kerning one pair by 2,000: they add up, far past
         // the 16 bits one value has.
         const Bytes file =
             mini_with(six, tag("kern"), kern_of_one_pair_subtables(16384, true, 2000));
+        const size_t kern_bytes = file.size() - plain.size();
         const auto start = std::chrono::steady_clock::now();
+        const CountAllocations count;
         OpenTypeFont font;
         std::string why;
         REQUIRE(font.load(file.data(), file.size(), &why));
+        const AllocationCount all = count.since();
         const double seconds = seconds_since(start);
         REQUIRE_EQ(font.legacy_kern_keys().size(), size_t(1));
         CHECK_EQ(font.pair_kern(1, 2), 16384 * 2000);
         CHECK_EQ(font.pair_kern_accumulated(1, 2), 16384 * 2000);
-        std::printf("stress_font N3: 16,384 kern subtables kerning one pair by 2,000: load %.3f "
-                    "s; the pair's kern is %d units\n",
-                    seconds, font.pair_kern(1, 2));
-        CHECK(seconds < 5.0);
+        std::printf("stress_font N3: 16,384 kern subtables kerning one pair by 2,000: load %zu "
+                    "allocations, %zu bytes, %.3f s; the pair's kern is %d units\n",
+                    all.allocations, all.bytes, seconds, font.pair_kern(1, 2));
+        CHECK(all.bytes >= without_kern.bytes);
+        CHECK(all.bytes - without_kern.bytes <= 16 * kern_bytes);
+        CHECK(all.allocations >= without_kern.allocations);
+        CHECK(all.allocations - without_kern.allocations <= 64);
         // As a length it is held to the layout core's bound, in either
         // direction, at a size where the sum is far past it.
         for (const int each : {2000, -2000}) {
@@ -1830,6 +1968,12 @@ TEST(n4_post_names_met_again_are_numbered_without_starting_over)
     std::printf("stress_font N4: post format 2, %u glyphs named \"x\" and \"x.1\"..\"x.%u\" "
                 "taken: glyph_order_names %.3f s; register_font (which mints by name) %.3f s\n",
                 shared, numbered, seconds, register_seconds);
+    // The one bound in seconds left in this file. Counting from ".1" again for
+    // every duplicate is 300 million lookups of names that fit a string's own
+    // buffer, so it allocates no more than counting on does, and nothing the
+    // test can count tells the two apart. The ceilings are more than twenty
+    // times what the sanitiser build takes, there to stop a run of minutes,
+    // not to measure one.
     CHECK(seconds < 5.0);
     CHECK(register_seconds < 10.0);
 
@@ -1867,7 +2011,8 @@ TEST(n5_cff_stack_work_is_stopped_by_the_work_budget)
     std::printf("stress_font N5: a %zu byte CFF font whose glyph does stack work in a loop of "
                 "subroutines: ink box %.3f s, strict pass %.3f s\n",
                 file.size(), seconds, seconds_since(start));
-    CHECK(seconds < 5.0);
+    // What stopped it is held by the warning above, not by a time: without
+    // the budget the glyph runs to its end, draws nothing, and is no error.
 
     // dup until the stack is full: that glyph has no box, and the font is fine.
     MiniCff cff = arithmetic_cff();
@@ -1979,6 +2124,7 @@ TEST(s5_cff_work_is_counted_in_segments_not_operators)
     OpenTypeFont font;
     std::string why;
     REQUIRE(font.load(file.data(), file.size(), &why));
+    CHECK_EQ(font.outlines_run(), size_t(0));
     const auto start = std::chrono::steady_clock::now();
     const GlyphBounds box = font.bounds(1);
     const double first = seconds_since(start);
@@ -1986,15 +2132,20 @@ TEST(s5_cff_work_is_counted_in_segments_not_operators)
     CHECK_EQ(box.x_max, 0.0);
     CHECK(warned(font.warnings(), "malformed or unsupported"));
     // And asked again it is remembered, not run again.
+    CHECK_EQ(font.outlines_run(), size_t(1));
     const auto again = std::chrono::steady_clock::now();
+    bool same = true;
     for (int i = 0; i < 1000; ++i)
-        font.bounds(1);
-    CHECK(seconds_since(again) < first + 0.05);
+        same = same && font.bounds(1) == box;
+    const double repeated = seconds_since(again);
+    CHECK(same);
+    CHECK_EQ(font.outlines_run(), size_t(1));
     why.clear();
     CHECK(!font.strict_check(&why));
     CHECK(why.find("more work") != std::string::npos);
-    std::printf("stress_font S5: a %zu byte CFF font, one hostile glyph's ink box: %.3f s\n",
-                file.size(), first);
+    std::printf("stress_font S5: a %zu byte CFF font, one hostile glyph's ink box: %.3f s; "
+                "1,000 times again: %.3f s\n",
+                file.size(), first, repeated);
 }
 
 // --- S7: stand-ins ---------------------------------------------------------------------------

@@ -322,6 +322,10 @@ public:
     // or, in CFF, computes a coordinate that is not finite. Never infinite or
     // NaN.
     GlyphBounds bounds(uint32_t glyph) const;
+    // How many outlines bounds() has run since the font was loaded: once a
+    // glyph, since a box is remembered. For tests, which hold a hostile glyph
+    // to being run once rather than to a time.
+    size_t outlines_run() const { return _outlines_run; }
 
     // --- Pair kerning -------------------------------------------------------------
     // The 'kern' feature's adjustment to the first glyph's advance for an
@@ -528,6 +532,7 @@ private:
 
     mutable std::vector<GlyphBounds> _bounds;
     mutable std::vector<uint8_t> _bounds_known;
+    mutable size_t _outlines_run = 0;
 
     std::vector<KernSubtable> _kern;
     std::vector<uint32_t> _legacy_keys;

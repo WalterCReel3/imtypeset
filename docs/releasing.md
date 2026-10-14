@@ -232,7 +232,7 @@ For imscribe (`../imgui-adv-text`), which pins `imgui-bundle==1.92.900`:
 ```toml
 dependencies = [
     "imgui-bundle==1.92.900",
-    "imtypeset==0.4.1.192900; python_version >= '3.11' and python_version < '3.15' and ((sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'darwin' and platform_machine == 'arm64'))",
+    "imtypeset==0.4.2.192900; python_version >= '3.11' and python_version < '3.15' and ((sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'darwin' and platform_machine == 'arm64'))",
 ]
 ```
 
@@ -245,6 +245,14 @@ dependencies = [
   `import imtypeset` is then `ModuleNotFoundError`, which the package must
   treat as "no library here". The upper bound on the Python version is a
   wheel that does not exist yet.
+- **The marker's Python range is the wheels' `Requires-Python`** (section 8):
+  both are derived from the CPythons of `tools/ci/wheel_matrix.py`
+  (`tools/wheel/dependent_check.py` writes the marker from them and checks
+  the two agree from one CPython below the matrix to one above it;
+  `tools/ci/test_wheel.py` holds this section's line to it). A CPython added to
+  the matrix moves both, and this line is edited to match.
+- **0.4.1 installs on CPython 3.11 only** (section 8). Under the marker above,
+  `imtypeset==0.4.1.192900` on 3.12 to 3.14 fails at imtypeset; pin 0.4.2.
 - **What no marker can say:**
   - *musl.* On Alpine the marker is true (it is Linux on x86-64), there is no
     musllinux wheel, and the install fails at imtypeset. There is no marker
@@ -288,6 +296,7 @@ evaluated and no resolver was started; any of it against PyPI itself.
 | the description must render | READ (`pypi.org/help`): "PyPI will reject uploads if the package description fails to render" | RAN: `twine check --strict` (twine 7.0.0) on the four wheels: PASSED |
 | classifiers are from the list | RECALLED that PyPI refuses an unknown one | RAN: all eleven are in `trove-classifiers` 2026.9.21.13 |
 | a platform tag must be one PyPI knows: `manylinux_*`, `macosx_*`, not plain `linux_x86_64` | RECALLED, not read today | `check_wheel.py --release` refuses plain `linux_<arch>`. That PyPI takes `manylinux_2_28_x86_64` and `macosx_14_0_arm64` is shown by imgui-bundle's own files there |
+| one `Requires-Python` per release, kept from the first file uploaded, and given to the installer as every file's | READ (section 8) | every wheel declares the same range; `check_wheel.py` and `wheel_publish.py` refuse anything else; RAN |
 | a file is at most 100 MiB, a project 10 GiB | READ (`pypi.org/help`) | a wheel is 608 kB |
 | a file name is never reused; a yanked release is ignored unless it is the only match | READ (`pypi.org/help`) | section 3 |
 
@@ -330,3 +339,90 @@ NEVER RUN:
   platforms' artifacts, as `actions/download-artifact` lays them out).
 - **A release wheel on macOS.** The macOS wheels GitHub built were 0.3.0 and
   not release builds (no recorded checksums then).
+
+## 8. Requires-Python: one per release (H52, 2026-10-14)
+
+**What a release must check.** Every wheel of a release declares the same
+`Requires-Python`, and that range admits the CPython of every wheel's tag.
+Today it is `>=3.11,<3.15`. It is written by `tools/wheel/build_wheel.py`
+from `tools/ci/wheel_matrix.requires_python()`, which derives it from the
+matrix's CPythons (`tools/ci/sidecar_matrix.PYTHONS`) and refuses a matrix with
+a gap in it. Nothing else holds a copy. Which CPython a file is for is its
+tag, `cp3XY-none-<platform>`. The classifiers are the release's too, the same
+in every file: both systems and the four CPythons.
+
+- `check_wheel.py` refuses a wheel whose `Requires-Python` is not the
+  release's range, or does not admit the wheel's own CPython.
+- `wheel_publish.py`, run before any upload, reads `Requires-Python` from
+  every file it is about to send, without looking at the tree. It refuses a set
+  whose files disagree, or whose one value leaves out a file's CPython. It also
+  refuses a value it cannot read rather than taking it as a yes.
+- `build_wheel.py` refuses to build for a CPython outside the matrix, because
+  the wheel would declare a range that excludes itself.
+- `tools/ci/test_wheel.py`, class `RequiresPython`, covers each of these,
+  0.4.1's files as they were written and as PyPI kept them included.
+
+**Why.** 0.4.1 wrote `==3.X.*` into each wheel, one per CPython. On PyPI only
+CPython 3.11 could install it.
+
+- READ (`../imgui-adv-text/HANDOFF-imtypeset.md`, H52, which records imscribe's
+  run of 2026-10-14): `pip download --no-deps --only-binary=:all: --platform
+  macosx_14_0_arm64 --implementation cp --python-version V
+  imtypeset==0.4.1.192900` succeeds for 3.11 and fails for 3.12 and 3.13.
+  PyPI's JSON gives `requires_python` `==3.11.*` on all eight files.
+- READ, through a summarising fetch of Warehouse's source (`pypi/warehouse`,
+  branch `main`, 2026-10-14), so the code was not read line by line:
+  - `warehouse/forklift/legacy.py` sets `requires_python` on the **Release**,
+    and only when the upload creates that release. A later file of the same
+    version finds the existing release and does not change the value.
+  - `warehouse/packaging/utils.py` gives each file of the simple index
+    `"requires-python": file.release.requires_python`.
+
+  So the first file uploaded decides `Requires-Python` for every file of the
+  version.
+- READ (pip 26.2.1 as installed in `../imgui-adv-text/.venv`,
+  `pip/_internal/index/package_finder.py`, `_check_link_requires_python` and
+  `LinkEvaluator.evaluate_link`): a link whose `requires_python` does not
+  admit the target Python is dropped as `requires_python_mismatch` before
+  its tag is looked at.
+
+**Why the wide range is safe.** The per-CPython limit is the wheel's tag.
+
+- READ (`packaging` 26.3, `packaging/tags.py`, `cpython_tags` and
+  `compatible_tags`; pip vendors the same function at
+  `pip/_vendor/packaging/tags.py`): CPython 3.Y takes `cp3Y-<abi>-<platform>`,
+  `cp3Y-abi3-…` and older `cp3X-abi3-…`, `cp3Y-none-<platform>`, `py*-none-…`,
+  and `cp3Y-none-any`. It takes no `cp3X-none-<platform>` for an X other than
+  Y.
+- RAN, with both copies of that module, for 3.11 to 3.14 on
+  `manylinux_2_28_x86_64` and `macosx_14_0_arm64`: each CPython takes exactly
+  one `cp3?-none-<platform>` tag, its own. `test_a_cpython_takes_only_its_own_cp_tag`
+  keeps this as a test (skipped where `packaging` is not installed).
+
+**What 0.4.1 is now.** A file on PyPI is never replaced, so 0.4.1 stays as
+it is and installs on CPython 3.11 only. 0.4.2 is the fix, a patch with no
+change to the library (`docs/CHANGELOG.md`). Yanking 0.4.1 is the owner's
+call and is not needed: a dependent pinning 0.4.1 exactly keeps working on
+3.11, and the one change for everyone else is to move the pin.
+
+**NOT RUN:** an upload; `pip download` against PyPI for 0.4.2. Both need the
+network. The commands are below.
+
+After the upload, from any machine with network, for each `V` in `3.11 3.12
+3.13 3.14` and each platform:
+
+```sh
+d=$(mktemp -d)
+for V in 3.11 3.12 3.13 3.14; do
+  for P in manylinux_2_28_x86_64 macosx_14_0_arm64; do
+    python3 -m pip download --no-deps --only-binary=:all: --dest "$d/$V-$P" \
+        --platform "$P" --implementation cp --python-version "$V" \
+        "imtypeset==0.4.2.192900" >/dev/null 2>&1 && echo "ok   $V $P" || echo "FAIL $V $P"
+  done
+done
+curl -s https://pypi.org/pypi/imtypeset/0.4.2.192900/json | python3 -c \
+    "import json,sys; d=json.load(sys.stdin); print(d['info']['requires_python'], sorted({u['requires_python'] for u in d['urls']}))"
+```
+
+Eight `ok` lines are expected, followed by `>=3.11,<3.15 ['>=3.11,<3.15']`.
+Repeat the loop for `0.4.2.192801`.

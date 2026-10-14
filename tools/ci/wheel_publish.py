@@ -10,7 +10,12 @@ Refuses, and writes nothing, unless:
     stand-in headers, accepted by Dear ImGui's own layout check, no
     development or local version segment, a manylinux or macosx tag);
   - the wheels are EXACTLY the matrix of tools/ci/wheel_matrix.py: one for
-    every (platform, CPython, imgui-bundle) of it, none twice, none besides.
+    every (platform, CPython, imgui-bundle) of it, none twice, none besides;
+  - every wheel declares the SAME Requires-Python, and it admits the CPython
+    of every wheel's tag. An index keeps one Requires-Python per release, from
+    the first file it is given, and an installer filters every file of the
+    release by it: 0.4.1 went out with `==3.11.*` on all its files and only
+    CPython 3.11 could install it (docs/releasing.md, section 6).
     An index takes files one at a time and never lets a file name be used
     again, so a release with a hole in it cannot be repaired by replacing
     anything: it is refused here, before the first file leaves.
@@ -23,9 +28,11 @@ index's own action, which reads <out>.
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
+import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
@@ -61,6 +68,41 @@ def cell_of(name: str):
     return (python_tag, version, platform_tag)
 
 
+def requires_python_of(path: str) -> list:
+    """The Requires-Python fields of a wheel's METADATA, as written."""
+    name = os.path.basename(path)
+    version = name[:-len(".whl")].split("-")[1]
+    with zipfile.ZipFile(path) as archive:
+        text = archive.read(f"imtypeset-{version}.dist-info/METADATA").decode("utf-8")
+    return [line.partition(": ")[2] for line in text.split("\n\n", 1)[0].splitlines()
+            if line.startswith("Requires-Python: ")]
+
+
+def requires_python_problems(rows) -> list:
+    """rows: (file name, python tag, [Requires-Python as written]) per wheel.
+    One value across the release, admitting every file's CPython; read from
+    the files, not from this tree, so it holds of what is about to be sent."""
+    problems = []
+    values = {}
+    for name, _python_tag, written in rows:
+        if len(written) != 1:
+            problems.append(f"{name} has {len(written)} Requires-Python fields, not one: {written}")
+        else:
+            values.setdefault(written[0], []).append(name)
+    if len(values) > 1:
+        problems.append("the wheels disagree on Requires-Python, and an index keeps one per release: "
+                        + "; ".join(f"{value!r} in {len(names)} ({names[0]}, ...)"
+                                    for value, names in sorted(values.items())))
+        return problems
+    for value in values:
+        for name, python_tag, _written in rows:
+            python = f"3.{python_tag[3:]}" if re.fullmatch(r"cp3\d+", python_tag) else python_tag
+            if wheel_matrix.admits(value, python) is not True:
+                problems.append(f"Requires-Python {value!r}, the release's, does not admit {python_tag}: "
+                                f"no installer would take {name}")
+    return problems
+
+
 def main(argv) -> int:
     if len(argv) != 3:
         print(__doc__, file=sys.stderr)
@@ -91,8 +133,12 @@ def main(argv) -> int:
             have[cell] = path
     for cell in sorted(set(want) - set(have)):
         problems.append(f"no wheel for {want[cell]} ({cell[1]}, {cell[0]})")
+    problems += requires_python_problems(
+        [(os.path.basename(path), os.path.basename(path).split("-")[2], requires_python_of(path))
+         for path in wheels])
     if problems:
-        print(f"wheel_publish.py: the wheels are not the release's matrix ({len(want)} cells):", file=sys.stderr)
+        print(f"wheel_publish.py: the wheels are not one release of the matrix ({len(want)} cells):",
+              file=sys.stderr)
         for problem in problems:
             print("  " + problem, file=sys.stderr)
         return 1
