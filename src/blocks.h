@@ -297,6 +297,9 @@ struct CodeExtent {
     // One past the last byte of the last character that is set: the line end
     // after it and whatever follows are no part of what is set.
     uint32_t end = 0;
+    // The byte at which each line but the last ends: its "\n", the "\r" of
+    // its "\r\n", or a lone "\r". All are before `end`.
+    std::vector<uint32_t> breaks;
 };
 CodeExtent code_extent(std::string_view source);
 
@@ -508,6 +511,10 @@ struct BlockBoxes {
     std::vector<uint8_t> continues;
     // CODE: a line was packed to the measure with its characters running past.
     bool clipped = false;
+    // CODE, when `clipped`: for each box, the natural width of its contents,
+    // which is where its characters end. Empty otherwise: a box is then as
+    // wide as its characters.
+    std::vector<Scaled> naturals;
     // TABLE: for each box, the prev_depth the list goes on from after it
     // (SetRow::prev_depth). Empty for any other block: a box's own depth.
     std::vector<Scaled> resumed;
@@ -903,9 +910,10 @@ struct BlockLayout {
     uint32_t marker_items = 0;
     std::vector<Original> originals;
     std::vector<uint32_t> hard_breaks;
-    // CODE: BlockBoxes::continues and BlockBoxes::clipped.
+    // CODE: BlockBoxes::continues, BlockBoxes::clipped and BlockBoxes::naturals.
     std::vector<uint8_t> continues;
     bool clipped = false;
+    std::vector<Scaled> naturals;
     // TABLE. `shipped` is then per node of TableCells::nodes.
     TableLayout table;
 

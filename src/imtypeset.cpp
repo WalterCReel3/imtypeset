@@ -2777,11 +2777,18 @@ float GetDeviceGlyphAdvance(ImTypesetFace face, unsigned int codepoint, const Im
                                                  " at this size");
         return 0.0f;
     }
-    // What layout holds for it: the memo's width, which is that number of
-    // framebuffer pixels as a whole number of scaled points.
+    // What layout holds for it: the memo's width, a whole number of
+    // framebuffer pixels rounded UP to a whole number of scaled points
+    // (src/device.cpp). Less than a scaled point above the whole pixel, so
+    // rounding to the nearest pixel gives the pixels back, which is the
+    // atlas's own number; the caret and the range rectangles, which are
+    // read off layout, keep the residue.
+    const Device device = ctx->devices.table[spec.device - 1u];
     const CharDimens dimens = ctx->cache(spec.key(), codepoint);
+    const double framebuffer =
+        py_round(px_from_sp(dimens.width, device.px_per_inch * device.density));
     succeed();
-    return static_cast<float>(px_from_sp(dimens.width, resolved.px_per_inch));
+    return static_cast<float>(framebuffer / device.density);
 }
 
 bool TextUnformatted(const char* text, const char* text_end, ImTypesetTextFlags flags,

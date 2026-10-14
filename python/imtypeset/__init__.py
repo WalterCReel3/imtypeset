@@ -1105,13 +1105,19 @@ def add_font(face: int, source: Union[str, bytes], face_index: int = 0) -> int:
 
 
 def remove_font(face: int) -> bool:
-    """False if the role had no font."""
+    """False if the role had no font. Outside a frame. A font that is Dear
+    ImGui's default or current font is safe to remove: Dear ImGui puts the
+    atlas's first remaining font in its place (RemoveFont in imtypeset.h)."""
     return bool(_lib.ImTypeset_RemoveFont(_index(face)))
 
 
 def get_font(face: int) -> Optional[int]:
     """The address of the ImFont drawing a role, or None. None too while the
-    Dear ImGui context the current context was made in is not the current one."""
+    Dear ImGui context the current context was made in is not the current one.
+
+    This, or `font_atlas_index` answering None, for a role that was given a
+    font, is the test that the Dear ImGui context is gone or not current. No
+    hook on its destruction is offered: Dear ImGui's are in imgui_internal.h."""
     return _lib.ImTypeset_GetFont(_index(face)) or None
 
 
@@ -1811,6 +1817,111 @@ def _checked_marks(marks) -> list:
     return out
 
 
+# WHERE IN A DESCRIPTION. A TypeError or a UnicodeEncodeError from packing
+# blocks says what was wrong and not where; a host with a thousand blocks needs
+# both. Only once one has been raised is the description gone over again, block
+# by block, for the first value that raises the same class; the error is then
+# raised again, of the same class, with where it is in its message:
+# `blocks[3].rows[1][0].text`, indexing the sequence the call was given.
+
+
+def _fault(check, *args) -> Optional[Exception]:
+    try:
+        check(*args)
+    except Exception as error:  # Only looked at, and only of the class being located.
+        return error
+    return None
+
+
+def _run_faults(runs, field: str):
+    if not runs:
+        return
+    try:
+        listed = list(runs)
+    except Exception as error:
+        yield field, error
+        return
+    for number, run in enumerate(listed):
+        yield f"{field}[{number}]", _fault(_checked_run, run)
+
+
+def _block_faults(block):
+    """(field, the exception or None) for each value of one block, in the
+    order a reader meets them."""
+    if type(block) is not Block:
+        try:
+            block = Block(*block)
+        except Exception as error:
+            yield "", error
+            return
+    yield ".kind", _fault(_index, block.kind)
+    yield ".text", _fault(_utf8, block.text, "Block.text")
+    yield from _run_faults(block.runs, ".runs")
+    if block.marker:
+        yield ".marker", _fault(_utf8, block.marker, "Block.marker")
+    for name in ("style", "quote_depth", "container", "item", "level"):
+        yield f".{name}", _fault(_index, getattr(block, name))
+    for name in ("left_indent", "extent"):
+        yield f".{name}", _fault(_real, getattr(block, name))
+    yield ".flags", _fault(_bits, block.flags)
+    if block.rows:
+        try:
+            rows = list(block.rows)
+        except Exception as error:
+            yield ".rows", error
+            rows = ()
+        for r, row in enumerate(rows):
+            if isinstance(row, (str, Cell)):
+                yield f".rows[{r}]", _fault(_checked_rows, [row])
+                continue
+            try:
+                cells = list(row or ())
+            except Exception as error:
+                yield f".rows[{r}]", error
+                continue
+            for c, cell in enumerate(cells):
+                field = f".rows[{r}][{c}]"
+                if type(cell) is str:
+                    yield field, _fault(_utf8, cell, "a cell")
+                    continue
+                if type(cell) is not Cell:
+                    try:
+                        cell = Cell(*cell)
+                    except Exception as error:
+                        yield field, error
+                        continue
+                yield f"{field}.text", _fault(_utf8, cell.text, "Cell.text")
+                yield from _run_faults(cell.runs, f"{field}.runs")
+    if block.columns:
+        try:
+            columns = list(block.columns)
+        except Exception as error:
+            yield ".columns", error
+            columns = ()
+        for number, column in enumerate(columns):
+            yield f".columns[{number}]", _fault(_checked_columns, [column])
+
+
+def _name_the_block(blocks, error: Exception) -> None:
+    """Raises `error`'s class again naming the block and the field, when a
+    value of one block raises that class; returns when none does (the error is
+    then not one block's, a style's for one, and stands as it was raised)."""
+    if not isinstance(blocks, (list, tuple)):
+        return  # Not a sequence (a generator): refused as a whole, before any block.
+    kind = UnicodeEncodeError if isinstance(error, UnicodeEncodeError) else TypeError
+    for index, block in enumerate(blocks):
+        for field, found in _block_faults(block):
+            if not isinstance(found, kind):
+                continue
+            where = f"blocks[{index}]{field}"
+            if kind is UnicodeEncodeError:
+                raise UnicodeEncodeError(
+                    found.encoding, found.object, found.start, found.end,
+                    f"{found.reason} ({where})",
+                ) from error
+            raise TypeError(f"{where}: {found}") from error
+
+
 class Document:
     """Styled blocks in; layout, drawing, hit testing and copying out.
 
@@ -1869,6 +1980,10 @@ class Document:
     document (block count, positions) is still what the library holds.
     `from_blocks` cannot return the False: read `edit_error` after it.
     """
+
+    # On the class as well as on each document, so that a host can ask whether
+    # the package has the name without making a document.
+    edit_error: ErrorInfo = _NO_ERROR
 
     def __init__(self):
         ctx = _lib.ImTypeset_GetCurrentContext()
@@ -2005,9 +2120,13 @@ class Document:
         """(content, what it points into, the blocks' entries, the last
         block's bytes, the blocks' tables)."""
         try:
-            return cls._pack_as_given(blocks, styles, containers)
-        except _UNPACKABLE:
-            return cls._pack_as_given(_checked_blocks(blocks), styles, containers)
+            try:
+                return cls._pack_as_given(blocks, styles, containers)
+            except _UNPACKABLE:
+                return cls._pack_as_given(_checked_blocks(blocks), styles, containers)
+        except (TypeError, UnicodeEncodeError) as error:
+            _name_the_block(blocks, error)
+            raise
 
     @staticmethod
     def _pack_as_given(blocks: Sequence, styles: Sequence, containers: Sequence):

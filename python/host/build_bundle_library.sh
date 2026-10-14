@@ -195,6 +195,8 @@ while IFS= read -r line; do
         label=*) label="${line#label=}" ;;
     esac
 done < "$out/HEADERS"
+[ -d "$header_dir" ] || { echo "build_bundle_library.sh: the headers' directory $header_dir is missing; run the fetch step" >&2; exit 2; }
+header_dir="$(cd "$header_dir" && pwd)" # Absolute: the compiler runs from $out/dist.
 inc="$header_dir/imgui"
 config="$header_dir/imgui_bundle_config.h"
 case "$label" in
@@ -223,6 +225,15 @@ echo "headers: $label, in $header_dir"
 # -Wno-terminate is GCC's name for a warning GCC alone gives (a throwing
 # IM_ASSERT in a destructor of ImGui's); Clang is not handed an option it does
 # not know.
+#
+# The same sources and headers give the same library bytes wherever the
+# checkout, the output directory and the header cache are, and whatever the
+# caller's working directory: each compiler runs from $out/dist, and
+# -ffile-prefix-map rewrites those three directories, in the debugging
+# information and in __FILE__ (which IM_ASSERT keeps in the loaded image), to
+# fixed names. The repository is named first because the other two may lie
+# inside it, and the compilers prefer the last option that matches.
+# tools/ci/reproducible_bundle_library.sh builds twice and compares.
 if has_step compile; then
     "$python" -I -B "$repo/tools/amalgamate.py" --out "$out/dist"
     quiet=""
@@ -236,9 +247,13 @@ if has_step compile; then
         [ -z "${IMTYPESET_BUNDLE_ARCH:-}" ] || arch="-arch $IMTYPESET_BUNDLE_ARCH"
     fi
     compile() {
+        cd "$out/dist" || { touch "$out/obj/FAILED"; return; }
         # shellcheck disable=SC2086  # the three unquoted words are option lists, possibly empty
         "$cxx" -std=c++17 -O2 -g -fPIC -fvisibility=hidden -fvisibility-inlines-hidden \
             -ffp-contract=off -fexceptions $quiet $arch \
+            "-ffile-prefix-map=$repo=imtypeset" \
+            "-ffile-prefix-map=$out/dist=imtypeset-dist" \
+            "-ffile-prefix-map=$header_dir=imgui-headers" \
             "-I$inc" "-I$out/dist" \
             "-DIMGUI_USER_CONFIG=\"$config\"" \
             -DIMGUI_BUNDLE_BUILD_PYTHON -DIMGUI_BUNDLE_PYTHON_API -DIMGUI_USE_WCHAR32 \
@@ -266,26 +281,40 @@ fi
 # --- link ----------------------------------------------------------------------------
 # Either way the library exports the C ABI and nothing else: a GNU version
 # script on ELF, an exported-symbols list on Mach-O, the same two patterns.
+#
+# The objects are named in a fixed order, not by a glob: the order of the
+# objects is the order of the library's contents, and a glob's order is the
+# collation of whatever locale the caller has.
 if has_step link; then
     rm -f "$library" "$library.attestation.json"
+    set -- "$out/obj/imtypeset.o" "$out/obj/imtypeset_c.o" "$out/obj/imtypeset_demo.o" \
+        "$out/obj/imtypeset_bundle_shim.o"
     if [ "$system" = Darwin ]; then
         # Apple's ld cannot name the wheel's module as a dependency (it is a
         # loadable bundle, not a dylib), so the ImGui symbols are marked for
         # lookup when the library is loaded. That permission covers every
         # undefined symbol, which is why the audit step exists.
+        # -Wl,-S: no debug map. On Mach-O the debugging information stays in
+        # the objects, and the map that leads to them names each object by
+        # its absolute path, with its modification time: two builds would
+        # differ by both. The library is shipped as linked (a signed image is
+        # not stripped afterwards), so the map is left out here. RECALLED
+        # from ld64's documentation, not run here:
+        # tools/ci/reproducible_bundle_library.sh is what checks it on macOS.
         # shellcheck disable=SC2086
         "$cxx" -dynamiclib ${IMTYPESET_BUNDLE_ARCH:+-arch $IMTYPESET_BUNDLE_ARCH} \
-            -o "$library" "$out"/obj/*.o \
+            -o "$library" "$@" \
+            -Wl,-S \
             -Wl,-undefined,dynamic_lookup \
             "-Wl,-exported_symbols_list,$repo/python/host/exports_bundle.txt" \
             -Wl,-install_name,@rpath/libimtypeset_bundle.dylib
     elif [ "$bind" = lookup ]; then
-        "$cxx" -shared -o "$library" "$out"/obj/*.o \
+        "$cxx" -shared -o "$library" "$@" \
             "-Wl,--version-script=$repo/python/host/exports_bundle.map"
     else
         # By file name and not by path: the needed entry is then the module's
         # name alone, found through the run path.
-        "$cxx" -shared -o "$library" "$out"/obj/*.o \
+        "$cxx" -shared -o "$library" "$@" \
             "-L$bundle_dir" "-l:$(basename "$bundle_so")" \
             -Wl,-rpath,"${IMTYPESET_BUNDLE_RPATH:-$bundle_dir}" -Wl,--no-undefined \
             "-Wl,--version-script=$repo/python/host/exports_bundle.map"

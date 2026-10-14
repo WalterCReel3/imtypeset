@@ -150,9 +150,10 @@ int text_size_of(const DocBlock& b)
 // (DocBlock::code_lines, code_end): src/blocks' walk, which needs no font.
 void measure_code(DocBlock& b)
 {
-    const CodeExtent extent = code_extent(b.text);
+    CodeExtent extent = code_extent(b.text);
     b.code_lines = extent.lines;
     b.code_end = extent.end;
+    b.code_breaks.swap(extent.breaks);
 }
 
 // How many views the document keeps, from how many blocks the last draw showed.
@@ -1533,6 +1534,91 @@ uint32_t index_of(const DocBlock& b, const ImTypesetParagraph& p, int byte_offse
     return std::min(std::max(found, std::min(b.marker_items, last)), last);
 }
 
+// --- A code block's line ends ---------------------------------------------------------
+//
+// A source line's end -- its "\n", or the "\r" of its "\r\n", or a lone
+// "\r" -- is no item of layout, so its byte and the next line's first share
+// an index. The caret and the hit test read the ends from
+// DocBlock::code_breaks instead. A box is a source line of its own unless the
+// layout says it continues the one above (a wrapped line, BlockLayout::
+// continues), so a line's end is at the end of its last box.
+
+// The source line that ends at a byte -- either byte of a "\r\n" -- or -1.
+// Only the ends before the block's last character count: what follows it is
+// no part of what is set.
+int code_line_ending_at(const DocBlock& b, int byte_offset)
+{
+    if (byte_offset < 0)
+        return -1;
+    const uint32_t at = static_cast<uint32_t>(byte_offset);
+    const std::vector<uint32_t>& breaks = b.code_breaks;
+    auto found = std::upper_bound(breaks.begin(), breaks.end(), at);
+    if (found == breaks.begin())
+        return -1;
+    --found;
+    const uint32_t start = *found;
+    if (start >= b.code_end)
+        return -1;
+    const bool pair = static_cast<size_t>(start) + 1 < b.text.size() && b.text[start] == '\r' &&
+                      b.text[start + 1] == '\n';
+    if (at > start + (pair ? 1u : 0u))
+        return -1;
+    return static_cast<int>(found - breaks.begin());
+}
+
+// The last of `boxes` boxes that source line `line` is set on, or -1.
+int last_box_of(const BlockLayout& layout, size_t boxes, uint32_t line)
+{
+    if (layout.continues.empty())
+        return line < boxes ? static_cast<int>(line) : -1;
+    const size_t count = std::min(boxes, layout.continues.size());
+    int found = -1;
+    uint32_t source = 0;
+    for (size_t v = 0; v < count; ++v) {
+        if (v != 0 && layout.continues[v] == 0)
+            ++source;
+        if (source > line)
+            break;
+        if (source == line)
+            found = static_cast<int>(v);
+    }
+    return found;
+}
+
+// The source line whose last box is box `v` of `boxes`, or -1 where the box
+// is continued by the next.
+int line_ended_by(const BlockLayout& layout, size_t boxes, size_t v)
+{
+    if (v >= boxes)
+        return -1;
+    if (layout.continues.empty())
+        return static_cast<int>(v);
+    if (layout.continues.size() != boxes || (v + 1 < boxes && layout.continues[v + 1] != 0))
+        return -1;
+    int source = 0;
+    for (size_t k = 1; k <= v; ++k)
+        source += layout.continues[k] == 0 ? 1 : 0;
+    return source;
+}
+
+// Where the characters of box `v` end. A clipped box is as wide as its room,
+// and its characters run past it: they end their natural width from where
+// the first of them starts.
+Scaled code_line_end(const DocBlock& b, const ImTypesetParagraph& p, const BlockLayout& layout,
+                     size_t v)
+{
+    const LineBox& line = p.line_boxes[v];
+    if (v < layout.naturals.size()) {
+        const uint32_t end = std::min<uint32_t>(line.end, static_cast<uint32_t>(p.cmds.size()));
+        for (uint32_t at = line.first + 1; at < end; ++at) {
+            const DrawCmd& cmd = p.cmds[at];
+            if (cmd.is(CmdType::GLYPH) && cmd.index >= b.marker_items)
+                return add_saturating(cmd.x, layout.naturals[v]);
+        }
+    }
+    return line.x1;
+}
+
 // The items a range of a block's text covers.
 Selection span_of(const DocBlock& b, const ImTypesetParagraph& p, const ImTypesetTextRange& range)
 {
@@ -2722,6 +2808,29 @@ ImTypesetDocumentHit hit_test(ImTypesetDocument& d, const ImVec2& local_pos)
     ensure_model(p);
     uint32_t index = p.model.hit(at.local);
     out.Position.Offset = std::min(byte_at_index(p, index), text_size_of(b));
+    // A point past a code line's last character, or on a blank line, is at
+    // the line's end and on the line under it.
+    int line_end_box = -1;
+    if (is_code(b.kind)) {
+        const BlockLayout& layout = d.doc.layout(i);
+        const int fragment = p.model.fragment_at(at.local);
+        if (fragment >= 0 && p.line_boxes.size() == layout.lines.size()) {
+            const uint32_t first = p.model.fragment(static_cast<size_t>(fragment)).line;
+            const auto box = std::lower_bound(
+                p.line_boxes.begin(), p.line_boxes.end(), first,
+                [](const LineBox& line, uint32_t wanted) { return line.first < wanted; });
+            if (box != p.line_boxes.end() && box->first == first && index >= box->index_end) {
+                const size_t v = static_cast<size_t>(box - p.line_boxes.begin());
+                const int source = line_ended_by(layout, p.line_boxes.size(), v);
+                if (source >= 0 && static_cast<size_t>(source) < b.code_breaks.size() &&
+                    b.code_breaks[static_cast<size_t>(source)] < b.code_end) {
+                    out.Position.Offset =
+                        static_cast<int>(b.code_breaks[static_cast<size_t>(source)]);
+                    line_end_box = static_cast<int>(v);
+                }
+            }
+        }
+    }
     CellBox under_cell;
     if (is_table(b.kind) && cell_under(b, d.doc.layout(i).table, at.local, under_cell)) {
         // Row and Column are the cell whose rectangle holds the point. The
@@ -2737,7 +2846,8 @@ ImTypesetDocumentHit hit_test(ImTypesetDocument& d, const ImVec2& local_pos)
             index = index_of(b, p, out.Position.Offset);
         }
     }
-    out.Line = static_cast<int>(line_of_index(p, index) - p.line_boxes.begin());
+    out.Line = line_end_box >= 0 ? line_end_box
+                                 : static_cast<int>(line_of_index(p, index) - p.line_boxes.begin());
     const auto under =
         std::partition_point(p.line_boxes.begin(), p.line_boxes.end(),
                              [&](const LineBox& box) { return box.bottom <= at.local.y; });
@@ -3617,13 +3727,25 @@ ImVec4 GetDocumentCaretRect(ImTypesetDocument* document, const ImTypesetPosition
         }
     }
     const uint32_t index = index_of(b, p, position.Offset);
-    const auto line = line_of_index(p, index);
+    auto line = line_of_index(p, index);
     Scaled x = index >= line->index_end ? line->x1 : line->x0;
-    for (uint32_t at = line->first + 1; at < line->end; ++at) {
-        const DrawCmd& cmd = p.cmds[at];
-        if (is_item(cmd) && cmd.index == index) {
-            x = cmd.x;
-            break;
+    // The end of a code line is the end of its last box, a blank line's
+    // included.
+    const BlockLayout& layout = d->doc.layout(i);
+    const int source = is_code(b.kind) ? code_line_ending_at(b, position.Offset) : -1;
+    const int box = source >= 0 && p.line_boxes.size() == layout.lines.size()
+                        ? last_box_of(layout, p.line_boxes.size(), static_cast<uint32_t>(source))
+                        : -1;
+    if (box >= 0) {
+        line = p.line_boxes.begin() + box;
+        x = code_line_end(b, p, layout, static_cast<size_t>(box));
+    } else {
+        for (uint32_t at = line->first + 1; at < line->end; ++at) {
+            const DrawCmd& cmd = p.cmds[at];
+            if (is_item(cmd) && cmd.index == index) {
+                x = cmd.x;
+                break;
+            }
         }
     }
     const Shown at = shown_at(*d, top + line->top + (line->bottom - line->top) / 2);

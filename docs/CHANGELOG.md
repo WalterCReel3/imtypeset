@@ -6,6 +6,76 @@ added), **changed** (a name means something else, or text is set
 differently), **fixed** (a defect, with what it did), **removed**. The release
 notes on GitHub are the section, copied by `tools/ci/wheel_release.sh`.
 
+## 0.4.3
+
+A patch by `docs/versioning.md`: defects fixed, sentences of the headers and documents
+corrected, and **no name added or removed**. `Document.edit_error` was already a name every
+document had; it is now also on the class, with the value a document holds before its first
+edit, so the name is the one 0.4.2 had. Where text is set (line breaks, positions, sizes) does
+not change. **The one change a host can observe beyond a defect going away**: a drag
+(`SelectDocumentRange`) in a Code block that ends past a line's end now stops before that
+line's newline, where it stopped after it, so its copy has no trailing "\n" (D88). An
+application that pins exactly moves its pin (`imtypeset==0.4.3.192900` beside
+`imgui-bundle==1.92.900`).
+
+- **fixed**: the end of a line in a Code block had no caret position of its own (imscribe's
+  H27). A line's "\n" (or "\r\n", or lone "\r") is no item of layout, so its byte and the
+  next line's first answered one place: `GetDocumentCaretRect` at a line's end gave the start
+  of the next line (`"ab\n\ty"`: cells 0, 1, 0, 0, 4, 5), a blank line could hold no caret,
+  and a click on a blank line or past a line's end answered the next line's first character.
+  Now the caret at a line end stands after the line's last character on its last visual line
+  (a blank line's start; under Clip where the characters end, not at the clip), and a point
+  past a line's last character or on a blank line answers that line end, with `Line` the line
+  under the point (`"ab\n\ty"`: cells 0, 1, 2, 0, 4, 5). Under Wrap the break between two
+  pieces of one line is the later piece's start, as before. So a drag (`SelectDocumentRange`)
+  that ends past a line's end now ends before its newline, where it ended after it: its copy
+  has no trailing "\n". Range rectangles and copies of a given range, and layout, are
+  unchanged (D88).
+- **fixed**: `GetDeviceGlyphAdvance` answered a whole framebuffer pixel plus a residue under
+  one scaled point (8.000008583 for 8 at a 16 px code face; imscribe's H49), because layout
+  holds the advance rounded up to whole scaled points and the answer converted that back. It
+  answers the whole framebuffer pixels divided by the density: Dear ImGui's own
+  `ImFontBaked::GetCharAdvance` for the cell. Carets and range rectangles, read off layout,
+  keep the residue (under 0.00003 px a character at 96 units to the inch); drawn glyphs never
+  had it. Layout is unchanged (D88).
+
+- **fixed**: `Document.edit_error` is on the class as well (`ErrorInfo(0, "", -1, -1)`), so a
+  host can check for the name without making a document (imscribe's H28). A document's own
+  value after each edit is as before.
+- **fixed**: a `TypeError` or `UnicodeEncodeError` from `from_blocks`, `set_blocks` or
+  `replace_blocks` says where: `blocks[2].text`, `blocks[1].runs[3]`,
+  `blocks[0].rows[1][0].text`, indexing the sequence given; the class is unchanged, and a lone
+  surrogate is still refused (imscribe's H36). `docs/python-errors.md`'s recipe for lone
+  surrogates gave `?`; it now gives U+FFFD one for one, and says it was run.
+- documentation: the environment is read during import and never after (`docs/sidecar.md`
+  section 9, held by a test; imscribe's H46).
+- **fixed (packaging)**: two builds of the sidecar library from the same sources and headers
+  now give the same bytes, and so the same sha256 and build-id, whatever the checkout's,
+  output directory's and header cache's paths (imscribe's H45): the absolute paths that
+  reached the debugging information and `__FILE__` strings are recorded as fixed names.
+  Checked on every wheel job by `tools/ci/reproducible_bundle_library.sh`. D87.
+
+- **fixed (documentation)**: the header said several newlines in a row under
+  `ImTypesetTextFlags_HardBreaks` end the line once. Each ends a line: `"a\n\nb"` is three
+  lines, the blank one set and drawn. What a copy gives is one newline for the run, and the
+  header now names that as the known gap; `docs/hardening.md` said the same wrong thing and is
+  corrected. Nothing changed in layout or copies (imscribe's H41).
+- documentation, each held by a test in `tests/test_api_header_sentences.cpp` or a reading of
+  Dear ImGui 1.92.9:
+  - white space is Python's `str.isspace()`, 29 characters, listed by range at
+    `SetParagraphText`; a no-break space (U+00A0, U+202F, U+2007) breaks and collapses as a
+    space does (divergence Y10), and a `NoBreak` run is what keeps two words together (H42);
+  - a run's or a block style's `Scale` that is below zero or not finite is 1, and the rest is
+    clamped to 0.1..10 (H37);
+  - a table with no cells has no rows, no columns and no height, draws nothing and is not an
+    error (H38);
+  - the fonts a context added stay in the atlas after `DestroyContext`; removing them is the
+    host's, outside a frame, and a font that is ImGui's default or current is safe to remove:
+    ImGui 1.92.9 puts the atlas's first remaining font in its place (H25);
+  - `GetFont` answering null for a role that was given a font (`font_atlas_index` None in
+    Python) is the test that the ImGui context is gone; no hook is offered, since ImGui's
+    context hooks are in `imgui_internal.h` (H39).
+
 ## 0.4.2
 
 A patch by `docs/versioning.md`, and **packaging only: no name, no meaning and no layout

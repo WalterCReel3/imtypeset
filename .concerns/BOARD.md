@@ -546,3 +546,13 @@ Plan:
   declared from its findings.
 - THEN: fix tasks, a gate (presets from clean that this sandbox can run), commit, the status file
   answered by number, and what the user must run (push, tag, CI, upload).
+
+### State (lead, 2026-10-14 afternoon)
+- 0.4.2 committed locally `8091c56` (H52 + issue #4); gate-042 green, 11 presets. NOT tagged, NOT pushed:
+  the user's.
+- 0.4.3 committed locally on top (H25, H27, H28, H36-H39, H41-H42 header, H45, H46, H49); gate-043 green,
+  11 presets (debug 58, python-host 59, others 57). Its macOS reproducibility step is continue-on-error
+  until it has run green (D89). NOT tagged, NOT pushed.
+- Waiting on the OWNER: push main; tag v0.4.2 at 8091c56 and publish; then tag v0.4.3 and publish (or
+  skip 0.4.2 and publish 0.4.3 only); the 0.5.0 questions (H50, H23, H24, H40, H41 copy, H42 tie, H22
+  details).

@@ -105,7 +105,7 @@ jobs:
     name: ${{ matrix.name }}
     needs: plan
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -123,6 +123,18 @@ jobs:
           IMTYPESET_REHEARSAL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.testpypi || 'false' }}
           IMTYPESET_WHEEL_BUNDLE: ${{ matrix.bundle }}
         run: sh tools/ci/wheel_build.sh "$IMTYPESET_WHEEL_BUNDLE" wheel-out python
+      # Two more builds of the library, from two copies of the checkout, into
+      # differently named directories, from different working directories and
+      # locales, for the environment the wheel was built for: the bytes must
+      # be the same.
+      - name: The library builds reproducibly
+        # Blocking on Linux; on macOS it has never run, and Apple clang's and ld64's handling of
+        # the flags it relies on is recalled, not checked (D87), so a mismatch there is reported
+        # without stopping a release until it has run green once.
+        continue-on-error: ${{ runner.os == 'macOS' }}
+        env:
+          IMTYPESET_BUNDLE_HEADERS: ${{ github.event.inputs.headers }}
+        run: sh tools/ci/reproducible_bundle_library.sh wheel-out/build-env/bin/python wheel-out/reproducible
       - name: The wheel, and the build's log
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

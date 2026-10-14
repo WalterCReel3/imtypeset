@@ -20,8 +20,8 @@ exactly that binary. So every file here is built for **one** `imgui-bundle`
 version and requires it exactly, and the version says which:
 
 ```
-imtypeset 0.4.2.192900     is imtypeset 0.4.2 for imgui-bundle 1.92.900
-imtypeset 0.4.2.192801     is imtypeset 0.4.2 for imgui-bundle 1.92.801
+imtypeset 0.4.3.192900     is imtypeset 0.4.3 for imgui-bundle 1.92.900
+imtypeset 0.4.3.192801     is imtypeset 0.4.3 for imgui-bundle 1.92.801
 ```
 
 The fourth number is the `imgui-bundle` version written as one number
@@ -29,11 +29,11 @@ The fourth number is the `imgui-bundle` version written as one number
 
 ```
 imgui-bundle==1.92.900
-imtypeset==0.4.2.192900
+imtypeset==0.4.3.192900
 ```
 
-- `imtypeset==0.4.2` matches nothing: the version has four numbers.
-- `imtypeset==0.4.2.*` beside an exact `imgui-bundle==X` resolves to the build
+- `imtypeset==0.4.3` matches nothing: the version has four numbers.
+- `imtypeset==0.4.3.*` beside an exact `imgui-bundle==X` resolves to the build
   for X.
 - `pip install imtypeset` with nothing else pinned takes the newest line **and
   installs the `imgui-bundle` it was built for, replacing another one**.
@@ -74,7 +74,7 @@ print(ts.version(), doc.size(), doc.range_text(((0, 0), (0, 8))))
 ts.destroy_context()
 ```
 
-That runs with no window and prints `0.4.2 (240.0, 31.0) Text set`. In an
+That runs with no window and prints `0.4.3 (240.0, 31.0) Text set`. In an
 application the document is laid out and drawn each frame, inside a window:
 
 ```python

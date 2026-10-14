@@ -1358,6 +1358,64 @@ class Documents(unittest.TestCase):
         with self.assertRaises(UnicodeEncodeError):
             ts.Document.from_blocks([ts.Block(text="lone \ud800 surrogate")])
 
+    def test_edit_error_is_on_the_class(self):
+        # A host checks for the name without making a document (H28).
+        self.assertTrue(hasattr(ts.Document, "edit_error"))
+        self.assertEqual(ts.Document.edit_error, ts.ErrorInfo(0, "", -1, -1))
+        document = ts.Document.from_blocks([ts.Block(text="x", container=3)])
+        self.assertEqual(document.edit_error.code, ts.ErrorCode.DescriptionCut)
+        self.assertEqual(ts.Document.edit_error.code, 0)  # The document's own, not the class's.
+
+    def test_a_description_that_cannot_be_packed_names_the_block(self):
+        # H36: the class is what it was (docs/python-errors.md); the message
+        # says where, as an index into the sequence given. Both the fast path
+        # and the checked one (a value struct refuses, 1e300 here, sends the
+        # description there first) are held.
+        lone = "\ud800"
+        good = ts.Block(text="fine")
+        table = ts.Block(ts.BlockKind.Table, rows=[["a", "b"], [ts.Cell("c" + lone), "d"]])
+        cases = [
+            (UnicodeEncodeError, [good, good, ts.Block(text="a" + lone)], "(blocks[2].text)"),
+            (UnicodeEncodeError, [good, ts.Block(text="m", marker=lone)], "(blocks[1].marker)"),
+            (UnicodeEncodeError, [good, table], "(blocks[1].rows[1][0].text)"),
+            (UnicodeEncodeError, [ts.Block(text="x", left_indent=1e300), ts.Block(text=lone)],
+             "(blocks[1].text)"),
+            (TypeError, [good, ts.Block(text="ab", runs=[ts.Run(0, 1), ts.Run(0.5, 1)])],
+             "blocks[1].runs[1]: Run.start is an int"),
+            (TypeError, [good, ts.Block(text="ab", runs=[ts.Run(None, 1)])], "blocks[1].runs[0]:"),
+            (TypeError, [ts.Block(kind=None, text="x")], "blocks[0].kind:"),
+            (TypeError, [good, ts.Block(text=None)], "blocks[1].text: Block.text is a str"),
+            (TypeError, [good, good, good, ts.Block(text="x", extent="tall")], "blocks[3].extent:"),
+            (TypeError, [ts.Block(ts.BlockKind.Table, rows=[[ts.Cell("cc", [ts.Run(0.5, 1)])]])],
+             "blocks[0].rows[0][0].runs[0]: Run.start"),
+            (TypeError, [ts.Block(ts.BlockKind.Table, rows=["ab"])], "blocks[0].rows[0]: a row"),
+        ]
+        for kind, blocks, said in cases:
+            with self.subTest(said=said):
+                with self.assertRaises(kind) as caught:
+                    ts.Document.from_blocks(blocks)
+                self.assertIs(type(caught.exception), kind)
+                self.assertIn(said, str(caught.exception))
+        # The index is into what replace_blocks was given, not the document.
+        document = ts.Document.from_blocks([good, good, good])
+        with self.assertRaises(UnicodeEncodeError) as caught:
+            document.replace_blocks(1, 1, [good, ts.Block(text=lone)])
+        self.assertIn("(blocks[1].text)", str(caught.exception))
+        self.assertEqual(len(document), 3)
+        # What is no block's stands as raised.
+        with self.assertRaises(TypeError) as caught:
+            ts.Document.from_blocks([good], styles=[{"Scale": 2.0}])
+        self.assertNotIn("blocks[", str(caught.exception))
+        with self.assertRaises(TypeError):
+            ts.Document.from_blocks(b for b in [good])
+        # The recipe docs/python-errors.md gives: one U+FFFD for each surrogate.
+        import re
+
+        text = "a" + lone + "b" + chr(0xD83D) + chr(0xDE00) + "\U0001F600"
+        mended = re.sub("[\ud800-\udfff]", "�", text)
+        self.assertEqual(mended, "a�b��\U0001F600")
+        self.assertTrue(ts.Document.from_blocks([ts.Block(text=mended)]))
+
     def test_a_document_does_not_outlive_its_context(self):
         held = ts.current_context()
         ts.set_current_context(None)
@@ -1391,6 +1449,100 @@ class Documents(unittest.TestCase):
         finally:
             window.end_frame()
         self.assertEqual(results, [True, None])
+
+
+class _Watched(dict):
+    """A stand-in for os.environ that remembers every name asked of it."""
+
+    def __init__(self, items):
+        super().__init__(items)
+        self.asked = []
+
+    def __getitem__(self, name):
+        self.asked.append(name)
+        return super().__getitem__(name)
+
+    def get(self, name, default=None):
+        self.asked.append(name)
+        return super().get(name, default)
+
+    def __contains__(self, name):
+        self.asked.append(name)
+        return super().__contains__(name)
+
+
+class Environment(unittest.TestCase):
+    """H46: the package reads its environment variables while it is imported
+    and never after (docs/sidecar.md, section 9)."""
+
+    def test_no_variable_is_read_after_import(self):
+        before = ts.host_info()
+        held = os.environ
+        watched = _Watched((k, v) for k, v in held.items() if not k.startswith("IMTYPESET_"))
+        # Were any read now, these would refuse or move it: the library is not
+        # there, the gate is no gate, strict refuses a stand-in.
+        watched.update(
+            IMTYPESET_LIBRARY="/nonexistent/libimtypeset.so", IMTYPESET_GATE="nonsense",
+            IMTYPESET_BUNDLE_STRICT="1", IMTYPESET_PRELOAD_BUNDLE="1",
+            IMTYPESET_GATE_FONT="/nonexistent.ttf",
+        )
+        os.environ = watched
+        try:
+            self.assertEqual(ts.host_info(), before)
+            document = ts.Document.from_blocks(
+                [ts.Block(text=ACCENTED), ts.Block(ts.BlockKind.Table, rows=[["a", "b"]])]
+            )
+            document.layout(300.0)
+            frame(lambda: self.assertTrue(document.draw(host.get_window_draw_list(), (8.0, 8.0))))
+            frame(lambda: ts.text(ACCENTED, wrap_width=200.0))
+            paragraph = ts.Paragraph(ACCENTED)
+            paragraph.layout(200.0)
+            frame(lambda: paragraph.draw(host.get_window_draw_list(), (0.0, 0.0)))
+            self.assertEqual(ts.host_info(), before)
+            self.assertEqual(ts.version(), before["imtypeset_version"])
+        finally:
+            os.environ = held
+        self.assertEqual([n for n in watched.asked if n.startswith("IMTYPESET_")], [])
+
+    # Every read of the environment in the package, by function. Each is
+    # reached only from `_load()`, which runs once, at import (or in the child
+    # interpreter the development gate starts during that import, or from
+    # `_bundle.attest`, a build tool's call): read, 2026-10-14. A new read fails
+    # here until it is put in this list, by someone who has checked the same.
+    IMPORT_TIME_READS = {
+        ("_bundle.py", "ignored_environment"),
+        ("_bundle.py", "_a_font_file"),  # IMTYPESET_GATE_FONT: the probe, in the child
+        ("_bundle.py", "check"),  # IMTYPESET_BUNDLE_STRICT: gate() and the child
+        ("_bundle.py", "open_library"),  # IMTYPESET_PRELOAD_BUNDLE
+        ("_bundle.py", "mode"),  # IMTYPESET_GATE: precheck()
+        ("_capi.py", "library_route"),  # IMTYPESET_LIBRARY
+    }
+
+    def test_every_read_of_the_environment_is_one_made_at_import(self):
+        import ast
+
+        package = os.path.join(REPO, "python", "imtypeset")
+        found = set()
+        for name in sorted(os.listdir(package)):
+            if not name.endswith(".py"):
+                continue
+            with open(os.path.join(package, name), encoding="utf-8") as handle:
+                tree = ast.parse(handle.read())
+
+            def walk(node, function):
+                for inner in ast.iter_child_nodes(node):
+                    if isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        walk(inner, inner.name)
+                        continue
+                    named = getattr(inner, "attr", None) or getattr(inner, "id", None)
+                    if isinstance(inner, (ast.Attribute, ast.Name)) and named in (
+                        "environ", "getenv"
+                    ):
+                        found.add((name, function))
+                    walk(inner, function)
+
+            walk(tree, "<module>")
+        self.assertEqual(found, self.IMPORT_TIME_READS)
 
 
 class Requests(unittest.TestCase):
@@ -2692,6 +2844,7 @@ TABLE = [
     ("Document.style_count", "no argument", OK, lambda x: x.doc.style_count),
     ("Document.container_count", "no argument", OK, lambda x: x.doc.container_count),
     ("Document.closed", "no argument", OK, lambda x: x.doc.closed),
+    ("Document.edit_error", "on the class, no document made", OK, lambda x: ts.Document.edit_error),
     ("Document.close", "twice", OK, lambda x: [x.doc.close() for _ in range(2)]),
     # --- Document: layout and drawing
     ("Document.layout", "width=None", T, lambda x: x.doc.layout(None)),
@@ -2908,7 +3061,7 @@ DOCUMENT_CALLS = {
     "table_position": lambda d: d.table_position(6, 0, 0),
 }
 # What a closed handle still answers, and never reaches the library for.
-CLOSED_ANSWERS = {"close", "closed", "from_blocks", "pack_marks"}
+CLOSED_ANSWERS = {"close", "closed", "edit_error", "from_blocks", "pack_marks"}
 
 
 class HostileInput(unittest.TestCase):

@@ -114,6 +114,10 @@ struct DocBlock {
     // read off the source alone, when the block is described.
     uint32_t code_end = 0;
     uint32_t code_lines = 0;
+    // CODE: where each source line but the last ends (CodeExtent::breaks).
+    // A line end has no item of layout; the caret and the hit test read it
+    // from here.
+    std::vector<uint32_t> code_breaks;
     // How many of the document arena's boxes are this block's formulas.
     uint32_t atom_boxes = 0;
 

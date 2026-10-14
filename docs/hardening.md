@@ -439,11 +439,17 @@ Those are the counts of the day the pass ended. On the tree of 2026-10-10, 13:30
   final ones (150/100 against 120/80 per unit), so they cover more than ten
   times the default.
 - S6, S7 and S9 were not run against the old code.
-- Two newlines in a row under `ImTypesetTextFlags_HardBreaks` are one line break, drawn and
-  copied: the blank line between them is not kept (`src/paragraph.cpp` drops a hard break at the
-  index the last one was at, as the reference's `_after_hard_breaks` does). Seen while writing
-  `h5_what_the_public_api_...`; not looked into further. `include/imtypeset.h` says "one per
-  newline", which a host will read as keeping blank lines.
+- Two newlines in a row under `ImTypesetTextFlags_HardBreaks` are two line breaks in layout and
+  one newline in a copy. Each newline is a forced break (`hard_break` in `src/paragraph.cpp`), so
+  the blank line between them is SET and drawn: `"a\n\nb"` is three lines, as tall as
+  `"a\nb\nc"`. The copy is what drops it: the separators a copy inserts are read off
+  `ParagraphLayout::hard_breaks`, which keeps one entry per shipped item after a forced break, as
+  the reference's `_after_hard_breaks` does, so the two breaks share one newline. (This item said
+  until 0.4.3 that the blank line was neither drawn nor copied, and the header's KNOWN GAP said
+  the same; both were read, not run. Measured in 0.4.3 by
+  `tests/test_api_header_sentences.cpp`, `each_newline_under_hard_breaks_is_a_line_and_a_copy_gives_one`,
+  and the header corrected; imscribe's H41.) Whether the copy keeps every newline or the layout
+  drops the blank lines is the owner's to decide.
 - (Answered by `d7-fix`, D47: under the rule `harden-2` wrote, a narrower part stood up to
   4.82 px from the middle of its bar; placed whole, 0.77 px at worst over the 14 formulas
   measured.)

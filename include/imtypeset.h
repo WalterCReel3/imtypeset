@@ -248,8 +248,8 @@
 
 #include "imgui.h"
 
-#define IMTYPESET_VERSION     "0.4.2"
-#define IMTYPESET_VERSION_NUM 402 // XYYZZ: 0.04.02
+#define IMTYPESET_VERSION     "0.4.3"
+#define IMTYPESET_VERSION_NUM 403 // XYYZZ: 0.04.03
 
 // The ImGui release this is built and tested against, and the oldest it is
 // written for: 1.92.0 introduced the dynamic font atlas (ImFontBaked, sizes
@@ -419,9 +419,15 @@ enum ImTypesetError_ {
 enum ImTypesetTextFlags_ {
     ImTypesetTextFlags_None = 0,
     // A newline ends the line. Without it a newline is white space like any
-    // other and the paragraph is one stream of words. KNOWN GAP: several
-    // newlines in a row end the line ONCE; a blank line a host wants kept is
-    // its own paragraph or block.
+    // other and the paragraph is one stream of words. A newline is "\n",
+    // "\r\n" or a lone "\r"; U+2028 and the rest of the white space are not.
+    // EACH NEWLINE ENDS A LINE, so several in a row set blank lines between
+    // ("a\n\nb" is three lines, as tall as "a\nb\nc"; a line holding only
+    // white space is blank too), and newlines at either end of the text are
+    // white space there, dropped. KNOWN GAP: a copy (AppendParagraphRangeText,
+    // AppendDocumentRangeText) gives ONE newline for a run of them ("a\nb"
+    // for "a\n\nb"), so a copy of text with blank lines does not give them
+    // back.
     ImTypesetTextFlags_HardBreaks = 1 << 0,
     // Dollar signs in this text delimit formulas. This flag is the whole
     // switch: with it and no font added for ImTypesetFace_Math, every formula
@@ -568,8 +574,10 @@ struct ImTypesetRun {
     int Start;
     int End;
     ImTypesetFace Face; // Default keeps the paragraph's.
-    float Scale;        // Size, as a multiple of the paragraph's. 0 is 1.
-    ImU32 Color;        // 0 keeps the paragraph's ink.
+    // Size, as a multiple of the paragraph's. 0 is 1, and so is a value below
+    // zero or not finite; the rest is clamped to 0.1..10.
+    float Scale;
+    ImU32 Color; // 0 keeps the paragraph's ink.
     ImTypesetRunFlags Flags;
     // Whatever the host wants back when asked what is at a place: a link's
     // number, say. Not read by layout. 0 is no tag. Answered by
@@ -812,8 +820,10 @@ enum ImTypesetDocumentDrawFlags_ {
 // the document's style (the ImTypesetStyle given to LayoutDocument) with no
 // space above or below, justified.
 struct ImTypesetBlockStyle {
-    ImTypesetFace Face;    // Default: the document style's. Code blocks: Default is Code.
-    float Scale;           // The size, as a multiple of the document style's. 0 is 1.
+    ImTypesetFace Face; // Default: the document style's. Code blocks: Default is Code.
+    // The size, as a multiple of the document style's. 0 is 1, and so is a
+    // value below zero or not finite; the rest is clamped to 0.1..10.
+    float Scale;
     float LineHeight;      // Baseline to baseline, in ems of this size. 0 is the document style's.
     ImTypesetAlign Align;  // Justify.
     float FirstLineIndent; // Pixels.
@@ -1008,6 +1018,10 @@ struct ImTypesetBlock {
 //     document (as a word too long for its line is);
 //   - or the host states the widths (ImTypesetTableColumn).
 // A row may have fewer cells than the table has columns: the rest are empty.
+// A TABLE WITH NO CELLS (CellCount 0) is not an error: it has no rows, no
+// columns and no height, draws nothing, and with no space asked above or
+// below it the blocks around it stand where they would without it. It is
+// what a table is before its first row arrives (see A TABLE THAT GROWS).
 //
 // A TABLE THAT GROWS. Cells are appended to the last block with
 // AppendDocumentTableCells(), and text to its last cell with
@@ -1570,9 +1584,13 @@ IMTYPESET_API bool DebugCheckDocumentDataLayout(size_t sz_block, size_t sz_block
 // CreateContext() before it adds its fonts.
 IMTYPESET_API ImTypesetContext* CreateContext();
 // Null destroys the current one. Its paragraphs and documents die with it. The
-// fonts it added stay in the ImGui atlas, which owns them. Touches nothing of
-// ImGui's: it may be called with no ImGui context, or with the one it was
-// made in already destroyed.
+// fonts it added stay in the ImGui atlas, which owns them: removing them is
+// the host's, outside a frame, with RemoveFont() for each role before this
+// call, or ImFontAtlas::RemoveFont() after it on each role's ImFont, asked of
+// GetFont() before it, each ImFont once (CodeBold answers Bold's until it has
+// its own). See RemoveFont for what Dear ImGui does with a font in use. No call
+// removes them all. Touches nothing of ImGui's: it may be called with no
+// ImGui context, or with the one it was made in already destroyed.
 IMTYPESET_API void DestroyContext(ImTypesetContext* ctx = NULL);
 IMTYPESET_API ImTypesetContext* GetCurrentContext();
 IMTYPESET_API void SetCurrentContext(ImTypesetContext* ctx);
@@ -1668,11 +1686,24 @@ IMTYPESET_API ImFont* AddFontFromMemoryTTF(ImTypesetFace face, const void* font_
 // the host has put in the atlas since (as many fonts as it held, one at the
 // same address), and text that names it reports ImTypesetError_NoFont. A host
 // that empties the atlas to load its fonts again adds the roles' fonts again
-// too. [E]
+// too.
+// A FONT IN USE may be removed either way. Dear ImGui (1.92.9, read in
+// imgui_draw.cpp: ImFontAtlas::RemoveFont, ImFontAtlasBuildNotifySetFont)
+// puts the atlas's first remaining font in its place wherever a context of
+// that atlas holds it: io.FontDefault, the current font, the font stack; null
+// if it was the last. This call also sets io.FontDefault to null when it was
+// the role's font, which Dear ImGui reads as the atlas's first font. [E]
 IMTYPESET_API bool RemoveFont(ImTypesetFace face);
 // The ImFont drawing a role, or null. CodeBold answers Bold's until it has
 // its own, and Default answers Regular's. Null whenever the ImGui context the
 // current context was made in is not the current one: the font is its atlas's.
+// THIS IS THE TEST that the ImGui context is gone or not current: GetFont() of
+// a role that was given a font answers null then, and also when the font has
+// been removed from the atlas or a new ImGui context sits at the old one's
+// address (see CreateContext); either way the role cannot be drawn with.
+// No hook on Dear ImGui's destruction of its context is offered: Dear ImGui's
+// context hooks are declared in imgui_internal.h, which this library does not
+// include.
 IMTYPESET_API ImFont* GetFont(ImTypesetFace face);
 // Whether the font added for a role has a glyph for a codepoint: the role's
 // own font, not the faces a character it lacks is then set from (see
@@ -1713,11 +1744,17 @@ IMTYPESET_API float GetGlyphAdvance(ImTypesetFace face, float em_size, unsigned 
 // How far the pen moves after one character of a role's font in text that
 // `style` (null: GetStyle()) sets and measures on the device, in pixels: for
 // a fixed-pitch face the width of one cell of its grid (see THE GRID at the
-// top) for any character of it that takes one. It is what layout uses, to the
-// rounding of one scaled point, for the style's size times `scale` (an
-// ImTypesetBlockStyle's or a run's; 0 is 1) on the display as ImGui has it
-// now: a whole number of framebuffer pixels, so at a display density of 2 it
-// can be a number of pixels and a half. The style's Advances is not read: this
+// top) for any character of it that takes one. It is what layout uses for the
+// style's size times `scale` (an ImTypesetBlockStyle's or a run's, read as
+// those are: 0 is 1) on the display as ImGui has it now: a whole number of
+// framebuffer pixels divided by the display density, so at a density of 2 it
+// can be a number of pixels and a half: the font's ImFontBaked entry's advance for it, rounded
+// to a whole framebuffer pixel where it is not one already (it is under
+// FreeType). Layout holds it as the whole number of scaled points at or just
+// above it, so the caret and range rectangles of text set with it keep a
+// residue under one scaled point a character (under 0.00003 px at
+// 96 units to the inch); the glyphs are drawn on whole framebuffer pixels
+// and keep none. The style's Advances is not read: this
 // answers for the device whichever way the style measures the face. Needs the
 // ImGui context the current context was made in, and a renderer backend with
 // ImGuiBackendFlags_RendererHasTextures; asking loads the glyph into the
@@ -1837,6 +1874,16 @@ IMTYPESET_API void DestroyParagraph(ImTypesetParagraph* paragraph);
 // points at `runs_count` runs, or is null. False if something was wrong: the
 // text is still set, as far as it could be (ImTypesetError_TextTooLong, or
 // ImTypesetError_DescriptionCut for a run out of order). [E]
+//
+// WHITE SPACE, here and wherever this header says it of text that is not a
+// code block, is what Python's str.isspace() is true of: 29 characters,
+// U+0009..U+000D, U+001C..U+0020, U+0085, U+00A0, U+1680, U+2000..U+200A,
+// U+2028, U+2029, U+202F, U+205F and U+3000. A run of them is one interword
+// space, at which a line may break. The NO-BREAK SPACES among them (U+00A0,
+// U+202F, U+2007) are no exception: each breaks and collapses as a space
+// does, as in the reference (docs/divergences.md, Y10); a host that must keep
+// two words together puts them in an ImTypesetRunFlags_NoBreak run. U+200B,
+// U+2060 and U+FEFF are not white space.
 IMTYPESET_API bool SetParagraphText(ImTypesetParagraph* paragraph, const char* text,
                                     const char* text_end = NULL, const ImTypesetRun* runs = NULL,
                                     int runs_count = 0, ImTypesetTextFlags flags = 0);
@@ -1946,11 +1993,12 @@ IMTYPESET_API int GetParagraphRangeRects(const ImTypesetParagraph* paragraph,
 IMTYPESET_API ImVec4 GetParagraphCaretRect(const ImTypesetParagraph* paragraph, int byte_offset);
 // Appends the text of the range as it was written, not as it was wrapped: a
 // line break made by layout is a space, one made by
-// ImTypesetTextFlags_HardBreaks is a newline, a character drawn as a stand-in
-// is the character that was written, and a formula is its source between its
-// dollars. If `out` already holds text and this paragraph adds any, a blank
-// line ("\n\n") goes between them: call it for each paragraph of a document
-// in turn, with the same buffer, and the result is the document's selection.
+// ImTypesetTextFlags_HardBreaks is a newline (one for a run of them: see the
+// flag), a character drawn as a stand-in is the character that was written,
+// and a formula is its source between its dollars. If `out` already holds
+// text and this paragraph adds any, a blank line ("\n\n") goes between them:
+// call it for each paragraph of a document in turn, with the same buffer, and
+// the result is the document's selection.
 // Returns how many bytes it appended. Allocates (a dozen or so blocks): it is
 // a copy, not something to call every frame.
 IMTYPESET_API int AppendParagraphRangeText(const ImTypesetParagraph* paragraph,
@@ -1998,7 +2046,14 @@ IMTYPESET_API int AppendParagraphRangeText(const ImTypesetParagraph* paragraph,
 // position the library answers is past that character, and one a host gives
 // past it is that end. The bytes are kept all the same
 // (GetDocumentBlockTextSize() counts them), and they stop being the block's
-// end when AppendDocumentText() puts text after them.
+// end when AppendDocumentText() puts text after them. Inside a code block a
+// line's end -- its "\n", or either byte of its "\r\n", or a lone "\r" -- is
+// a position of its own: the caret there (GetDocumentCaretRect) stands after
+// the line's last character, on the line's last visual line (a blank line's
+// start; under ImTypesetCodeOverflow_Clip, where the characters end, past the
+// clip), and a point past a line's last character, or anywhere on a blank
+// line, answers that line end and that line (HitTestDocument). Where a long
+// line was wrapped, the position at the break is the later piece's start.
 //
 // WHAT A COPY GIVES (AppendDocumentRangeText): within a block what
 // AppendParagraphRangeText gives; a code block's source bytes as they were

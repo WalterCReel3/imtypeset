@@ -251,6 +251,19 @@ probed in a child interpreter at every import, before the importing process
 loads it. The script no longer writes
 `<library>.gate`, and nothing reads one.
 
+**The build is reproducible** (D87, imscribe's H45). The same sources, headers,
+compiler and wheel give the same library bytes, and so the same sha256 and
+build-id in the attestation, wherever the checkout, `IMTYPESET_BUNDLE_OUT` and
+`IMTYPESET_HEADER_CACHE` are and from whatever working directory and locale the
+script is started: the compilers run from `<out>/dist`, `-ffile-prefix-map`
+records those three directories as `imtypeset`, `imtypeset-dist` and
+`imgui-headers` in the debugging information and in `__FILE__`, the objects
+are linked in a fixed order, and on macOS the linker writes no debug map.
+`tools/ci/reproducible_bundle_library.sh` builds twice and compares. What still
+differs between two machines is what should: another compiler, another wheel,
+and, for a library left at the default run path (not a wheel's), the absolute
+directory of the wheel it was built against, which the library records.
+
 ## 5. The checks, and where each runs
 
 | script | what | here | on GitHub |
@@ -263,6 +276,7 @@ loads it. The script no longer writes
 | `tools/ci/sidecar_install.sh`, `install_deps.sh` | pip and the system's package manager | not runnable here (no network); syntax and shellcheck only | both workflows |
 | `tools/ci/test_wheel.py` | the version line and its ordering, the content comparison (ELF; Mach-O on a file made by hand), which route a package directory is, which gate runs where, every refusal before a library is loaded | RAN, 24 tests | `ci.yml`, job `tools/ci` |
 | `tools/wheel/build_wheel.py`, `check_wheel.py`, `check_installed.py` | one wheel built, its archive checked, the installation checked (section 12) | RAN, both environments, stand-in headers | `wheels.yml` through `tools/ci/wheel_build.sh` |
+| `tools/ci/reproducible_bundle_library.sh` | the library built twice from two copies of the checkout, into differently named output directories and header caches, from different working directories and locales; the two files must be identical | RAN (Linux, GCC 12, stand-in headers); and made to fail with the script before D87 | `wheels.yml`, every wheel job, after the wheel |
 | `tools/ci/wheel_build.sh`, `wheel_release.sh` | the same from PyPI's wheel in new environments; the release | syntax and shellcheck only (no index, no GitHub) | `wheels.yml` |
 
 What `check_workflows.py` cannot show is that GitHub accepts the files:
@@ -565,6 +579,28 @@ After the change, each of those in each of three shapes (plain, `sys.frozen`,
 and an application that sets no flag): the import is the plain one, the named
 file is never mapped, nothing is started, and `host_info()` names the
 variable (`check_installed.py`, section 12).
+
+**When they are read: during `import imtypeset`, and never after** (H46).
+Every read is in a function reached only from the package's `_load()`, which
+runs once, as the package is imported: `_capi.library_route`
+(`IMTYPESET_LIBRARY`), `_bundle.mode` (`IMTYPESET_GATE`, from `precheck`),
+`_bundle.open_library` (`IMTYPESET_PRELOAD_BUNDLE`), `_bundle.check`
+(`IMTYPESET_BUNDLE_STRICT`, from `gate`), `_bundle.ignored_environment` (the
+names for `host_info()`), and `_bundle._a_font_file` (`IMTYPESET_GATE_FONT`),
+which runs in the child interpreter the development gate starts during that
+import, or in `_bundle.attest`, a build step. What they decided is kept, and
+`host_info()` answers from it. So a host may remove every `IMTYPESET_*`
+variable once the import has returned, as pptmstr does; it must set them again
+only for an import made after the package has left `sys.modules`. READ
+(2026-10-14, the call graph of `python/imtypeset`), and RAN for the
+self-hosted library: `tests/python/test_binding.py`, class `Environment`,
+replaces `os.environ` after the import with one that records every name asked
+of it and holds a wrong value for each variable, and `host_info()`, a
+document, a paragraph, a widget and three frames answer as before with no
+variable asked for; a second test fails when a read of the environment
+appears in a function not in its list of the six above. The bundle route's
+reads (`mode`, `check`, `_a_font_file`) are import-time by that reading; no
+run of the bundle route has replaced the environment after its import.
 
 **Why there was a child, and where it went.** The field probe reads the
 wheel's live objects at the offsets the library was compiled with. At a wrong

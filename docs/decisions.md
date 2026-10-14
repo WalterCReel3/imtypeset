@@ -4579,3 +4579,106 @@ count reads 1,001; with the CFF budget at 2^31 - 1, n5's warning check fails.
 *Not measured:* any other standard library's counts (the bounds allow a
 growth factor of 1.5); a regression in n1 or n2 put back to see their bounds
 fail.
+
+## D87. The sidecar library builds reproducibly (task `patch-build`, imscribe's H45, 2026-10-14)
+
+*Decided (an agent, unattended).* `python/host/build_bundle_library.sh` runs
+each compiler from `<out>/dist` and passes `-ffile-prefix-map` for the
+checkout (`imtypeset`), `<out>/dist` (`imtypeset-dist`) and the headers'
+directory (`imgui-headers`), the checkout first because the other two are
+inside it by default and GCC applies the last option that matches. It links
+the four objects in a fixed order instead of a glob's. On macOS it links with
+`-Wl,-S`, no debug map. `tools/ci/reproducible_bundle_library.sh` builds twice
+and requires identical bytes; it runs in every job of `wheels.yml`. No API
+changed; `tools/wheel/build_wheel.py` compiles nothing itself (it calls the
+script), so it needs no change.
+
+*Why.* Two builds of one commit differing only in the output directory's and
+the header cache's names gave libraries of different size (imscribe: 14391408
+and 14391432 bytes), so the attestation's sha256 and build-id of one did not
+hold for the other. *Measured* (GCC 12.2, stand-in headers, two copies of one
+snapshot of the sources): before, 14798288 against 14798352 bytes, 2,776,732
+bytes differing, two build-ids; the absolute paths of the checkout, the output
+directory and the header cache in `.debug_line_str` and the debugging
+information, and in `.rodata`, where `__FILE__` from IM_ASSERT keeps
+`<out>/dist/imtypeset.cpp` and `<cache>/.../imgui.h` in the loaded image, so
+`strip --strip-debug` (which the wheel does) does not remove the difference.
+After, with the checkouts, output directories, caches, working directories
+and locales all different and the defaults (output and cache inside the
+checkout) on one side: identical files, one sha256, one build-id; the same for
+the library inside two wheels built by `build_wheel.py`; an attestation
+written beside one library accepted for the other at import;
+`check_wheel.py` and `check_installed.py` pass. The new check fails with the
+script as it was, and names the paths.
+
+*Read, not measured.* Clang's `-ffile-prefix-map` (Clang 10 and later, and
+the same rule for overlapping prefixes) and Apple's: RECALLED, not stated in
+any file here. ld64's `-S` and that its debug map holds each object's
+absolute path and modification time: RECALLED. That glob order depends on the
+locale is POSIX; for these four names C and en_US.UTF-8 gave the same order
+here, so the fixed order guards against a collation not measured. The macOS
+branch and the fork's headers have not been built by this change: the first
+`wheels.yml` run is where both are checked.
+
+*Not covered.* The wheel's `_attestation.json` and its METADATA still differ
+between two builds: they record when the probe ran (`attested_on`) and one
+probe row prints a heap address. They describe a run of the probe, not the
+build, and the library's own sha256 and build-id in them are the same.
+
+## D88. A code line's end is a caret position; the device advance is whole pixels (task `patch-geometry`, imscribe's H27 and H49, 2026-10-14)
+
+*Decided (an agent, unattended).* **H27.** A Code block's source-line ends
+are recorded when the block is described (`CodeExtent::breaks`,
+`DocBlock::code_breaks`: the byte of each "\n", the "\r" of a "\r\n", a lone
+"\r", for every line but the last). `GetDocumentCaretRect` at either byte of
+such an end answers the end of that source line's LAST visual line: the
+line box's right edge, or under Clip, where the box is packed to its room,
+the first character's x plus the line's natural width
+(`BlockLayout::naturals`, kept only for a block with a clipped line). A
+blank line's caret is its start. `HitTestDocument` with a point whose line
+(the selection model's `fragment_at`) is the last piece of a source line and
+whose boundary is at or past that line's last item answers the line end,
+and `Line` is that line. Everything else is as it was: the index map, range
+rectangles, copies, word and line selection, the line queries' TextStart and
+TextEnd, and under Wrap the break between pieces (the later piece's start,
+as GetParagraphCaretRect states). One consequence is deliberate: a drag
+ending past a line's end now ends at the line end, before the newline, as
+in an editor, where it ended after it (on the next line's first byte).
+"Use the line before" was not built: it
+puts the caret at the end of the previous line for a position that is the
+start of a line after a wrapped piece, and gives a blank line nothing.
+**H49.** `GetDeviceGlyphAdvance` answers `py_round(px_from_sp(width,
+px_per_inch * density)) / density` with the device the advance was measured
+on: layout's width is a whole number of framebuffer pixels rounded UP to a
+whole scaled point (src/device.cpp), so the conversion is within one scaled
+point of the pixel and rounding recovers it. No public name, no layout.
+
+*Why.* imscribe measured both (HANDOFF-imtypeset.md, H27 and the 2026-10-13
+section's H49). *Measured, before the fix,* with
+`tests/test_api_code_caret.cpp` and `tests/test_api_device_advance.cpp`
+written first: "ab\n\ty" gave cells 0, 1, 0, 0, 4, 5 (imscribe's numbers);
+"a\n\nb" put the caret at the blank line's newline on line 2, and a click on
+the blank line answered byte 3 ('b') and Line 2 — the reviewer's inferred
+"wider" case, and its cause as read: no item carries a newline. The code
+face's advance at heights 12 to 24 was 5.0000081, 6.0000014, 7.0000153 ...
+(imscribe's residues). *After:* both files pass under Grow, Wrap and Clip,
+at densities 1, 1.5 and 2, in debug, ASan+UBSan, and the two plus the device
+tests under stb_truetype. That layout did not change is shown by every
+golden replay and `test_device_grid`/`test_device_advances` passing
+unchanged in debug and ASan+UBSan (56 ctest entries each); the only layout
+code touched records a number hpack already computed.
+
+*Not measured.* A code block with a marker hung on it
+(`DocumentRules::marker_on_any_block`) under Clip; a code block cut across
+columns (the caret is computed in the block and moved as any other); the
+Python entries (they convert bytes to characters around the same C calls);
+a host's real window.
+
+## D89. A check that has never run on a platform does not block a release there (lead, 2026-10-14)
+
+The reproducibility check of D87 runs in every wheel job. On Linux it is blocking: it was run
+here and shown to fail on the script as it was and pass after. On macOS it has never run, and
+what it relies on there (Apple clang taking `-ffile-prefix-map`, ld64's `-S`, a Mach-O UUID that
+depends on content only) is recalled. So `.github/workflows/wheels.yml` marks the step
+`continue-on-error` on macOS: a mismatch is reported in the run and does not stop a release.
+Once it has run green on macOS, the condition comes off and this entry says so.

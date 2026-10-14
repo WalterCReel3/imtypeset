@@ -37,6 +37,36 @@ called**, and it is one of three built-in classes and no other:
 | `ValueError` | the kind is right, the value cannot be meant | a `str` with a lone surrogate (`UnicodeEncodeError`, which is a `ValueError`), `"x"` or `nan` where an int goes, a pair of the wrong length, a closed handle, rows on a block that is no table |
 | `OverflowError` | a number no C number is near | `inf` where an int goes, an int past every float (`10**400`) where a length goes |
 
+**Where, in a description of blocks.** A `TypeError` or `UnicodeEncodeError`
+from `Document.from_blocks`, `set_blocks` or `replace_blocks` says where the
+value is, as an index into the sequence the call was given and a path within
+that block: `blocks[2].text`, `blocks[1].runs[3]`, `blocks[0].rows[1][0].text`,
+`blocks[4].columns[0]`. The class is the one it always was; a `TypeError`
+carries the place before a colon, a `UnicodeEncodeError` at the end of its
+reason, in parentheses, with `start` and `end` still indexing the `str` that
+held the surrogate. A `TypeError` that is no one block's (`styles` holding a
+`dict`, blocks given as a generator) is raised as it was. The text of a message
+is no part of the version rule (`docs/versioning.md`): match the class, and
+read the message for a person.
+
+**A lone surrogate is refused, never replaced**, by every call that takes text:
+the package does not decide what a host meant. A host that wants it set as
+U+FFFD, one for one, replaces it first:
+
+```python
+import re
+text = re.sub("[\ud800-\udfff]", "\ufffd", text)
+```
+
+RAN (2026-10-14, CPython 3.11.2) on `"a" + chr(0xD800) + "b" + chr(0xD83D) +
+chr(0xDE00) + "\U0001F600"`: that gives `a\ufffdb\ufffd\ufffd\U0001f600`, the same
+length as the input, and the package takes it. The two recipes that look
+right do not do this. `text.encode("utf-8", "replace").decode("utf-8")` gives
+`a?b??\U0001f600`: a `?` for each, not U+FFFD. `text.encode("utf-16", "surrogatepass").decode("utf-16", "replace")`
+gives `a\ufffdb\U0001f600\U0001f600`: it joins a high and a low surrogate that
+stand side by side into the character they would encode, so it is not one for
+one. `tests/python/test_binding.py` holds the first (`Documents`).
+
 No `struct.error`, `ctypes.ArgumentError`, `AttributeError`, `KeyError`,
 `IndexError` or `MemoryError` leaves a public call on any input tried; before
 this audit all six did. `except (TypeError, ValueError, OverflowError)` around
@@ -52,7 +82,7 @@ length or kind), *state* (the handle, the document as it stands).
 | kind | input that provokes | raises | where | a host avoids it by |
 |---|---|---|---|---|
 | **text**: a `str` (text, `str_id`, a marker, a cell, a separator) | `None`, `bytes`, a number | `TypeError` | conversion | passing `str`; decoding bytes itself |
-| | a lone surrogate (`"\ud800"`) | `UnicodeEncodeError` | encoding | replacing them first: `text.encode("utf-8", "replace").decode("utf-8")` |
+| | a lone surrogate (`"\ud800"`) | `UnicodeEncodeError` | encoding | replacing each with U+FFFD first: `re.sub("[\ud800-\udfff]", "\ufffd", text)` (below) |
 | | `""`, a NUL inside, 2 MB | nothing (text holds its NULs; an ID or a file name ends at the first) | | |
 | **index**: a block, line, row, column, offset, count, face, enum member | `None`, a list | `TypeError` | conversion | passing an `int` |
 | | `"x"`, `nan` | `ValueError` | conversion | |
@@ -87,6 +117,8 @@ nothing. Methods of `Paragraph` and `Document` all raise `ValueError` on a
 closed handle, except `Paragraph.close`, `Paragraph.closed`, `Document.close`,
 `Document.closed`, `Document.from_blocks` and `Document.pack_marks` (and
 `len(document)` and `Document.edit_error`, which answer what was last known).
+`Document.edit_error` is on the class too, `ErrorInfo(0, "", -1, -1)`, so a
+host can ask for the name without making a document.
 
 | call | kinds of its arguments | and |
 |---|---|---|

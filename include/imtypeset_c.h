@@ -103,8 +103,8 @@
 #endif
 
 /* The same numbers as IMTYPESET_VERSION and IMTYPESET_VERSION_NUM. */
-#define IMTYPESET_C_VERSION     "0.4.2"
-#define IMTYPESET_C_VERSION_NUM 402
+#define IMTYPESET_C_VERSION     "0.4.3"
+#define IMTYPESET_C_VERSION_NUM 403
 /* The revision of THIS header's own shape: raised when a function of it
  * changes its parameters or a rule above changes. Adding a function does not
  * raise it. */
@@ -777,7 +777,9 @@ IMTYPESET_C_API struct ImFont* ImTypeset_GetFont(ImTypeset_Face face);
  * which an ImFont is an object of its own and cannot be made from an address:
  * the object at that place of the same list IS the role's font, and a host
  * draws its own text with it instead of adding the file a second time. Good
- * until a font is added to or removed from the atlas. */
+ * until a font is added to or removed from the atlas. -1 for a role that was
+ * given a font is also how a binding learns that the ImGui context is gone or
+ * not current: see ImTypeset::GetFont() in imtypeset.h. */
 IMTYPESET_C_API int ImTypeset_GetFontAtlasIndex(ImTypeset_Face face);
 /* Non-zero if the role's own font has a glyph for the codepoint. */
 IMTYPESET_C_API int ImTypeset_FaceHasGlyph(ImTypeset_Face face, unsigned int codepoint);

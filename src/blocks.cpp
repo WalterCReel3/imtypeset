@@ -441,6 +441,16 @@ CodeExtent code_extent(std::string_view source)
                          ? offsets[last + 1]
                          : static_cast<uint32_t>(std::min(source.size(), limit));
     }
+    // The walk's line ends, in its order: a CR LF is one, at its CR.
+    const size_t breaks = ends.empty() ? 0 : ends.size() - 1;
+    extent.breaks.reserve(breaks);
+    for (size_t i = 0; i < codepoints.size() && extent.breaks.size() < breaks; ++i) {
+        if (codepoints[i] != '\n' && codepoints[i] != '\r')
+            continue;
+        extent.breaks.push_back(offsets[i]);
+        if (codepoints[i] == '\r' && i + 1 < codepoints.size() && codepoints[i + 1] == '\n')
+            ++i;
+    }
     return extent;
 }
 
@@ -591,6 +601,7 @@ bool BlockComposer::block_boxes(NodeArena& arena, const Block& block, Scaled ind
     out.continues.clear();
     out.resumed.clear();
     out.clipped = false;
+    out.naturals.clear();
     out.hung = Node();
     out.pack_error = PackError::NONE;
     out.break_error = LineBreakError::NONE;
@@ -670,6 +681,7 @@ void BlockComposer::code_boxes(NodeArena& arena, const Block& block, Scaled inde
     const auto add = [&](NodeView contents, Scaled shift, Scaled room, bool fit, bool continues) {
         PackResult packed = hpack(arena, contents, 0, PackMode::ADDITIONAL, measure);
         note(out.pack_error, packed.error);
+        out.naturals.push_back(packed.natural);
         if (fit && packed.natural > room) {
             // Too long and not to be wrapped further: a box as wide as its
             // room, which its contents run past.
@@ -746,6 +758,8 @@ void BlockComposer::code_boxes(NodeArena& arena, const Block& block, Scaled inde
         wrapped = wrapped || flag != 0;
     if (!wrapped)
         out.continues.clear();
+    if (!out.clipped)
+        out.naturals.clear();
 }
 
 void BlockComposer::rule_box(NodeArena& arena, const Block& block, Scaled indent, Scaled width,
@@ -1187,6 +1201,7 @@ void DocumentComposer::layout_block(NodeArena& arena, const Block& block, Scaled
     out.budget_exhausted = _boxes.budget_exhausted;
     out.clipped = _boxes.clipped;
     out.continues.assign(_boxes.continues.begin(), _boxes.continues.end());
+    out.naturals.assign(_boxes.naturals.begin(), _boxes.naturals.end());
     out.shipped.assign(_boxes.para.shipped.begin(), _boxes.para.shipped.end());
     out.mapped = _boxes.para.mapped;
     out.marker_items = _boxes.para.marker_items;
@@ -1326,6 +1341,7 @@ void DocumentComposer::layout_table(NodeArena& arena, const Block& block, Scaled
     out.budget_exhausted = false;
     out.clipped = false;
     out.continues.clear();
+    out.naturals.clear();
     out.hard_breaks.clear();
     out.marker_items = 0;
 
